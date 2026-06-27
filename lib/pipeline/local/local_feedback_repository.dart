@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:xinxian_healing_music/models/feedback_record.dart';
 import 'package:xinxian_healing_music/pipeline/ports/feedback_repository.dart';
@@ -19,11 +20,12 @@ class LocalFeedbackRepository implements FeedbackRepository {
   LocalFeedbackRepository._(this._prefs, this._cache);
 
   /// 异步工厂：从磁盘加载缓存。损坏数据会被忽略，返回空缓存。
-  static Future<LocalFeedbackRepository> create(
-    SharedPreferences prefs,
-  ) async {
+  static Future<LocalFeedbackRepository> create(SharedPreferences prefs) async {
     final cache = <String, FeedbackRecord>{};
     final raw = prefs.getString(key);
+    debugPrint(
+      '[M3] LocalFeedback.create: raw is ${raw == null ? "null" : "${raw.length} chars"}',
+    );
     if (raw != null) {
       try {
         final list = jsonDecode(raw) as List;
@@ -33,8 +35,12 @@ class LocalFeedbackRepository implements FeedbackRepository {
             cache[f.sessionId] = f;
           }
         }
-      } catch (_) {
-        // 损坏 JSON：忽略，空缓存起步
+        debugPrint(
+          '[M3] LocalFeedback.create: parsed ${cache.length} feedback records',
+        );
+      } catch (e, st) {
+        debugPrint('[M3] LocalFeedback.create: JSON 解析失败: $e');
+        debugPrint('$st');
       }
     }
     return LocalFeedbackRepository._(prefs, cache);
@@ -77,13 +83,16 @@ class LocalFeedbackRepository implements FeedbackRepository {
 
   Future<void> _persist() async {
     try {
-      final list = _cache.values
-          .map((f) => f.toJson())
-          .toList()
-        ..sort((a, b) => (b['createdAt'] as String).compareTo(a['createdAt'] as String));
+      final list = _cache.values.map((f) => f.toJson()).toList()
+        ..sort(
+          (a, b) =>
+              (b['createdAt'] as String).compareTo(a['createdAt'] as String),
+        );
+      debugPrint('[M3] LocalFeedback._persist: 写入 ${list.length} 条, key=$key');
       await _prefs.setString(key, jsonEncode(list));
-    } catch (_) {
-      // 落盘失败：忽略，内存缓存仍可用
+    } catch (e, st) {
+      debugPrint('[M3] LocalFeedback._persist: 落盘失败: $e');
+      debugPrint('$st');
     }
   }
 }

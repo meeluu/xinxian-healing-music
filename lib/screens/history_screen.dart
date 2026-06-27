@@ -32,8 +32,13 @@ class _HistoryScreenState extends State<HistoryScreen> {
   }
 
   void _reload() {
+    final all = sessionRecorder.all();
+    debugPrint(
+      '[M3] history _reload: recorder type=${sessionRecorder.runtimeType}, '
+      'all().length=${all.length}',
+    );
     setState(() {
-      _sessions = sessionRecorder.all();
+      _sessions = all;
     });
   }
 
@@ -111,9 +116,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('清空全部历史记录'),
-        content: const Text(
-          '所有心境文本、方案与反馈将从本设备永久删除，此操作不可恢复。',
-        ),
+        content: const Text('所有心境文本、方案与反馈将从本设备永久删除，此操作不可恢复。'),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(false),
@@ -192,11 +195,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: const [
-        Icon(
-          Icons.history_rounded,
-          size: 64,
-          color: AppColors.textMuted,
-        ),
+        Icon(Icons.history_rounded, size: 64, color: AppColors.textMuted),
         SizedBox(height: 16),
         Text(
           '还没有历史记录',
@@ -423,10 +422,7 @@ class _VariantChip extends StatelessWidget {
       ),
       child: Text(
         label,
-        style: const TextStyle(
-          fontSize: 11,
-          color: AppColors.primaryDeep,
-        ),
+        style: const TextStyle(fontSize: 11, color: AppColors.primaryDeep),
       ),
     );
   }

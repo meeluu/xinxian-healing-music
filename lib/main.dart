@@ -14,9 +14,27 @@ void main() async {
   // 失败时（隐私模式 / 平台不支持 / 损坏）保持默认 mock 内存态，Demo 仍可用。
   try {
     final prefs = await SharedPreferences.getInstance();
+    // 诊断 1：确认 SharedPreferences 读写正常
+    await prefs.setString(
+      'xinxian.diagnostic',
+      'ok-${DateTime.now().millisecondsSinceEpoch}',
+    );
+    final diag = prefs.getString('xinxian.diagnostic');
+    debugPrint('[M3] diagnostic: SharedPreferences read back = "$diag"');
+
     sessionRecorder = await LocalListeningSessionRecorder.create(prefs);
+    debugPrint(
+      '[M3] sessionRecorder 装配完成: type=${sessionRecorder.runtimeType}, '
+      'loaded=${sessionRecorder.all().length} sessions',
+    );
+
     feedbackRepository = await LocalFeedbackRepository.create(prefs);
-  } catch (_) {
+    debugPrint(
+      '[M3] feedbackRepository 装配完成: type=${feedbackRepository.runtimeType}',
+    );
+  } catch (e, st) {
+    debugPrint('[M3] 初始化失败，fallback 到 Mock: $e');
+    debugPrint('$st');
     // 保持 services.dart 中默认的 mock 实现
   }
 
@@ -41,10 +59,9 @@ class XinXianApp extends StatelessWidget {
         //   同时保留 1.2 倍以内的无障碍放大，不完全禁用辅助功能。
         return MediaQuery(
           data: MediaQuery.of(context).copyWith(
-            textScaler: MediaQuery.textScalerOf(context).clamp(
-              minScaleFactor: 1.0,
-              maxScaleFactor: 1.2,
-            ),
+            textScaler: MediaQuery.textScalerOf(
+              context,
+            ).clamp(minScaleFactor: 1.0, maxScaleFactor: 1.2),
           ),
           child: child!,
         );

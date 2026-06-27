@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:xinxian_healing_music/models/feedback_record.dart';
 import 'package:xinxian_healing_music/models/listening_session.dart';
@@ -30,6 +31,9 @@ class LocalListeningSessionRecorder implements ListeningSessionRecorder {
   ) async {
     final cache = <String, ListeningSession>{};
     final raw = prefs.getString(key);
+    debugPrint(
+      '[M3] LocalSession.create: raw is ${raw == null ? "null" : "${raw.length} chars"}',
+    );
     if (raw != null) {
       try {
         final list = jsonDecode(raw) as List;
@@ -39,8 +43,10 @@ class LocalListeningSessionRecorder implements ListeningSessionRecorder {
             cache[s.sessionId] = s;
           }
         }
-      } catch (_) {
-        // 损坏 JSON：忽略，空缓存起步，避免 Demo 启动崩溃
+        debugPrint('[M3] LocalSession.create: parsed ${cache.length} sessions');
+      } catch (e, st) {
+        debugPrint('[M3] LocalSession.create: JSON 解析失败，空缓存起步: $e');
+        debugPrint('$st');
       }
     }
     return LocalListeningSessionRecorder._(prefs, cache);
@@ -54,15 +60,20 @@ class LocalListeningSessionRecorder implements ListeningSessionRecorder {
     required String moodText,
     required HealingMusicPlan plan,
   }) {
-    _upsert(ListeningSession(
-      sessionId: sessionId,
-      moodText: moodText,
-      startedAt: DateTime.now(),
-      plan: plan,
-      listenedDuration: Duration.zero,
-      feedback: null,
-      completedAt: null,
-    ));
+    debugPrint(
+      '[M3] LocalSession.begin: sessionId=$sessionId, cache before=${_cache.length}',
+    );
+    _upsert(
+      ListeningSession(
+        sessionId: sessionId,
+        moodText: moodText,
+        startedAt: DateTime.now(),
+        plan: plan,
+        listenedDuration: Duration.zero,
+        feedback: null,
+        completedAt: null,
+      ),
+    );
   }
 
   @override
@@ -123,9 +134,15 @@ class LocalListeningSessionRecorder implements ListeningSessionRecorder {
   Future<void> _persist() async {
     try {
       final list = all().map((s) => s.toJson()).toList();
-      await _prefs.setString(key, jsonEncode(list));
-    } catch (_) {
-      // 落盘失败：忽略，内存缓存仍可用，Demo 仍可运行
+      final encoded = jsonEncode(list);
+      debugPrint(
+        '[M3] LocalSession._persist: 写入 ${list.length} 条, JSON ${encoded.length} chars, key=$key',
+      );
+      await _prefs.setString(key, encoded);
+      debugPrint('[M3] LocalSession._persist: setString 完成');
+    } catch (e, st) {
+      debugPrint('[M3] LocalSession._persist: 落盘失败: $e');
+      debugPrint('$st');
     }
   }
 }
