@@ -274,10 +274,9 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
         const SizedBox(height: 8),
         TextButton(
           onPressed: () {
-            Navigator.of(context).pushAndRemoveUntil(
-              MaterialPageRoute(builder: (_) => const HistoryScreen()),
-              (route) => false,
-            );
+            Navigator.of(
+              context,
+            ).push(MaterialPageRoute(builder: (_) => const HistoryScreen()));
           },
           child: const Text(
             '查看历史记录',

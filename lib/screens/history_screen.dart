@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:xinxian_healing_music/models/experiment_variant.dart';
 import 'package:xinxian_healing_music/models/listening_session.dart';
 import 'package:xinxian_healing_music/pipeline/services.dart';
+import 'package:xinxian_healing_music/screens/home_screen.dart';
 import 'package:xinxian_healing_music/theme/app_colors.dart';
 import 'package:xinxian_healing_music/widgets/centered_page.dart';
 
@@ -141,6 +142,18 @@ class _HistoryScreenState extends State<HistoryScreen> {
     return CenteredPageScaffold(
       appBar: AppBar(
         title: const Text('历史记录'),
+        // 路由栈有上一页时显示默认返回箭头；无上一页时显示首页按钮，
+        // 确保用户不会困在历史页。
+        leading: Navigator.canPop(context)
+            ? null
+            : IconButton(
+                icon: const Icon(Icons.home_rounded),
+                tooltip: '返回首页',
+                onPressed: () => Navigator.of(context).pushAndRemoveUntil(
+                  MaterialPageRoute(builder: (_) => const HomeScreen()),
+                  (route) => false,
+                ),
+              ),
         actions: [
           if (_sessions.isNotEmpty)
             IconButton(
