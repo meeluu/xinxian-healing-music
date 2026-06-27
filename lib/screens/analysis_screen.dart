@@ -38,6 +38,13 @@ class _AnalysisScreenState extends State<AnalysisScreen>
       if (!mounted) return;
       final plan = await mockPipeline.run(widget.moodText);
       if (!mounted) return;
+      // 会话开始：plan 产出后记录 moodText + plan 快照
+      mockSessionRecorder.begin(
+        sessionId: plan.sessionId,
+        moodText: widget.moodText,
+        plan: plan,
+      );
+      if (!mounted) return;
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(
           builder: (_) => PlanScreen(moodText: widget.moodText, plan: plan),

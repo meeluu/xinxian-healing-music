@@ -2,8 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:xinxian_healing_music/main.dart';
+import 'package:xinxian_healing_music/models/experiment_variant.dart';
+import 'package:xinxian_healing_music/models/feedback_record.dart';
 import 'package:xinxian_healing_music/models/mood_input.dart';
+import 'package:xinxian_healing_music/pipeline/mock/mock_listening_session_recorder.dart';
 import 'package:xinxian_healing_music/pipeline/mock/mock_mood_analyzer.dart';
+import 'package:xinxian_healing_music/pipeline/mock/mock_pipeline_factory.dart';
 
 void main() {
   testWidgets('首页可输入心境并跳转解析页', (WidgetTester tester) async {
@@ -41,7 +45,11 @@ void main() {
 
   test('MockMoodAnalyzer 关键词匹配命中"高压焦虑型"画像', () async {
     final profile = await const MockMoodAnalyzer().analyze(
-      MoodInput(text: '最近备考压力很大，焦虑得睡不着', timestamp: DateTime.now()),
+      MoodInput(
+        sessionId: 'test-anxiety',
+        text: '最近备考压力很大，焦虑得睡不着',
+        timestamp: DateTime.now(),
+      ),
     );
     // 高压焦虑型 tags 含"焦虑"，valence=-0.4，arousal=0.8
     expect(profile.tags, contains('焦虑'));
@@ -51,10 +59,54 @@ void main() {
 
   test('MockMoodAnalyzer 无命中时回退到"平衡调和型"画像', () async {
     final profile = await const MockMoodAnalyzer().analyze(
-      MoodInput(text: '今天天气不错', timestamp: DateTime.now()),
+      MoodInput(
+        sessionId: 'test-balanced',
+        text: '今天天气不错',
+        timestamp: DateTime.now(),
+      ),
     );
     // 平衡调和型 valence=0.2，arousal=0.4
     expect(profile.valence, 0.2);
     expect(profile.arousal, 0.4);
+  });
+
+  test('MockListeningSessionRecorder 记录完整会话生命周期', () async {
+    final recorder = MockListeningSessionRecorder();
+    // 用真实 mockPipeline 产出一个 plan，再模拟 UI 三步生命周期
+    final plan = await mockPipeline.run('最近备考压力很大，焦虑得睡不着');
+
+    // 1) AnalysisScreen：plan 产出 → begin
+    recorder.begin(
+      sessionId: plan.sessionId,
+      moodText: '最近备考压力很大',
+      plan: plan,
+    );
+    // 2) PlayerScreen：dispose → updateListening
+    recorder.updateListening(plan.sessionId, const Duration(seconds: 30));
+    // 3) FeedbackScreen：提交 → attachFeedback
+    final fb = FeedbackRecord(
+      sessionId: plan.sessionId,
+      rating: 4,
+      tensionBefore: 0.7,
+      tensionAfter: 0.3,
+      note: '放松',
+      completed: false,
+      createdAt: DateTime.now(),
+    );
+    recorder.attachFeedback(plan.sessionId, fb);
+
+    // 验证：sessionId 三处一致 + 会话字段完整
+    final session = recorder.get(plan.sessionId);
+    expect(session, isNotNull);
+    expect(session!.sessionId, plan.sessionId);
+    expect(session.moodText, '最近备考压力很大');
+    expect(session.plan, same(plan));
+    expect(session.variant, ExperimentVariant.custom);
+    expect(session.listenedDuration, const Duration(seconds: 30));
+    expect(session.feedback, isNotNull);
+    expect(session.feedback!.sessionId, plan.sessionId);
+    expect(session.feedback!.rating, 4);
+    expect(session.completedAt, isNotNull);
+    expect(recorder.all(), hasLength(1));
   });
 }

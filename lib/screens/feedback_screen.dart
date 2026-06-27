@@ -179,7 +179,7 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
               ? null
               : () async {
                   final record = FeedbackRecord(
-                    sessionId: '${DateTime.now().millisecondsSinceEpoch}',
+                    sessionId: widget.plan.sessionId,
                     rating: _rating,
                     tensionBefore: _before,
                     tensionAfter: _after,
@@ -188,6 +188,11 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
                     createdAt: DateTime.now(),
                   );
                   await mockFeedbackRepository.save(record);
+                  // 关联反馈到会话记录器，标记会话完成
+                  mockSessionRecorder.attachFeedback(
+                    widget.plan.sessionId,
+                    record,
+                  );
                   if (!mounted) return;
                   setState(() => _submitted = true);
                 },

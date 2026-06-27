@@ -6,6 +6,17 @@
 
 > 初赛 Demo 当前以 Web 端体验为主。
 
+## 当前进度
+
+- **初赛 Web Demo 闭环已完成**：心境输入 → 情绪解析 → 疗愈方案 → 音频播放 → 用户反馈全链路可体验。
+- **已部署至 Netlify 自定义域名**：<https://www.xinxian-music.xyz>
+- **移动端布局修复已完成**：针对移动端字体缩放导致的行距过大、组件尺寸异常完成修复，桌面端布局保持不变。
+- **Translation Pipeline M1 已完成**：抽象核心模型与 Port（MoodAnalyzerPort / MusicFeatureExtractorPort / AudioGenerationPort / AudioPostProcessorPort / FeedbackRepository / ExperimentAssigner），HealingMusicPlan 重构为聚合根，UI 通过 HealingPipeline 编排器获取方案，对齐正式工程链路分层。
+- **Translation Pipeline M2 已完成**：引入 ListeningSession 与实验分组结构，ListeningSessionRecorder Port 负责会话生命周期记录，每次体验会形成一条完整的内存态 ListeningSession，为后续消融实验和反馈数据库做准备。
+- **sessionId 已贯穿全链路**：在 HealingPipeline.run(text) 入口生成，依次写入 MoodInput → HealingMusicPlan → FeedbackRecord → ListeningSession，保证一次体验的输入、方案、聆听时长、反馈可被同一条 sessionId 串联。
+- **当前 ExperimentVariant 默认 custom**：MockExperimentAssigner 当前恒返回 custom，M2 仅记录分组字段不启用消融分支，后续可扩展为 custom / generic / control 三组对比。
+- **当前仍使用 mock 实现**：情绪解析（mock 关键词规则）、音频生成（mock 本地素材）、音频后处理（直通）、会话记录（内存态）均为本地模拟，未接入真实 LLM / 音乐生成模型 / DSP 后处理 / 数据库。后续替换 `mock_pipeline_factory` 的装配即可切换到真实链路，UI 代码无需改动。
+
 ## 一、项目背景
 
 当下 18-30 岁青年群体普遍面临备考压力、职场焦虑、睡眠困扰、情绪低落、精神内耗等心理亚健康问题。传统心理咨询存在时间、经济和心理门槛，而通用歌单、白噪音 App、脑波音频产品大多采用固定内容推荐，难以匹配用户当下具体而细腻的情绪状态。
@@ -77,6 +88,11 @@
 3. 音乐参数映射层：情绪模板 → BPM / 频率 / 乐器 / 和声 / 噪音层
 4. 音频体验层：本地音频素材播放
 5. 反馈采集层：本地状态表单
+6. 会话记录层：ListeningSessionRecorder Port，内存态记录每次体验的完整生命周期（begin / updateListening / attachFeedback）
+
+sessionId 流转：在 HealingPipeline.run(text) 入口生成（时间戳 base36 + 随机后缀），依次写入 MoodInput → HealingMusicPlan → FeedbackRecord → ListeningSession，保证一次体验的输入、方案、聆听时长、反馈可被同一条 sessionId 串联。
+
+消融分组扩展点：ExperimentVariant 枚举已定义 custom / generic / control 三组，当前 MockExperimentAssigner 恒返回 custom；后续启用消融实验时，只需替换 ExperimentAssigner 实现按策略分组，ListeningSession 可按 variant 筛选进行对比分析，UI 与 Pipeline 代码无需改动。
 
 未来完整技术链路：
 
@@ -97,6 +113,7 @@
 - AI 音乐生成模型暂未接入
 - DSP 音频后处理暂未真实执行
 - 用户反馈暂未接入数据库
+- 会话记录（ListeningSession）暂存内存，重启后丢失
 - 当前 6 套情绪模板暂时共用 `music/music_01.mp3`
 
 这些 mock 模块均已按可替换方式组织，后续可以逐步替换为真实 AI 服务和后端能力。

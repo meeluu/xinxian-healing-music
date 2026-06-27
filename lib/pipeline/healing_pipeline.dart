@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:xinxian_healing_music/models/audio_post_process_config.dart';
 import 'package:xinxian_healing_music/models/experiment_variant.dart';
 import 'package:xinxian_healing_music/models/mood_input.dart';
@@ -26,6 +28,9 @@ import 'package:xinxian_healing_music/pipeline/ports/music_feature_extractor_por
 ///   → HealingMusicPlan（聚合根）
 /// ```
 ///
+/// Pipeline 只负责生成 plan 与传递 sessionId，不承担持久化职责；
+/// 会话生命周期记录由 ListeningSessionRecorder 在 UI 层调用。
+///
 /// 具体实现（mock / 真实）在 [mock_pipeline_factory] 装配时注入，
 /// UI 层只依赖 [run] 的输入输出。
 class HealingPipeline {
@@ -45,9 +50,19 @@ class HealingPipeline {
     required this.planMetaResolver,
   });
 
+  /// 会话 ID 生成器（无第三方依赖：时间戳 + 随机后缀）。
+  static final Random _rand = Random();
+
   /// 运行完整 Pipeline，返回疗愈音乐方案。
   Future<HealingMusicPlan> run(String text) async {
-    final input = MoodInput(text: text, timestamp: DateTime.now());
+    // 会话 ID 在入口生成，贯穿 MoodInput → HealingMusicPlan，
+    // 后续 ExperimentAssigner 也可基于其做确定性分组。
+    final sessionId = _generateSessionId();
+    final input = MoodInput(
+      sessionId: sessionId,
+      text: text,
+      timestamp: DateTime.now(),
+    );
 
     final ExperimentVariant variant = experimentAssigner.assign(input);
     final MoodProfile profile = await moodAnalyzer.analyze(input);
@@ -63,6 +78,7 @@ class HealingPipeline {
     final meta = planMetaResolver.resolve(profile);
 
     return HealingMusicPlan(
+      sessionId: sessionId,
       templateName: meta.templateName,
       mood: profile,
       features: features,
@@ -72,5 +88,11 @@ class HealingPipeline {
       durationMinutes: meta.durationMinutes,
       guidance: meta.guidance,
     );
+  }
+
+  String _generateSessionId() {
+    final ts = DateTime.now().millisecondsSinceEpoch.toRadixString(36);
+    final r = _rand.nextInt(0xffffff).toRadixString(36).padLeft(4, '0');
+    return 'sess-$ts-$r';
   }
 }

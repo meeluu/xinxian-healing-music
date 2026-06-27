@@ -7,6 +7,7 @@ import 'package:xinxian_healing_music/models/processed_audio.dart';
 /// 疗愈音乐方案（聚合根）。
 ///
 /// 由 [HealingPipeline] 编排各阶段产出，聚合 Translation Pipeline 末端产物：
+/// - [sessionId] 会话 ID（与 MoodInput.sessionId 一致，贯穿会话生命周期）
 /// - [mood] 情绪画像（MoodAnalyzer 阶段产出）
 /// - [features] 音乐特征标签（FeatureExtractor 阶段产出，含展示型 + 标准化字段）
 /// - [audio] 后处理后的最终音频（PostProcessor 阶段产出，Player 直接消费）
@@ -16,6 +17,9 @@ import 'package:xinxian_healing_music/models/processed_audio.dart';
 ///
 /// UI 直接通过 `plan.features.*` / `plan.audio.assetPath` 访问展示字段。
 class HealingMusicPlan {
+  /// 会话 ID（由 HealingPipeline.run 生成，与 MoodInput.sessionId 一致）
+  final String sessionId;
+
   /// 模板名称，例如 "高压焦虑型"
   final String templateName;
 
@@ -41,6 +45,7 @@ class HealingMusicPlan {
   final String guidance;
 
   const HealingMusicPlan({
+    required this.sessionId,
     required this.templateName,
     required this.mood,
     required this.features,
