@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:xinxian_healing_music/screens/analysis_screen.dart';
+import 'package:xinxian_healing_music/theme/app_colors.dart';
+import 'package:xinxian_healing_music/widgets/breathing_halo.dart';
 import 'package:xinxian_healing_music/widgets/centered_page.dart';
 import 'package:xinxian_healing_music/widgets/mood_input_field.dart';
 
@@ -47,67 +49,83 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     return CenteredPageScaffold(
-      backgroundGradient: LinearGradient(
+      backgroundGradient: const LinearGradient(
         begin: Alignment.topCenter,
         end: Alignment.bottomCenter,
-        colors: [
-          theme.colorScheme.primary.withValues(alpha: 0.18),
-          theme.scaffoldBackgroundColor,
-        ],
+        colors: [AppColors.bgBlue, AppColors.bgBase],
       ),
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 36),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // 品牌标识
+          // 品牌区：呼吸光晕 + 图标
           Center(
-            child: Container(
-              width: 84,
-              height: 84,
+            child: Stack(
               alignment: Alignment.center,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: RadialGradient(
-                  colors: [
-                    theme.colorScheme.primary.withValues(alpha: 0.7),
-                    theme.colorScheme.primary.withValues(alpha: 0.15),
-                  ],
+              children: [
+                const BreathingHalo(color: AppColors.lavender, size: 180),
+                Container(
+                  width: 84,
+                  height: 84,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: LinearGradient(
+                      colors: [
+                        AppColors.teal.withValues(alpha: 0.9),
+                        AppColors.primary,
+                      ],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: AppColors.primary.withValues(alpha: 0.3),
+                        blurRadius: 20,
+                        offset: const Offset(0, 6),
+                      ),
+                    ],
+                  ),
+                  child: const Icon(
+                    Icons.graphic_eq_rounded,
+                    size: 44,
+                    color: Colors.white,
+                  ),
                 ),
-              ),
-              child: Icon(
-                Icons.graphic_eq_rounded,
-                size: 44,
-                color: theme.colorScheme.onPrimary,
-              ),
+              ],
             ),
           ),
-          const SizedBox(height: 18),
-          Text(
+          const SizedBox(height: 20),
+          const Text(
             '心弦',
             textAlign: TextAlign.center,
-            style: theme.textTheme.headlineMedium?.copyWith(
-              fontWeight: FontWeight.w300,
+            style: TextStyle(
+              fontSize: 30,
+              fontWeight: FontWeight.w400,
               letterSpacing: 8,
+              color: AppColors.textPrimary,
             ),
           ),
           const SizedBox(height: 6),
-          Text(
-            '自然语言驱动的定制化疗愈音乐',
+          const Text(
+            '自然语言驱动的疗愈音乐陪伴',
             textAlign: TextAlign.center,
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+            style: TextStyle(
+              fontSize: 13,
+              color: AppColors.textSecondary,
               letterSpacing: 2,
             ),
           ),
           const SizedBox(height: 36),
 
           // 输入区
-          Text(
+          const Text(
             '描述你此刻的心境',
-            style: theme.textTheme.titleMedium?.copyWith(
-              fontWeight: FontWeight.w500,
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
+              color: AppColors.textPrimary,
             ),
           ),
           const SizedBox(height: 12),
@@ -121,7 +139,12 @@ class _HomeScreenState extends State<HomeScreen> {
               for (final ex in _examples)
                 ActionChip(
                   label: Text(ex),
-                  labelStyle: theme.textTheme.labelSmall,
+                  labelStyle: const TextStyle(
+                    fontSize: 12,
+                    color: AppColors.textSecondary,
+                  ),
+                  backgroundColor: const Color(0xFFEEF4FA),
+                  side: const BorderSide(color: AppColors.cardBorder),
                   onPressed: () {
                     _controller.text = ex;
                     _controller.selection = TextSelection.collapsed(
@@ -135,7 +158,7 @@ class _HomeScreenState extends State<HomeScreen> {
           const SizedBox(height: 32),
           FilledButton.icon(
             onPressed: _hasText ? _goAnalyze : null,
-            icon: const Icon(Icons.auto_awesome_rounded),
+            icon: const Icon(Icons.auto_awesome_rounded, size: 20),
             label: const Padding(
               padding: EdgeInsets.symmetric(vertical: 4),
               child: Text(
@@ -150,13 +173,11 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ),
           ),
-          const SizedBox(height: 16),
-          Text(
+          const SizedBox(height: 14),
+          const Text(
             'Demo 版本 · 全部参数由本地模板生成，不接真实 AI',
             textAlign: TextAlign.center,
-            style: theme.textTheme.labelSmall?.copyWith(
-              color: theme.colorScheme.onSurface.withValues(alpha: 0.4),
-            ),
+            style: TextStyle(fontSize: 11, color: AppColors.textMuted),
           ),
         ],
       ),

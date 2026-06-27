@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:xinxian_healing_music/screens/plan_screen.dart';
 import 'package:xinxian_healing_music/services/mood_analyzer.dart';
+import 'package:xinxian_healing_music/theme/app_colors.dart';
 import 'package:xinxian_healing_music/widgets/centered_page.dart';
 
-/// 解析动画页：模拟 1.8s 情绪解析后跳转方案页。
+/// 解析动画页：柔和呼吸 + 扩散波纹，模拟"情绪被缓慢接住"。
+/// 1.8s 后跳转方案页。
 class AnalysisScreen extends StatefulWidget {
   final String moodText;
   const AnalysisScreen({super.key, required this.moodText});
@@ -23,7 +25,7 @@ class _AnalysisScreenState extends State<AnalysisScreen>
     super.initState();
     _breath = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1800),
+      duration: const Duration(milliseconds: 2400),
     )..repeat(reverse: true);
 
     Future(() async {
@@ -51,66 +53,112 @@ class _AnalysisScreenState extends State<AnalysisScreen>
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     return CenteredPageScaffold(
       backgroundGradient: RadialGradient(
         center: Alignment.center,
-        radius: 0.8,
-        colors: [
-          theme.colorScheme.primary.withValues(alpha: 0.25),
-          theme.scaffoldBackgroundColor,
-        ],
+        radius: 0.85,
+        colors: [AppColors.bgBlue, AppColors.bgBase],
       ),
       alignment: Alignment.center,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          AnimatedBuilder(
-            animation: _breath,
-            builder: (context, child) {
-              final scale = 0.85 + _breath.value * 0.45;
-              return Opacity(
-                opacity: 0.5 + _breath.value * 0.5,
-                child: Transform.scale(scale: scale, child: child),
-              );
-            },
-            child: Container(
-              width: 140,
-              height: 140,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                border: Border.all(
-                  color: theme.colorScheme.primary.withValues(alpha: 0.6),
-                  width: 2,
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: theme.colorScheme.primary.withValues(alpha: 0.3),
-                    blurRadius: 40,
-                    spreadRadius: 4,
-                  ),
-                ],
-              ),
-              child: Icon(
-                Icons.spa_rounded,
-                size: 60,
-                color: theme.colorScheme.primary,
-              ),
+          // 呼吸圆 + 扩散波纹
+          SizedBox(
+            width: 260,
+            height: 260,
+            child: AnimatedBuilder(
+              animation: _breath,
+              builder: (context, _) {
+                final t = _breath.value; // 0..1..0
+                return Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    // 外层波纹（随呼吸扩散、淡出）
+                    _ripple(t, baseSize: 150, phase: 0.0),
+                    _ripple(t, baseSize: 150, phase: 0.33),
+                    _ripple(t, baseSize: 150, phase: 0.66),
+                    // 中心呼吸圆
+                    Opacity(
+                      opacity: 0.65 + t * 0.35,
+                      child: Transform.scale(
+                        scale: 0.86 + t * 0.14,
+                        child: Container(
+                          width: 130,
+                          height: 130,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            gradient: RadialGradient(
+                              colors: [
+                                AppColors.primary.withValues(alpha: 0.55),
+                                AppColors.teal.withValues(alpha: 0.25),
+                              ],
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: AppColors.primary.withValues(
+                                  alpha: 0.25,
+                                ),
+                                blurRadius: 40,
+                                spreadRadius: 2,
+                              ),
+                            ],
+                          ),
+                          child: const Icon(
+                            Icons.spa_rounded,
+                            size: 54,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                );
+              },
             ),
           ),
           const SizedBox(height: 40),
           AnimatedSwitcher(
-            duration: const Duration(milliseconds: 300),
+            duration: const Duration(milliseconds: 360),
+            transitionBuilder: (child, anim) => FadeTransition(
+              opacity: anim,
+              child: SlideTransition(
+                position: Tween<Offset>(
+                  begin: const Offset(0, 0.15),
+                  end: Offset.zero,
+                ).animate(anim),
+                child: child,
+              ),
+            ),
             child: Text(
               _lines[_lineIndex],
               key: ValueKey(_lineIndex),
-              style: theme.textTheme.titleMedium?.copyWith(
-                color: theme.colorScheme.onSurface.withValues(alpha: 0.85),
+              style: const TextStyle(
+                fontSize: 16,
+                color: AppColors.textSecondary,
                 letterSpacing: 1,
               ),
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  /// 单圈扩散波纹：根据呼吸进度 t 与相位 phase 计算半径与透明度。
+  Widget _ripple(double t, {required double baseSize, required double phase}) {
+    final p = (t + phase) % 1.0; // 0..1
+    final size = baseSize + p * 110;
+    final opacity = (1 - p) * 0.35;
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        border: Border.all(
+          color: AppColors.primary.withValues(alpha: opacity),
+          width: 1.2,
+        ),
       ),
     );
   }

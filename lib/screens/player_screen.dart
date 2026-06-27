@@ -1,14 +1,16 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:xinxian_healing_music/models/music_plan.dart';
 import 'package:xinxian_healing_music/screens/feedback_screen.dart';
+import 'package:xinxian_healing_music/theme/app_colors.dart';
 import 'package:xinxian_healing_music/widgets/centered_page.dart';
 import 'package:xinxian_healing_music/widgets/param_chip.dart';
 
-/// 播放页：使用 just_audio 播放本地音频。
+/// 播放页：使用 just_audio 播放本地音频，浅色疗愈风。
 ///
-/// Web 端浏览器有自动播放限制，因此只在用户点击播放按钮时调用 play()，
-/// 该调用发生在用户手势中，可正常触发播放。
+/// 播放时呼吸可视化缓慢起伏，暂停时动画停止；按钮点击有轻微缩放反馈。
+/// Web 端浏览器自动播放限制：只在用户点击播放按钮时调用 play()。
 class PlayerScreen extends StatefulWidget {
   final HealingMusicPlan plan;
   final String moodText;
@@ -23,6 +25,7 @@ class _PlayerScreenState extends State<PlayerScreen>
     with SingleTickerProviderStateMixin {
   late final AudioPlayer _player;
   late final AnimationController _visualizer;
+  StreamSubscription<PlayerState>? _stateSub;
   bool _loading = true;
   String? _error;
 
@@ -32,8 +35,16 @@ class _PlayerScreenState extends State<PlayerScreen>
     _player = AudioPlayer();
     _visualizer = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1400),
-    )..repeat(reverse: true);
+      duration: const Duration(milliseconds: 2600),
+    );
+    // 播放状态驱动可视化：播放时起伏，暂停/完成时停止
+    _stateSub = _player.playerStateStream.listen((state) {
+      if (state.playing) {
+        if (!_visualizer.isAnimating) _visualizer.repeat(reverse: true);
+      } else {
+        if (_visualizer.isAnimating) _visualizer.stop();
+      }
+    });
     _initAudio();
   }
 
@@ -66,6 +77,7 @@ class _PlayerScreenState extends State<PlayerScreen>
 
   @override
   void dispose() {
+    _stateSub?.cancel();
     _player.dispose();
     _visualizer.dispose();
     super.dispose();
@@ -79,29 +91,31 @@ class _PlayerScreenState extends State<PlayerScreen>
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final plan = widget.plan;
     return CenteredPageScaffold(
-      appBar: AppBar(title: const Text('疗愈播放'), centerTitle: true),
+      appBar: AppBar(title: const Text('疗愈播放')),
       padding: const EdgeInsets.fromLTRB(24, 8, 24, 32),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // 模板标题
           Text(
             plan.templateName,
             textAlign: TextAlign.center,
-            style: theme.textTheme.titleLarge?.copyWith(
+            style: const TextStyle(
+              fontSize: 22,
               fontWeight: FontWeight.w300,
               letterSpacing: 4,
+              color: AppColors.textPrimary,
             ),
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 6),
           Text(
             plan.guidance,
             textAlign: TextAlign.center,
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+            style: const TextStyle(
+              fontSize: 13,
+              color: AppColors.textSecondary,
+              height: 1.5,
             ),
           ),
           const SizedBox(height: 32),
@@ -109,7 +123,6 @@ class _PlayerScreenState extends State<PlayerScreen>
           // 可视化 + 播放按钮
           _Visualizer(
             controller: _visualizer,
-            color: theme.colorScheme.primary,
             child: _PlayButton(
               loading: _loading,
               error: _error != null,
@@ -117,27 +130,26 @@ class _PlayerScreenState extends State<PlayerScreen>
               onTap: _toggle,
             ),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 14),
           if (_error != null)
             Text(
               _error!,
               textAlign: TextAlign.center,
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.error,
+              style: const TextStyle(
+                fontSize: 12,
+                color: AppColors.apricotDeep,
               ),
             )
           else
-            Text(
+            const Text(
               '点击按钮开始播放（浏览器需用户手势触发）',
               textAlign: TextAlign.center,
-              style: theme.textTheme.labelSmall?.copyWith(
-                color: theme.colorScheme.onSurface.withValues(alpha: 0.45),
-              ),
+              style: TextStyle(fontSize: 11, color: AppColors.textMuted),
             ),
 
           const SizedBox(height: 24),
 
-          // 进度条 + 时长
+          // 进度条 + 时长（柔和蓝绿）
           _ProgressSection(player: _player, fmt: _fmt, enabled: _error == null),
 
           const SizedBox(height: 28),
@@ -190,6 +202,8 @@ class _PlayerScreenState extends State<PlayerScreen>
             ),
             style: FilledButton.styleFrom(
               minimumSize: const Size.fromHeight(50),
+              backgroundColor: const Color(0xFFE6F1F9),
+              foregroundColor: AppColors.primaryDeep,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(16),
               ),
@@ -201,17 +215,12 @@ class _PlayerScreenState extends State<PlayerScreen>
   }
 }
 
-/// 呼吸光圈 + 中间播放按钮。
+/// 呼吸光圈 + 中间播放按钮。控制器由外部传入（播放状态联动）。
 class _Visualizer extends StatelessWidget {
   final AnimationController controller;
-  final Color color;
   final Widget child;
 
-  const _Visualizer({
-    required this.controller,
-    required this.color,
-    required this.child,
-  });
+  const _Visualizer({required this.controller, required this.child});
 
   @override
   Widget build(BuildContext context) {
@@ -219,32 +228,32 @@ class _Visualizer extends StatelessWidget {
       child: AnimatedBuilder(
         animation: controller,
         builder: (context, _) {
-          final t = controller.value;
+          final t = controller.value; // 播放时 0..1..0；暂停时定格
           return Stack(
             alignment: Alignment.center,
             children: [
-              // 外圈
               Container(
-                width: 200 + t * 40,
-                height: 200 + t * 40,
+                width: 210 + t * 36,
+                height: 210 + t * 36,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   border: Border.all(
-                    color: color.withValues(alpha: 0.15 + (1 - t) * 0.25),
+                    color: AppColors.primary.withValues(
+                      alpha: 0.12 + (1 - t) * 0.18,
+                    ),
                     width: 1.5,
                   ),
                 ),
               ),
-              // 中圈
               Container(
-                width: 168,
-                height: 168,
+                width: 176,
+                height: 176,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   gradient: RadialGradient(
                     colors: [
-                      color.withValues(alpha: 0.35),
-                      color.withValues(alpha: 0.08),
+                      AppColors.primary.withValues(alpha: 0.30 + t * 0.10),
+                      AppColors.teal.withValues(alpha: 0.10),
                     ],
                   ),
                 ),
@@ -258,8 +267,8 @@ class _Visualizer extends StatelessWidget {
   }
 }
 
-/// 播放/暂停/重播按钮，跟随 playerStateStream 切换图标。
-class _PlayButton extends StatelessWidget {
+/// 播放/暂停/重播按钮，跟随 playerStateStream 切换图标，点击有缩放反馈。
+class _PlayButton extends StatefulWidget {
   final bool loading;
   final bool error;
   final AudioPlayer player;
@@ -273,46 +282,83 @@ class _PlayButton extends StatelessWidget {
   });
 
   @override
+  State<_PlayButton> createState() => _PlayButtonState();
+}
+
+class _PlayButtonState extends State<_PlayButton> {
+  bool _pressed = false;
+
+  @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    if (loading) {
+    if (widget.loading) {
       return const SizedBox(
         width: 36,
         height: 36,
-        child: CircularProgressIndicator(strokeWidth: 2.5),
+        child: CircularProgressIndicator(
+          strokeWidth: 2.5,
+          color: AppColors.primary,
+        ),
       );
     }
-    return StreamBuilder<PlayerState>(
-      stream: player.playerStateStream,
-      builder: (context, snapshot) {
-        final state = snapshot.data;
-        final playing = state?.playing ?? false;
-        final completed = state?.processingState == ProcessingState.completed;
-        final disabled = error;
-        IconData icon;
-        if (completed) {
-          icon = Icons.replay_rounded;
-        } else if (playing) {
-          icon = Icons.pause_rounded;
-        } else {
-          icon = Icons.play_arrow_rounded;
-        }
-        return IconButton.filled(
-          onPressed: disabled ? null : onTap,
-          icon: Icon(icon, size: 40),
-          iconSize: 40,
-          style: IconButton.styleFrom(
-            backgroundColor: theme.colorScheme.primary,
-            foregroundColor: theme.colorScheme.onPrimary,
-            minimumSize: const Size(80, 80),
-          ),
-        );
-      },
+    return Listener(
+      onPointerDown: (_) => setState(() => _pressed = true),
+      onPointerUp: (_) => setState(() => _pressed = false),
+      onPointerCancel: (_) => setState(() => _pressed = false),
+      child: AnimatedScale(
+        scale: _pressed ? 0.92 : 1.0,
+        duration: const Duration(milliseconds: 120),
+        curve: Curves.easeOut,
+        child: StreamBuilder<PlayerState>(
+          stream: widget.player.playerStateStream,
+          builder: (context, snapshot) {
+            final state = snapshot.data;
+            final playing = state?.playing ?? false;
+            final completed =
+                state?.processingState == ProcessingState.completed;
+            final disabled = widget.error;
+            IconData icon;
+            if (completed) {
+              icon = Icons.replay_rounded;
+            } else if (playing) {
+              icon = Icons.pause_rounded;
+            } else {
+              icon = Icons.play_arrow_rounded;
+            }
+            return Container(
+              width: 80,
+              height: 80,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: const LinearGradient(
+                  colors: [AppColors.teal, AppColors.primary],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: AppColors.primary.withValues(alpha: 0.4),
+                    blurRadius: 18,
+                    offset: const Offset(0, 6),
+                  ),
+                ],
+              ),
+              child: IconButton(
+                onPressed: disabled ? null : widget.onTap,
+                icon: Icon(icon, size: 40, color: Colors.white),
+                style: IconButton.styleFrom(
+                  backgroundColor: Colors.transparent,
+                  highlightColor: Colors.white.withValues(alpha: 0.15),
+                ),
+              ),
+            );
+          },
+        ),
+      ),
     );
   }
 }
 
-/// 进度条 + 当前时间 / 总时长。
+/// 进度条 + 当前时间 / 总时长。柔和蓝绿。
 class _ProgressSection extends StatelessWidget {
   final AudioPlayer player;
   final String Function(Duration) fmt;
@@ -326,7 +372,6 @@ class _ProgressSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     return StreamBuilder<Duration?>(
       stream: player.durationStream,
       builder: (context, durSnap) {
@@ -344,6 +389,9 @@ class _ProgressSection extends StatelessWidget {
               children: [
                 Slider(
                   value: value,
+                  activeColor: AppColors.primary,
+                  inactiveColor: AppColors.cardBorder,
+                  thumbColor: AppColors.primary,
                   onChanged: enabled && totalMs > 0
                       ? (v) {
                           player.seek(
@@ -359,18 +407,16 @@ class _ProgressSection extends StatelessWidget {
                     children: [
                       Text(
                         fmt(pos),
-                        style: theme.textTheme.labelSmall?.copyWith(
-                          color: theme.colorScheme.onSurface.withValues(
-                            alpha: 0.6,
-                          ),
+                        style: const TextStyle(
+                          fontSize: 11,
+                          color: AppColors.textMuted,
                         ),
                       ),
                       Text(
                         totalMs > 0 ? fmt(total) : '--:--',
-                        style: theme.textTheme.labelSmall?.copyWith(
-                          color: theme.colorScheme.onSurface.withValues(
-                            alpha: 0.6,
-                          ),
+                        style: const TextStyle(
+                          fontSize: 11,
+                          color: AppColors.textMuted,
                         ),
                       ),
                     ],
