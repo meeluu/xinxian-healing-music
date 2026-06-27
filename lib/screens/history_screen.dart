@@ -310,6 +310,9 @@ class _SessionCard extends StatelessWidget {
                       ),
                     ),
                     const Spacer(),
+                    if (s.plan.analyzerSource == 'mock')
+                      const _SourceChip(label: '本地解析'),
+                    const SizedBox(width: 6),
                     _VariantChip(label: variantLabel(s.variant)),
                   ],
                 ),
@@ -436,6 +439,29 @@ class _VariantChip extends StatelessWidget {
       child: Text(
         label,
         style: const TextStyle(fontSize: 11, color: AppColors.primaryDeep),
+      ),
+    );
+  }
+}
+
+/// 解析来源小标签 chip。
+/// M4A 阶段所有记录均为 'mock'，显示"本地解析"；
+/// M4B 接入 LLM 后可根据 analyzerSource 切换为"AI 解析"。
+class _SourceChip extends StatelessWidget {
+  final String label;
+  const _SourceChip({required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: AppColors.teal.withValues(alpha: 0.16),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Text(
+        label,
+        style: const TextStyle(fontSize: 11, color: AppColors.tealDeep),
       ),
     );
   }

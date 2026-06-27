@@ -44,6 +44,11 @@ class HealingMusicPlan {
   /// 疗愈引导语
   final String guidance;
 
+  /// 情绪解析来源：'mock'（本地规则解析）/ 'llm'（AI 解析）/ 'fallback'（LLM 失败兜底）。
+  /// M4A 阶段恒为 'mock'；M4B 接入 LLM 后由 gateway 设置。
+  /// 旧历史数据无此字段时 fromJson 回退 'mock'，向后兼容。
+  final String analyzerSource;
+
   const HealingMusicPlan({
     required this.sessionId,
     required this.templateName,
@@ -54,6 +59,7 @@ class HealingMusicPlan {
     required this.variant,
     required this.durationMinutes,
     required this.guidance,
+    this.analyzerSource = 'mock',
   });
 
   /// 序列化为 JSON 友好的 Map（供 shared_preferences 持久化）。
@@ -67,6 +73,7 @@ class HealingMusicPlan {
     'variant': variant.name,
     'durationMinutes': durationMinutes,
     'guidance': guidance,
+    'analyzerSource': analyzerSource,
   };
 
   /// 从 Map 反序列化；缺字段用默认值，保证旧版本数据兼容。
@@ -93,5 +100,6 @@ class HealingMusicPlan {
         variant: ExperimentVariant.fromName(json['variant'] as String?),
         durationMinutes: json['durationMinutes'] as int? ?? 12,
         guidance: json['guidance'] as String? ?? '',
+        analyzerSource: json['analyzerSource'] as String? ?? 'mock',
       );
 }

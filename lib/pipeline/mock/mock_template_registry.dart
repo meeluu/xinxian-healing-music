@@ -6,7 +6,10 @@ import 'package:xinxian_healing_music/models/music_feature_tags.dart';
 /// 供 [MockMoodAnalyzer] / [RuleBasedFeatureExtractor] / [MockPlanMetaResolver]
 /// 共同反查，保证 templateName / guidance / duration / features 文案逐字一致。
 ///
-/// 6 模板的 (valence, arousal) 二元组两两不同，可确定性命中。
+/// 6 模板的 (valence, arousal) 二元组两两不同。
+/// 匹配策略采用最近邻（欧氏距离平方），既兼容当前 mock 的精确值命中，
+/// 也为 M4B 接入 LLM 产出的连续 valence/arousal 做准备——任意输入都能
+/// 找到最近的模板，不再抛 StateError。
 class MockTemplateRegistry {
   MockTemplateRegistry._();
 
@@ -175,13 +178,26 @@ class MockTemplateRegistry {
     );
   }
 
+  /// 最近邻匹配：在 6 套模板中选 (valence, arousal) 欧氏距离平方最小者。
+  ///
+  /// - 当前 mock 流程：MoodProfile.valence/arousal 来自模板自身，距离为 0，
+  ///   必然命中同一模板，行为与旧版精确匹配完全一致。
+  /// - M4B LLM 产出的连续值：自动归到最近模板，不再抛 StateError。
   static _Bundle _findByValenceArousal(double valence, double arousal) {
+    _Bundle? best;
+    double bestDistSq = double.infinity;
     for (final b in _bundles) {
-      if (b.valence == valence && b.arousal == arousal) return b;
+      final dv = b.valence - valence;
+      final da = b.arousal - arousal;
+      // 平方欧氏距离，省 sqrt；比较结果等价
+      final distSq = dv * dv + da * da;
+      if (distSq < bestDistSq) {
+        bestDistSq = distSq;
+        best = b;
+      }
     }
-    throw StateError(
-      'No mock template matches (valence=$valence, arousal=$arousal)',
-    );
+    // _bundles 非空，best 必被赋值
+    return best!;
   }
 }
 

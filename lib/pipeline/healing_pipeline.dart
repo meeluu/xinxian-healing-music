@@ -87,6 +87,7 @@ class HealingPipeline {
       variant: variant,
       durationMinutes: meta.durationMinutes,
       guidance: meta.guidance,
+      analyzerSource: 'mock', // M4A 恒 mock；M4B 改为读 MoodAnalyzerGateway.lastSource
     );
   }
 
