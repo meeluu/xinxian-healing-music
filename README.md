@@ -1,17 +1,31 @@
-# xinxian_healing_music
 
-A new Flutter project.
+# 心弦 (XinXian)
 
-## Getting Started
+## Project Epsilon：自然语言驱动的频段特定疗愈音乐生成系统
 
-This project is a starting point for a Flutter application.
+基于心理学、脑神经科学与情感计算的定制化AI疗愈音乐生成微信小程序
 
-A few resources to get you started if this is your first Flutter project:
+## 一、项目简介
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+当下年轻人普遍面临焦虑、失眠、情绪内耗等心理亚健康问题，传统心理咨询门槛高，通用歌单缺乏个性化。
+心弦是Flutter开发的微信小程序：用户输入内心情绪文本，LLM解析心理特征，自动匹配BPM、432Hz/Alpha波频段、配器、白噪音，实时生成专属疗愈音乐。
+课题核心：音乐情绪诱导理论 + 正念脑波频响干预，配套消融对比实验验证疗愈效果。
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+## 二、目标用户与痛点
+
+18-30岁高压学生/职场人群，场景：失眠、备考压力、正念独处
+痛点：通用歌单一刀切，专业脑波App付费昂贵、操作复杂，缺少文字情绪定制生成能力
+
+## 三、技术架构链路
+
+1. 前端：Flutter 微信小程序（Trae AI辅助开发）
+2. NLP意图解析：LLM提取情绪、心理特征标签
+3. 音乐映射层：心理标签 → BPM/和声/乐器/432Hz频响参数
+4. 音频生成后处理：AI音乐模型 + 白/粉红噪音EQ调节
+5. 实验层：用户生理/心理量表数据库，消融对比实验框架
+
+## 四、项目价值
+
+1. 社会价值：低成本普及音乐心理干预，泛化心理咨询资源
+2. 工程价值：音乐生成流程从数天压缩至数十秒，千人千面，边际成本趋近0
+3. 科研价值：标准化消融实验数据闭环，可用于EAP企业关怀、正念内容商业落地
