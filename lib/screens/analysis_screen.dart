@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:xinxian_healing_music/pipeline/mock/mock_pipeline_factory.dart';
+import 'package:xinxian_healing_music/pipeline/services.dart';
 import 'package:xinxian_healing_music/screens/plan_screen.dart';
 import 'package:xinxian_healing_music/theme/app_colors.dart';
 import 'package:xinxian_healing_music/widgets/centered_page.dart';
@@ -39,7 +40,7 @@ class _AnalysisScreenState extends State<AnalysisScreen>
       final plan = await mockPipeline.run(widget.moodText);
       if (!mounted) return;
       // 会话开始：plan 产出后记录 moodText + plan 快照
-      mockSessionRecorder.begin(
+      sessionRecorder.begin(
         sessionId: plan.sessionId,
         moodText: widget.moodText,
         plan: plan,

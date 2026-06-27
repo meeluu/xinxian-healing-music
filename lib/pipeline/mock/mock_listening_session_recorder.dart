@@ -52,6 +52,16 @@ class MockListeningSessionRecorder implements ListeningSessionRecorder {
       ..sort((a, b) => b.startedAt.compareTo(a.startedAt));
     return List.unmodifiable(list);
   }
+
+  @override
+  Future<void> delete(String sessionId) async {
+    _store.remove(sessionId);
+  }
+
+  @override
+  Future<void> clear() async {
+    _store.clear();
+  }
 }
 
 /// 可变中间态：get / all 时构造不可变 [ListeningSession]。
@@ -91,12 +101,12 @@ class _State {
   }
 
   ListeningSession toSession() => ListeningSession(
-        sessionId: sessionId,
-        moodText: moodText,
-        startedAt: startedAt,
-        plan: plan,
-        listenedDuration: listenedDuration,
-        feedback: feedback,
-        completedAt: completedAt,
-      );
+    sessionId: sessionId,
+    moodText: moodText,
+    startedAt: startedAt,
+    plan: plan,
+    listenedDuration: listenedDuration,
+    feedback: feedback,
+    completedAt: completedAt,
+  );
 }

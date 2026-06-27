@@ -16,4 +16,19 @@ class ProcessedAudio {
     this.sourceType = AudioSourceType.stock,
     this.processingChain = const [],
   });
+
+  /// 序列化为 JSON 友好的 Map（供 shared_preferences 持久化）。
+  Map<String, dynamic> toJson() => {
+    'assetPath': assetPath,
+    'sourceType': sourceType.name,
+    'processingChain': processingChain,
+  };
+
+  /// 从 Map 反序列化；缺字段用默认值，保证旧版本数据兼容。
+  static ProcessedAudio fromJson(Map<String, dynamic> json) => ProcessedAudio(
+    assetPath: json['assetPath'] as String? ?? '',
+    sourceType: AudioSourceType.fromName(json['sourceType'] as String?),
+    processingChain:
+        (json['processingChain'] as List?)?.cast<String>() ?? const [],
+  );
 }

@@ -9,5 +9,13 @@ enum ExperimentVariant {
   generic,
 
   /// 空白对照
-  control,
+  control;
+
+  /// 按 name 反序列化；未知值回退到 [custom]，避免旧版本数据加载崩溃。
+  static ExperimentVariant fromName(String? name) {
+    for (final v in ExperimentVariant.values) {
+      if (v.name == name) return v;
+    }
+    return ExperimentVariant.custom;
+  }
 }

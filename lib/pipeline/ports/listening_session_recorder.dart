@@ -7,8 +7,9 @@ import 'package:xinxian_healing_music/models/music_plan.dart';
 /// 负责一次完整会话（输入 → 解析 → 方案 → 播放 → 反馈）的生命周期记录，
 /// 供后续消融实验与用户反馈数据库使用。
 ///
-/// M2 阶段 mock 实现使用内存 Map，重启丢失；后续可替换为真实数据库实现，
-/// UI 调用点（AnalysisScreen / PlayerScreen / FeedbackScreen）无需改动。
+/// M2 阶段 mock 实现使用内存 Map，重启丢失；M3 起提供 shared_preferences 本地
+/// 持久化实现；后续可替换为真实数据库实现，UI 调用点
+/// （AnalysisScreen / PlayerScreen / FeedbackScreen）无需改动。
 abstract class ListeningSessionRecorder {
   /// 会话开始：plan 产出后调用，记录 moodText 与 plan 快照。
   void begin({
@@ -28,4 +29,10 @@ abstract class ListeningSessionRecorder {
 
   /// 全部会话（按开始时间倒序）。
   List<ListeningSession> all();
+
+  /// M3 新增：删除单条会话（按 sessionId）。
+  Future<void> delete(String sessionId);
+
+  /// M3 新增：清空全部会话。
+  Future<void> clear();
 }

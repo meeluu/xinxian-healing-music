@@ -1,7 +1,5 @@
 import 'package:xinxian_healing_music/pipeline/healing_pipeline.dart';
 import 'package:xinxian_healing_music/pipeline/mock/mock_experiment_assigner.dart';
-import 'package:xinxian_healing_music/pipeline/mock/mock_feedback_repository.dart';
-import 'package:xinxian_healing_music/pipeline/mock/mock_listening_session_recorder.dart';
 import 'package:xinxian_healing_music/pipeline/mock/mock_mood_analyzer.dart';
 import 'package:xinxian_healing_music/pipeline/mock/mock_plan_meta_resolver.dart';
 import 'package:xinxian_healing_music/pipeline/mock/passthrough_post_processor.dart';
@@ -12,6 +10,9 @@ import 'package:xinxian_healing_music/pipeline/mock/stock_audio_generator.dart';
 ///
 /// UI 层通过 [mockPipeline] 获取编排器；后续接入真实实现时，
 /// 替换此 factory 即可热切换到真实链路，UI 代码无需改动。
+///
+/// 注：全局共享的 [sessionRecorder] / [feedbackRepository] 已迁移到
+/// `lib/pipeline/services.dart`，由 main.dart 启动时装配 Local 或 Mock 实现。
 final HealingPipeline mockPipeline = const HealingPipeline(
   moodAnalyzer: MockMoodAnalyzer(),
   featureExtractor: RuleBasedFeatureExtractor(),
@@ -20,12 +21,3 @@ final HealingPipeline mockPipeline = const HealingPipeline(
   experimentAssigner: MockExperimentAssigner(),
   planMetaResolver: MockPlanMetaResolver(),
 );
-
-/// 全局共享的反馈仓储单例（供 FeedbackScreen 写入）。
-final MockFeedbackRepository mockFeedbackRepository = MockFeedbackRepository();
-
-/// 全局共享的会话记录器单例（供 AnalysisScreen / PlayerScreen / FeedbackScreen 写入）。
-///
-/// M2 阶段为内存态，重启丢失；后续可替换为真实数据库实现，UI 代码无需改动。
-final MockListeningSessionRecorder mockSessionRecorder =
-    MockListeningSessionRecorder();

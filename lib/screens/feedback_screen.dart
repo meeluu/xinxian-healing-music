@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:xinxian_healing_music/models/feedback_record.dart';
 import 'package:xinxian_healing_music/models/music_plan.dart';
-import 'package:xinxian_healing_music/pipeline/mock/mock_pipeline_factory.dart';
+import 'package:xinxian_healing_music/pipeline/services.dart';
 import 'package:xinxian_healing_music/screens/home_screen.dart';
+import 'package:xinxian_healing_music/screens/history_screen.dart';
 import 'package:xinxian_healing_music/theme/app_colors.dart';
 import 'package:xinxian_healing_music/widgets/centered_page.dart';
 
@@ -187,12 +188,9 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
                     completed: false,
                     createdAt: DateTime.now(),
                   );
-                  await mockFeedbackRepository.save(record);
+                  await feedbackRepository.save(record);
                   // 关联反馈到会话记录器，标记会话完成
-                  mockSessionRecorder.attachFeedback(
-                    widget.plan.sessionId,
-                    record,
-                  );
+                  sessionRecorder.attachFeedback(widget.plan.sessionId, record);
                   if (!mounted) return;
                   setState(() => _submitted = true);
                 },
@@ -210,7 +208,7 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
         ),
         const SizedBox(height: 10),
         const Text(
-          'Demo 版本 · 反馈仅保存在内存，不会上传任何服务器',
+          'Demo 版本 · 记录仅保存在本设备，不会上传任何服务器',
           textAlign: TextAlign.center,
           style: TextStyle(fontSize: 11, color: AppColors.textMuted),
         ),
@@ -272,6 +270,19 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
             ),
           ),
           child: const Text('回到首页'),
+        ),
+        const SizedBox(height: 8),
+        TextButton(
+          onPressed: () {
+            Navigator.of(context).pushAndRemoveUntil(
+              MaterialPageRoute(builder: (_) => const HistoryScreen()),
+              (route) => false,
+            );
+          },
+          child: const Text(
+            '查看历史记录',
+            style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
+          ),
         ),
       ],
     );

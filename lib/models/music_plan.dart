@@ -55,4 +55,43 @@ class HealingMusicPlan {
     required this.durationMinutes,
     required this.guidance,
   });
+
+  /// 序列化为 JSON 友好的 Map（供 shared_preferences 持久化）。
+  Map<String, dynamic> toJson() => {
+    'sessionId': sessionId,
+    'templateName': templateName,
+    'mood': mood.toJson(),
+    'features': features.toJson(),
+    'audio': audio.toJson(),
+    'postProcess': postProcess.toJson(),
+    'variant': variant.name,
+    'durationMinutes': durationMinutes,
+    'guidance': guidance,
+  };
+
+  /// 从 Map 反序列化；缺字段用默认值，保证旧版本数据兼容。
+  static HealingMusicPlan fromJson(Map<String, dynamic> json) =>
+      HealingMusicPlan(
+        sessionId: json['sessionId'] as String? ?? '',
+        templateName: json['templateName'] as String? ?? '',
+        mood: json['mood'] is Map<String, dynamic>
+            ? MoodProfile.fromJson(json['mood'] as Map<String, dynamic>)
+            : MoodProfile.fromJson(const {}),
+        features: json['features'] is Map<String, dynamic>
+            ? MusicFeatureTags.fromJson(
+                json['features'] as Map<String, dynamic>,
+              )
+            : MusicFeatureTags.fromJson(const {}),
+        audio: json['audio'] is Map<String, dynamic>
+            ? ProcessedAudio.fromJson(json['audio'] as Map<String, dynamic>)
+            : ProcessedAudio.fromJson(const {}),
+        postProcess: json['postProcess'] is Map<String, dynamic>
+            ? AudioPostProcessConfig.fromJson(
+                json['postProcess'] as Map<String, dynamic>,
+              )
+            : AudioPostProcessConfig.fromJson(const {}),
+        variant: ExperimentVariant.fromName(json['variant'] as String?),
+        durationMinutes: json['durationMinutes'] as int? ?? 12,
+        guidance: json['guidance'] as String? ?? '',
+      );
 }

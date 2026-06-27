@@ -33,6 +33,28 @@ class MoodProfile {
     this.targetState = TargetState.relax,
     this.dominantNeed,
   });
+
+  /// 序列化为 JSON 友好的 Map（供 shared_preferences 持久化）。
+  Map<String, dynamic> toJson() => {
+    'tags': tags,
+    'valence': valence,
+    'arousal': arousal,
+    'summary': summary,
+    'intensity': intensity,
+    'targetState': targetState.name,
+    if (dominantNeed != null) 'dominantNeed': dominantNeed,
+  };
+
+  /// 从 Map 反序列化；缺字段用默认值，保证旧版本数据兼容。
+  static MoodProfile fromJson(Map<String, dynamic> json) => MoodProfile(
+    tags: (json['tags'] as List?)?.cast<String>() ?? const [],
+    valence: (json['valence'] as num?)?.toDouble() ?? 0.0,
+    arousal: (json['arousal'] as num?)?.toDouble() ?? 0.4,
+    summary: json['summary'] as String? ?? '',
+    intensity: (json['intensity'] as num?)?.toDouble() ?? 0.5,
+    targetState: TargetState.fromName(json['targetState'] as String?),
+    dominantNeed: json['dominantNeed'] as String?,
+  );
 }
 
 /// 期望调节到的目标状态。
@@ -50,5 +72,13 @@ enum TargetState {
   company,
 
   /// 情绪调节
-  regulate,
+  regulate;
+
+  /// 按 name 反序列化；未知值回退到 [relax]。
+  static TargetState fromName(String? name) {
+    for (final v in TargetState.values) {
+      if (v.name == name) return v;
+    }
+    return TargetState.relax;
+  }
 }

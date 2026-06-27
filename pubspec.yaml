@@ -38,6 +38,9 @@ dependencies:
   # 本地音频播放（Demo 体验素材，非网络/AI 生成）
   just_audio: ^0.10.5
 
+  # 本地持久化（ListeningSession / FeedbackRecord，最多 100 条，纯本地不上传）
+  shared_preferences: ^2.3.2
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

@@ -25,6 +25,29 @@ class AudioPostProcessConfig {
     this.fadeOut = 0.0,
     this.eqBands = const [],
   });
+
+  /// 序列化为 JSON 友好的 Map（供 shared_preferences 持久化）。
+  Map<String, dynamic> toJson() => {
+    if (noiseType != null) 'noiseType': noiseType,
+    'noiseLevel': noiseLevel,
+    'fadeIn': fadeIn,
+    'fadeOut': fadeOut,
+    'eqBands': eqBands.map((b) => b.toJson()).toList(),
+  };
+
+  /// 从 Map 反序列化；缺字段用默认值，保证旧版本数据兼容。
+  static AudioPostProcessConfig fromJson(Map<String, dynamic> json) =>
+      AudioPostProcessConfig(
+        noiseType: json['noiseType'] as String?,
+        noiseLevel: (json['noiseLevel'] as num?)?.toDouble() ?? 0.0,
+        fadeIn: (json['fadeIn'] as num?)?.toDouble() ?? 0.0,
+        fadeOut: (json['fadeOut'] as num?)?.toDouble() ?? 0.0,
+        eqBands:
+            (json['eqBands'] as List?)
+                ?.map((b) => EqBand.fromJson(b as Map<String, dynamic>))
+                .toList() ??
+            const [],
+      );
 }
 
 /// EQ 频段配置。
@@ -39,4 +62,12 @@ class EqBand {
   final double q;
 
   const EqBand({required this.freqHz, this.gainDb = 0.0, this.q = 0.7});
+
+  Map<String, dynamic> toJson() => {'freqHz': freqHz, 'gainDb': gainDb, 'q': q};
+
+  static EqBand fromJson(Map<String, dynamic> json) => EqBand(
+    freqHz: (json['freqHz'] as num?)?.toDouble() ?? 0.0,
+    gainDb: (json['gainDb'] as num?)?.toDouble() ?? 0.0,
+    q: (json['q'] as num?)?.toDouble() ?? 0.7,
+  );
 }

@@ -53,4 +53,37 @@ class MusicFeatureTags {
     this.valence = 0.0,
     this.targetRegulationState = TargetState.relax,
   });
+
+  /// 序列化为 JSON 友好的 Map（供 shared_preferences 持久化）。
+  Map<String, dynamic> toJson() => {
+    'bpm': bpm,
+    'frequency': frequency,
+    'brainwave': brainwave,
+    'instruments': instruments,
+    'harmony': harmony,
+    'noiseLayer': noiseLayer,
+    'durationMinutes': durationMinutes,
+    'intensity': intensity,
+    'arousal': arousal,
+    'valence': valence,
+    'targetRegulationState': targetRegulationState.name,
+  };
+
+  /// 从 Map 反序列化；缺字段用默认值，保证旧版本数据兼容。
+  static MusicFeatureTags fromJson(Map<String, dynamic> json) =>
+      MusicFeatureTags(
+        bpm: json['bpm'] as int? ?? 60,
+        frequency: json['frequency'] as String? ?? '432Hz',
+        brainwave: json['brainwave'] as String? ?? '',
+        instruments: (json['instruments'] as List?)?.cast<String>() ?? const [],
+        harmony: json['harmony'] as String? ?? '',
+        noiseLayer: json['noiseLayer'] as String? ?? '',
+        durationMinutes: json['durationMinutes'] as int? ?? 12,
+        intensity: (json['intensity'] as num?)?.toDouble() ?? 0.5,
+        arousal: (json['arousal'] as num?)?.toDouble() ?? 0.4,
+        valence: (json['valence'] as num?)?.toDouble() ?? 0.0,
+        targetRegulationState: TargetState.fromName(
+          json['targetRegulationState'] as String?,
+        ),
+      );
 }

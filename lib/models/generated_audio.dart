@@ -32,5 +32,13 @@ enum AudioSourceType {
   generated,
 
   /// 外部流式
-  streamed,
+  streamed;
+
+  /// 按 name 反序列化；未知值回退到 [stock]。
+  static AudioSourceType fromName(String? name) {
+    for (final v in AudioSourceType.values) {
+      if (v.name == name) return v;
+    }
+    return AudioSourceType.stock;
+  }
 }

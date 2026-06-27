@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:xinxian_healing_music/screens/analysis_screen.dart';
+import 'package:xinxian_healing_music/screens/history_screen.dart';
 import 'package:xinxian_healing_music/theme/app_colors.dart';
 import 'package:xinxian_healing_music/widgets/breathing_halo.dart';
 import 'package:xinxian_healing_music/widgets/centered_page.dart';
@@ -172,6 +173,28 @@ class _HomeScreenState extends State<HomeScreen> {
             'Demo 版本 · 全部参数由本地模板生成，不接真实 AI',
             textAlign: TextAlign.center,
             style: TextStyle(fontSize: 11, color: AppColors.textMuted),
+          ),
+          const SizedBox(height: 8),
+          TextButton.icon(
+            onPressed: () {
+              Navigator.of(
+                context,
+              ).push(MaterialPageRoute(builder: (_) => const HistoryScreen()));
+            },
+            icon: const Icon(
+              Icons.history_rounded,
+              size: 16,
+              color: AppColors.textSecondary,
+            ),
+            label: const Text(
+              '查看历史记录',
+              style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
+            ),
+            style: TextButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              minimumSize: const Size(0, 36),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
           ),
         ],
       ),

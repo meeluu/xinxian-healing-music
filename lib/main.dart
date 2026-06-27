@@ -1,8 +1,25 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:xinxian_healing_music/pipeline/local/local_feedback_repository.dart';
+import 'package:xinxian_healing_music/pipeline/local/local_listening_session_recorder.dart';
+import 'package:xinxian_healing_music/pipeline/services.dart';
 import 'package:xinxian_healing_music/screens/home_screen.dart';
 import 'package:xinxian_healing_music/theme/app_colors.dart';
 
-void main() {
+void main() async {
+  // shared_preferences 是平台插件，需要初始化 binding
+  WidgetsFlutterBinding.ensureInitialized();
+
+  // 尝试装配 shared_preferences 本地持久化实现；
+  // 失败时（隐私模式 / 平台不支持 / 损坏）保持默认 mock 内存态，Demo 仍可用。
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    sessionRecorder = await LocalListeningSessionRecorder.create(prefs);
+    feedbackRepository = await LocalFeedbackRepository.create(prefs);
+  } catch (_) {
+    // 保持 services.dart 中默认的 mock 实现
+  }
+
   runApp(const XinXianApp());
 }
 
