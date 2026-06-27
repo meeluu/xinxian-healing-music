@@ -1,0 +1,36 @@
+# 心弦 · Netlify 站点配置
+#
+# 部署结构：
+# - 静态站点：build/web（Flutter Web 产物）
+# - Functions：netlify/functions/（LLM 情绪解析网关）
+
+[build]
+  command = "flutter build web --release"
+  publish = "build/web"
+
+[functions]
+  directory = "netlify/functions"
+  # 用 esbuild 打包，比 webpack 快，无需手动 npm install
+  node_bundler = "esbuild"
+
+# ─── redirects：把 /api/* 显式映射到 /.netlify/functions/* ───
+# 不依赖 Netlify 自动映射，避免部署后 404。
+[[redirects]]
+  from = "/api/analyze-mood"
+  to = "/.netlify/functions/analyze-mood"
+  status = 200
+  force = true
+  # POST 请求需要 force=true 才能正确代理（默认 redirect 只处理 GET）
+  methods = ["POST", "OPTIONS"]
+
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/:splat"
+  status = 200
+  force = true
+
+# ─── SPA fallback：Flutter Web 路由全部由 index.html 接管 ───
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

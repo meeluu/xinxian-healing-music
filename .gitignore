@@ -43,3 +43,12 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Netlify 本地开发
+# .env 含 OPENAI_API_KEY，绝不提交
+.env
+.env.local
+# .netlify/ 是 netlify dev 的本地缓存
+.netlify/
+# Function 的 node_modules（由 Netlify 自动安装）
+netlify/functions/**/node_modules/

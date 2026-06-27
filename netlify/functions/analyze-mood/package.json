@@ -1,0 +1,10 @@
+{
+  "name": "analyze-mood",
+  "version": "1.0.0",
+  "description": "心弦 LLM 情绪解析网关：调用 OpenAI 将心境文本转为标准化 MoodProfile",
+  "main": "analyze-mood.js",
+  "dependencies": {
+    "openai": "^4.20.0"
+  },
+  "private": true
+}
