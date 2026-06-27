@@ -249,7 +249,7 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
           style: TextStyle(
             fontSize: 14,
             color: AppColors.textSecondary,
-            height: 1.7,
+            height: 1.6,
           ),
         ),
         const SizedBox(height: 40),

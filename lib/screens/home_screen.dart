@@ -198,18 +198,23 @@ class _ExampleChip extends StatelessWidget {
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(10),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: AppColors.cardBorder),
-          ),
-          child: Text(
-            label,
-            style: const TextStyle(
-              fontSize: 12,
-              color: AppColors.chipLabelText,
-              height: 1.3,
+        child: ConstrainedBox(
+          // minHeight 44 保证 chip 在移动端不会被字体缩放撑得过高，
+          // 同时提供稳定的可点击高度；不设 maxWidth，保留 Wrap 多 chip 换行布局。
+          constraints: const BoxConstraints(minHeight: 44),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: AppColors.cardBorder),
+            ),
+            child: Text(
+              label,
+              style: const TextStyle(
+                fontSize: 12,
+                color: AppColors.chipLabelText,
+                height: 1.3,
+              ),
             ),
           ),
         ),

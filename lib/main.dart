@@ -15,6 +15,23 @@ class XinXianApp extends StatelessWidget {
       title: '心弦 · 疗愈音乐',
       debugShowCheckedModeBanner: false,
       theme: _buildTheme(),
+      builder: (context, child) {
+        // 移动端浏览器/系统字体缩放会被 Flutter Web 隐式拾取并放大所有文字
+        // （Text 组件内部使用 MediaQuery.textScalerOf），导致行距与 chip 高度异常巨大。
+        // 这里将 textScaler 限制在 [1.0, 1.2]：
+        // - 桌面端默认 1.0，clamp 后不变，布局完全不受影响。
+        // - 移动端过大缩放被限制在 1.2，恢复正常的行距与组件密度，
+        //   同时保留 1.2 倍以内的无障碍放大，不完全禁用辅助功能。
+        return MediaQuery(
+          data: MediaQuery.of(context).copyWith(
+            textScaler: MediaQuery.textScalerOf(context).clamp(
+              minScaleFactor: 1.0,
+              maxScaleFactor: 1.2,
+            ),
+          ),
+          child: child!,
+        );
+      },
       home: const HomeScreen(),
     );
   }
