@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:xinxian_healing_music/models/music_plan.dart';
 import 'package:xinxian_healing_music/screens/feedback_screen.dart';
+import 'package:xinxian_healing_music/widgets/centered_page.dart';
 import 'package:xinxian_healing_music/widgets/param_chip.dart';
 
 /// 播放页：使用 just_audio 播放本地音频。
@@ -80,136 +81,121 @@ class _PlayerScreenState extends State<PlayerScreen>
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final plan = widget.plan;
-    return Scaffold(
+    return CenteredPageScaffold(
       appBar: AppBar(title: const Text('疗愈播放'), centerTitle: true),
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(24, 8, 24, 32),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 640),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                // 模板标题
-                Text(
-                  plan.templateName,
-                  textAlign: TextAlign.center,
-                  style: theme.textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.w300,
-                    letterSpacing: 4,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  plan.guidance,
-                  textAlign: TextAlign.center,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
-                  ),
-                ),
-                const SizedBox(height: 32),
-
-                // 可视化 + 播放按钮
-                _Visualizer(
-                  controller: _visualizer,
-                  color: theme.colorScheme.primary,
-                  child: _PlayButton(
-                    loading: _loading,
-                    error: _error != null,
-                    player: _player,
-                    onTap: _toggle,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                if (_error != null)
-                  Text(
-                    _error!,
-                    textAlign: TextAlign.center,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.error,
-                    ),
-                  )
-                else
-                  Text(
-                    '点击按钮开始播放（浏览器需用户手势触发）',
-                    textAlign: TextAlign.center,
-                    style: theme.textTheme.labelSmall?.copyWith(
-                      color: theme.colorScheme.onSurface.withValues(
-                        alpha: 0.45,
-                      ),
-                    ),
-                  ),
-
-                const SizedBox(height: 24),
-
-                // 进度条 + 时长
-                _ProgressSection(
-                  player: _player,
-                  fmt: _fmt,
-                  enabled: _error == null,
-                ),
-
-                const SizedBox(height: 28),
-
-                // 参数 chips
-                Wrap(
-                  alignment: WrapAlignment.center,
-                  spacing: 10,
-                  runSpacing: 10,
-                  children: [
-                    ParamChip(
-                      label: 'BPM',
-                      value: '${plan.bpm}',
-                      icon: Icons.favorite_rounded,
-                    ),
-                    ParamChip(
-                      label: '频率',
-                      value: plan.frequency,
-                      icon: Icons.graphic_eq_rounded,
-                    ),
-                    ParamChip(
-                      label: '脑波',
-                      value: plan.brainwave,
-                      icon: Icons.waves_rounded,
-                    ),
-                    ParamChip(
-                      label: '乐器',
-                      value: plan.instruments.join(' / '),
-                      icon: Icons.music_note_rounded,
-                    ),
-                    ParamChip(
-                      label: '噪声层',
-                      value: plan.noiseLayer,
-                      icon: Icons.cloud_rounded,
-                    ),
-                  ],
-                ),
-
-                const SizedBox(height: 32),
-                FilledButton.tonalIcon(
-                  onPressed: () {
-                    Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => FeedbackScreen(plan: plan),
-                      ),
-                    );
-                  },
-                  icon: const Icon(Icons.rate_review_rounded),
-                  label: const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 4),
-                    child: Text('完成体验，去反馈'),
-                  ),
-                  style: FilledButton.styleFrom(
-                    minimumSize: const Size.fromHeight(50),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                  ),
-                ),
-              ],
+      padding: const EdgeInsets.fromLTRB(24, 8, 24, 32),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // 模板标题
+          Text(
+            plan.templateName,
+            textAlign: TextAlign.center,
+            style: theme.textTheme.titleLarge?.copyWith(
+              fontWeight: FontWeight.w300,
+              letterSpacing: 4,
             ),
           ),
-        ),
+          const SizedBox(height: 4),
+          Text(
+            plan.guidance,
+            textAlign: TextAlign.center,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+            ),
+          ),
+          const SizedBox(height: 32),
+
+          // 可视化 + 播放按钮
+          _Visualizer(
+            controller: _visualizer,
+            color: theme.colorScheme.primary,
+            child: _PlayButton(
+              loading: _loading,
+              error: _error != null,
+              player: _player,
+              onTap: _toggle,
+            ),
+          ),
+          const SizedBox(height: 12),
+          if (_error != null)
+            Text(
+              _error!,
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.error,
+              ),
+            )
+          else
+            Text(
+              '点击按钮开始播放（浏览器需用户手势触发）',
+              textAlign: TextAlign.center,
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: theme.colorScheme.onSurface.withValues(alpha: 0.45),
+              ),
+            ),
+
+          const SizedBox(height: 24),
+
+          // 进度条 + 时长
+          _ProgressSection(player: _player, fmt: _fmt, enabled: _error == null),
+
+          const SizedBox(height: 28),
+
+          // 参数 chips
+          Wrap(
+            alignment: WrapAlignment.center,
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              ParamChip(
+                label: 'BPM',
+                value: '${plan.bpm}',
+                icon: Icons.favorite_rounded,
+              ),
+              ParamChip(
+                label: '频率',
+                value: plan.frequency,
+                icon: Icons.graphic_eq_rounded,
+              ),
+              ParamChip(
+                label: '脑波',
+                value: plan.brainwave,
+                icon: Icons.waves_rounded,
+              ),
+              ParamChip(
+                label: '乐器',
+                value: plan.instruments.join(' / '),
+                icon: Icons.music_note_rounded,
+              ),
+              ParamChip(
+                label: '噪声层',
+                value: plan.noiseLayer,
+                icon: Icons.cloud_rounded,
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 32),
+          FilledButton.tonalIcon(
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => FeedbackScreen(plan: plan)),
+              );
+            },
+            icon: const Icon(Icons.rate_review_rounded),
+            label: const Padding(
+              padding: EdgeInsets.symmetric(vertical: 4),
+              child: Text('完成体验，去反馈'),
+            ),
+            style: FilledButton.styleFrom(
+              minimumSize: const Size.fromHeight(50),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

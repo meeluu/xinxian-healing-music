@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:xinxian_healing_music/models/music_plan.dart';
 import 'package:xinxian_healing_music/screens/home_screen.dart';
+import 'package:xinxian_healing_music/widgets/centered_page.dart';
 
 /// 反馈表单页：评分 + 紧绷度前后 + 文字反馈 → 感谢页 → 回首页。
 class FeedbackScreen extends StatefulWidget {
@@ -35,21 +36,14 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Scaffold(
+    return CenteredPageScaffold(
       appBar: AppBar(
         title: const Text('体验反馈'),
         centerTitle: true,
         automaticallyImplyLeading: !_submitted,
       ),
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(24, 8, 24, 32),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 560),
-            child: _submitted ? _buildThanks(theme) : _buildForm(theme),
-          ),
-        ),
-      ),
+      padding: const EdgeInsets.fromLTRB(24, 8, 24, 32),
+      child: _submitted ? _buildThanks(theme) : _buildForm(theme),
     );
   }
 
