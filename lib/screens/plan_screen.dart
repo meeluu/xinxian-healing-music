@@ -97,27 +97,27 @@ class PlanScreen extends StatelessWidget {
                     children: [
                       ParamChip(
                         label: 'BPM',
-                        value: '${plan.bpm}',
+                        value: '${plan.features.bpm}',
                         icon: Icons.favorite_rounded,
                       ),
                       ParamChip(
                         label: '基准频率',
-                        value: plan.frequency,
+                        value: plan.features.frequency,
                         icon: Icons.graphic_eq_rounded,
                       ),
                       ParamChip(
                         label: '脑波倾向',
-                        value: plan.brainwave,
+                        value: plan.features.brainwave,
                         icon: Icons.waves_rounded,
                       ),
                       ParamChip(
                         label: '和声色彩',
-                        value: plan.harmony,
+                        value: plan.features.harmony,
                         icon: Icons.music_note_rounded,
                       ),
                       ParamChip(
                         label: '噪声层',
-                        value: plan.noiseLayer,
+                        value: plan.features.noiseLayer,
                         icon: Icons.cloud_rounded,
                       ),
                       ParamChip(
@@ -140,7 +140,7 @@ class PlanScreen extends StatelessWidget {
                     spacing: 8,
                     runSpacing: 8,
                     children: [
-                      for (final ins in plan.instruments)
+                      for (final ins in plan.features.instruments)
                         InstrumentChip(label: ins),
                     ],
                   ),

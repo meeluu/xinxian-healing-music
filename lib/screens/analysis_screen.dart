@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:xinxian_healing_music/pipeline/mock/mock_pipeline_factory.dart';
 import 'package:xinxian_healing_music/screens/plan_screen.dart';
-import 'package:xinxian_healing_music/services/mood_analyzer.dart';
 import 'package:xinxian_healing_music/theme/app_colors.dart';
 import 'package:xinxian_healing_music/widgets/centered_page.dart';
 
@@ -36,7 +36,8 @@ class _AnalysisScreenState extends State<AnalysisScreen>
       }
       await Future.delayed(const Duration(milliseconds: 450));
       if (!mounted) return;
-      final plan = const MoodAnalyzer().analyze(widget.moodText);
+      final plan = await mockPipeline.run(widget.moodText);
+      if (!mounted) return;
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(
           builder: (_) => PlanScreen(moodText: widget.moodText, plan: plan),

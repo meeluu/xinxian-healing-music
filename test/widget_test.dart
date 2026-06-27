@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:xinxian_healing_music/main.dart';
-import 'package:xinxian_healing_music/services/mood_analyzer.dart';
+import 'package:xinxian_healing_music/models/mood_input.dart';
+import 'package:xinxian_healing_music/pipeline/mock/mock_mood_analyzer.dart';
 
 void main() {
   testWidgets('首页可输入心境并跳转解析页', (WidgetTester tester) async {
@@ -38,14 +39,22 @@ void main() {
     expect(find.text('432Hz'), findsWidgets);
   });
 
-  test('MoodAnalyzer 关键词匹配命中"高压焦虑型"', () {
-    final plan = const MoodAnalyzer().analyze('最近备考压力很大，焦虑得睡不着');
-    expect(plan.templateName, '高压焦虑型');
-    expect(plan.frequency, '432Hz');
+  test('MockMoodAnalyzer 关键词匹配命中"高压焦虑型"画像', () async {
+    final profile = await const MockMoodAnalyzer().analyze(
+      MoodInput(text: '最近备考压力很大，焦虑得睡不着', timestamp: DateTime.now()),
+    );
+    // 高压焦虑型 tags 含"焦虑"，valence=-0.4，arousal=0.8
+    expect(profile.tags, contains('焦虑'));
+    expect(profile.valence, -0.4);
+    expect(profile.arousal, 0.8);
   });
 
-  test('MoodAnalyzer 无命中时回退到"平衡调和型"', () {
-    final plan = const MoodAnalyzer().analyze('今天天气不错');
-    expect(plan.templateName, '平衡调和型');
+  test('MockMoodAnalyzer 无命中时回退到"平衡调和型"画像', () async {
+    final profile = await const MockMoodAnalyzer().analyze(
+      MoodInput(text: '今天天气不错', timestamp: DateTime.now()),
+    );
+    // 平衡调和型 valence=0.2，arousal=0.4
+    expect(profile.valence, 0.2);
+    expect(profile.arousal, 0.4);
   });
 }

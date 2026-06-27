@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:xinxian_healing_music/models/feedback_record.dart';
 import 'package:xinxian_healing_music/models/music_plan.dart';
+import 'package:xinxian_healing_music/pipeline/mock/mock_pipeline_factory.dart';
 import 'package:xinxian_healing_music/screens/home_screen.dart';
 import 'package:xinxian_healing_music/theme/app_colors.dart';
 import 'package:xinxian_healing_music/widgets/centered_page.dart';
@@ -175,7 +177,20 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
         FilledButton.icon(
           onPressed: _rating == 0
               ? null
-              : () => setState(() => _submitted = true),
+              : () async {
+                  final record = FeedbackRecord(
+                    sessionId: '${DateTime.now().millisecondsSinceEpoch}',
+                    rating: _rating,
+                    tensionBefore: _before,
+                    tensionAfter: _after,
+                    note: _note.text.trim().isEmpty ? null : _note.text.trim(),
+                    completed: false,
+                    createdAt: DateTime.now(),
+                  );
+                  await mockFeedbackRepository.save(record);
+                  if (!mounted) return;
+                  setState(() => _submitted = true);
+                },
           icon: const Icon(Icons.send_rounded, size: 20),
           label: const Padding(
             padding: EdgeInsets.symmetric(vertical: 4),

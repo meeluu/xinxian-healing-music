@@ -55,7 +55,9 @@ class _PlayerScreenState extends State<PlayerScreen>
 
   Future<void> _initAudio() async {
     try {
-      await _player.setAudioSource(AudioSource.asset(widget.plan.audioAsset));
+      await _player.setAudioSource(
+        AudioSource.asset(widget.plan.audio.assetPath),
+      );
       if (!mounted) return;
       setState(() => _loading = false);
     } catch (e) {
@@ -170,27 +172,27 @@ class _PlayerScreenState extends State<PlayerScreen>
             children: [
               ParamChip(
                 label: 'BPM',
-                value: '${plan.bpm}',
+                value: '${plan.features.bpm}',
                 icon: Icons.favorite_rounded,
               ),
               ParamChip(
                 label: '频率',
-                value: plan.frequency,
+                value: plan.features.frequency,
                 icon: Icons.graphic_eq_rounded,
               ),
               ParamChip(
                 label: '脑波',
-                value: plan.brainwave,
+                value: plan.features.brainwave,
                 icon: Icons.waves_rounded,
               ),
               ParamChip(
                 label: '乐器',
-                value: plan.instruments.join(' / '),
+                value: plan.features.instruments.join(' / '),
                 icon: Icons.music_note_rounded,
               ),
               ParamChip(
                 label: '噪声层',
-                value: plan.noiseLayer,
+                value: plan.features.noiseLayer,
                 icon: Icons.cloud_rounded,
               ),
             ],
