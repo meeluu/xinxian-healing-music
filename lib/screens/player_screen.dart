@@ -45,7 +45,12 @@ class _PlayerScreenState extends State<PlayerScreen>
         if (_visualizer.isAnimating) _visualizer.stop();
       }
     });
-    _initAudio();
+    // 延迟到首帧绘制后再加载音频：
+    // 路由转场期间不与音频加载（setAudioSource 会触发浏览器拉取/解码音频）
+    // 竞争主线程，避免进入播放页时掉帧卡顿。首帧先用 _loading 态渲染完整 UI。
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _initAudio();
+    });
   }
 
   Future<void> _initAudio() async {
@@ -121,13 +126,16 @@ class _PlayerScreenState extends State<PlayerScreen>
           const SizedBox(height: 32),
 
           // 可视化 + 播放按钮
-          _Visualizer(
-            controller: _visualizer,
-            child: _PlayButton(
-              loading: _loading,
-              error: _error != null,
-              player: _player,
-              onTap: _toggle,
+          // RepaintBoundary 隔离播放可视化动画，避免动画期间整页重绘。
+          RepaintBoundary(
+            child: _Visualizer(
+              controller: _visualizer,
+              child: _PlayButton(
+                loading: _loading,
+                error: _error != null,
+                player: _player,
+                onTap: _toggle,
+              ),
             ),
           ),
           const SizedBox(height: 14),
