@@ -4,6 +4,10 @@ import 'package:flutter/material.dart';
 ///
 /// 用于首页品牌区域，营造"被陪伴"的呼吸氛围。
 /// 周期默认 4s，颜色透明度很低，不会闪烁或抢戏。
+///
+/// 布局解耦：外层用固定尺寸 [SizedBox] 占位，内部所有动画都用
+/// `Transform.scale` / 固定尺寸 Container（paint-time 变换），
+/// 绝不改变 width/height，因此不会挤压父布局、不会让下方文字上下浮动。
 class BreathingHalo extends StatefulWidget {
   final Color color;
   final double size;
@@ -39,34 +43,44 @@ class _BreathingHaloState extends State<BreathingHalo>
 
   @override
   Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _c,
-      builder: (context, _) {
-        final t = _c.value; // 0..1..0
-        return Stack(
-          alignment: Alignment.center,
-          children: [
-            // 外层柔光：缓慢扩张
-            Container(
-              width: widget.size * (0.85 + t * 0.3),
-              height: widget.size * (0.85 + t * 0.3),
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: widget.color.withValues(alpha: 0.06 + t * 0.07),
+    // 固定布局尺寸：父级只会看到这个固定的 size×size 占位，
+    // 内部动画全部用 Transform.scale（paint-time），不会改变布局。
+    return SizedBox(
+      width: widget.size,
+      height: widget.size,
+      child: AnimatedBuilder(
+        animation: _c,
+        builder: (context, _) {
+          final t = _c.value; // 0..1..0
+          return Stack(
+            alignment: Alignment.center,
+            clipBehavior: Clip.none,
+            children: [
+              // 外层柔光：Transform.scale 缩放（不影响布局）
+              Transform.scale(
+                scale: 0.85 + t * 0.3,
+                child: Container(
+                  width: widget.size,
+                  height: widget.size,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: widget.color.withValues(alpha: 0.06 + t * 0.07),
+                  ),
+                ),
               ),
-            ),
-            // 内层底色
-            Container(
-              width: widget.size * 0.62,
-              height: widget.size * 0.62,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: widget.color.withValues(alpha: 0.05),
+              // 内层底色（固定尺寸）
+              Container(
+                width: widget.size * 0.62,
+                height: widget.size * 0.62,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: widget.color.withValues(alpha: 0.05),
+                ),
               ),
-            ),
-          ],
-        );
-      },
+            ],
+          );
+        },
+      ),
     );
   }
 }

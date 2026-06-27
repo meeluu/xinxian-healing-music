@@ -5,6 +5,7 @@ import 'package:xinxian_healing_music/theme/app_colors.dart';
 import 'package:xinxian_healing_music/widgets/app_card.dart';
 import 'package:xinxian_healing_music/widgets/centered_page.dart';
 import 'package:xinxian_healing_music/widgets/fade_slide_item.dart';
+import 'package:xinxian_healing_music/widgets/instrument_chip.dart';
 import 'package:xinxian_healing_music/widgets/param_chip.dart';
 
 /// 方案展示页：情绪画像 + 音乐参数 + 引导语 + 进入播放。
@@ -140,11 +141,7 @@ class PlanScreen extends StatelessWidget {
                     runSpacing: 8,
                     children: [
                       for (final ins in plan.instruments)
-                        Chip(
-                          label: Text(ins),
-                          avatar: const Icon(Icons.music_note, size: 16),
-                          visualDensity: VisualDensity.compact,
-                        ),
+                        InstrumentChip(label: ins),
                     ],
                   ),
                 ],

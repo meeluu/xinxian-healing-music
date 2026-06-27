@@ -28,6 +28,7 @@ class AppColors {
   static const Color textPrimary = Color(0xFF243447); // 深灰蓝
   static const Color textSecondary = Color(0xFF64748B); // 次要灰
   static const Color textMuted = Color(0xFF94A3B8); // 弱化
+  static const Color chipLabelText = Color(0xFF5B7088); // chip 内文字（实色）
 
   // —— 卡片 ——
   static const Color cardBg = Color(0xFFFFFFFF);

@@ -93,7 +93,8 @@ class XinXianApp extends StatelessWidget {
       ),
       chipTheme: ChipThemeData(
         backgroundColor: const Color(0xFFEEF4FA),
-        labelStyle: const TextStyle(color: AppColors.textSecondary),
+        surfaceTintColor: Colors.transparent,
+        labelStyle: const TextStyle(color: AppColors.chipLabelText),
         side: const BorderSide(color: AppColors.cardBorder),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
       ),

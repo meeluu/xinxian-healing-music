@@ -137,15 +137,9 @@ class _HomeScreenState extends State<HomeScreen> {
             runSpacing: 8,
             children: [
               for (final ex in _examples)
-                ActionChip(
-                  label: Text(ex),
-                  labelStyle: const TextStyle(
-                    fontSize: 12,
-                    color: AppColors.textSecondary,
-                  ),
-                  backgroundColor: const Color(0xFFEEF4FA),
-                  side: const BorderSide(color: AppColors.cardBorder),
-                  onPressed: () {
+                _ExampleChip(
+                  label: ex,
+                  onTap: () {
                     _controller.text = ex;
                     _controller.selection = TextSelection.collapsed(
                       offset: ex.length,
@@ -180,6 +174,45 @@ class _HomeScreenState extends State<HomeScreen> {
             style: TextStyle(fontSize: 11, color: AppColors.textMuted),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// 首页示例心境 chip：纯实色文字，无 M3 表面着色 / 无渐变 / 无 ShaderMask。
+///
+/// 用 `Material` + `InkWell` + `Container` 手写，避免 `ActionChip` 在
+/// Material 3 下的 surface tint / tonal 渲染导致文字看起来有深浅渐变。
+/// 文字颜色固定为 [AppColors.chipLabelText]（#5B7088），背景固定浅蓝白实色。
+class _ExampleChip extends StatelessWidget {
+  final String label;
+  final VoidCallback onTap;
+
+  const _ExampleChip({required this.label, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: const Color(0xFFEEF4FA),
+      borderRadius: BorderRadius.circular(10),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(10),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: AppColors.cardBorder),
+          ),
+          child: Text(
+            label,
+            style: const TextStyle(
+              fontSize: 12,
+              color: AppColors.chipLabelText,
+              height: 1.3,
+            ),
+          ),
+        ),
       ),
     );
   }

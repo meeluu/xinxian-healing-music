@@ -120,16 +120,8 @@ class _AnalysisScreenState extends State<AnalysisScreen>
           const SizedBox(height: 40),
           AnimatedSwitcher(
             duration: const Duration(milliseconds: 360),
-            transitionBuilder: (child, anim) => FadeTransition(
-              opacity: anim,
-              child: SlideTransition(
-                position: Tween<Offset>(
-                  begin: const Offset(0, 0.15),
-                  end: Offset.zero,
-                ).animate(anim),
-                child: child,
-              ),
-            ),
+            transitionBuilder: (child, anim) =>
+                FadeTransition(opacity: anim, child: child),
             child: Text(
               _lines[_lineIndex],
               key: ValueKey(_lineIndex),

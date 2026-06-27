@@ -6,9 +6,9 @@ import 'package:xinxian_healing_music/theme/app_colors.dart';
 /// 结构：
 ///   Scaffold
 ///     └─ 背景渐变 Container（默认柔和 bgBlue→bgBase，可覆盖）
-///        └─ SafeArea
-///           └─ [_EnterAnim]（fade in + slide up，440ms easeOutCubic）
-///              └─ Align(alignment)
+///     └─ SafeArea
+///        └─ [_EnterAnim]（fade in，440ms easeOutCubic）
+///           └─ Align(alignment)
 ///                 └─ ConstrainedBox(maxWidth 760)
 ///                    └─ SingleChildScrollView
 ///                       └─ Padding(横向 24)
@@ -60,15 +60,12 @@ class CenteredPageScaffold extends StatelessWidget {
       child: SafeArea(child: content),
     );
 
-    return Scaffold(
-      appBar: appBar,
-      body: body,
-    );
+    return Scaffold(appBar: appBar, body: body);
   }
 }
 
-/// 全局页面入场动效：fade in + 轻微 slide up。
-/// 仅 paint-time 变换，不影响布局。
+/// 全局页面入场动效：仅 fade in。
+/// 不对正文/按钮做位移，避免文字与按钮上下浮动影响阅读和点击。
 class _EnterAnim extends StatelessWidget {
   final Widget child;
   const _EnterAnim({required this.child});
@@ -80,13 +77,7 @@ class _EnterAnim extends StatelessWidget {
       duration: const Duration(milliseconds: 440),
       curve: Curves.easeOutCubic,
       builder: (context, value, child) {
-        return Opacity(
-          opacity: value,
-          child: Transform.translate(
-            offset: Offset(0, 22 * (1 - value)),
-            child: child,
-          ),
-        );
+        return Opacity(opacity: value, child: child);
       },
       child: child,
     );
