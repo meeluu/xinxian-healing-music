@@ -178,6 +178,27 @@ music/
 └── music_01.mp3                   # 本地疗愈音频素材
 ```
 
-## 十一、免责声明
+## 十一、平台支持与初赛提交说明
+
+### 当前初赛以 Web Demo 为主
+
+初赛提交以 **Web Demo** 为主要体验入口。执行 `flutter build web --release` 后，产物位于 `build/web/`，可作为静态网站直接部署（Netlify Drop / Vercel / GitHub Pages 等），无需后端服务。
+
+部署后建议验证的体验闭环：心境输入 → 情绪解析 → 疗愈方案 → 进入播放页 → 点击播放按钮听到音频 → 进度条推进 → 完成体验去反馈。
+
+### Android 构建兼容性说明
+
+Android 构建当前存在**上游插件与 Gradle 9 的兼容性问题**，暂不作为初赛阻塞项：
+
+- 项目使用 Flutter 3.44.4 stable，其模板生成的 Android 工具链为 Gradle 9.1.0 + Android Gradle Plugin 9.0.1 + Kotlin 2.3.20。
+- 依赖 `just_audio`（及其传递依赖 `audio_session`）的 Android 构建脚本自带旧版 AGP 8.5.2，该版本内部引用了 `org.gradle.util.VersionNumber`，而该类在 Gradle 9.0 中已被移除，导致 Android 构建时报 `NoClassDefFoundError: org/gradle/util/VersionNumber`。
+- `just_audio` / `audio_session` 已是当前最新版本，暂无可升级的修复版本，属于上游插件尚未适配新版 Gradle 的不兼容。
+- 该问题**仅影响 Android 构建，完全不影响 Web Demo 的构建与体验**，Web 端音频播放、UI、动效均正常。
+
+### Web / Android 互不影响
+
+Web 与 Android 的构建链路相互独立：Android 的 Gradle 配置不参与 `flutter build web`，Web 产物中已正确包含音频资源（`build/web/assets/music/music_01.mp3`）。因此 Android 暂时无法构建不会影响初赛 Web Demo 的提交与体验。
+
+## 十二、免责声明
 
 本项目为高校竞赛 Demo 原型，定位为情绪调节与正念放松辅助工具，提供的音乐体验不具备医疗诊断或治疗功能，不替代专业心理咨询与医疗建议。如有严重情绪困扰或睡眠障碍，请及时寻求专业医师帮助。
