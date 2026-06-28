@@ -1,13 +1,16 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:xinxian_healing_music/main.dart' show bootstrapServices;
 import 'package:xinxian_healing_music/models/mood_input.dart';
 import 'package:xinxian_healing_music/models/mood_profile.dart';
 import 'package:xinxian_healing_music/models/music_plan.dart';
+import 'package:xinxian_healing_music/pipeline/healing_pipeline.dart';
 import 'package:xinxian_healing_music/pipeline/llm/llm_consent_service.dart';
 import 'package:xinxian_healing_music/pipeline/llm/mood_analyzer_gateway.dart';
 import 'package:xinxian_healing_music/pipeline/mock/mock_mood_analyzer.dart';
 import 'package:xinxian_healing_music/pipeline/mock/mock_pipeline_factory.dart';
 import 'package:xinxian_healing_music/pipeline/ports/mood_analyzer_port.dart';
+import 'package:xinxian_healing_music/pipeline/services.dart';
 
 void main() {
   setUp(() {
@@ -231,6 +234,142 @@ void main() {
       final restored = HealingMusicPlan.fromJson(json);
       expect(restored.analyzerSource, 'llm');
     });
+  });
+
+  group('consent 双向切换（解析设置弹窗）', () {
+    // 这组测试验证：无论当前状态是 declined 还是 accepted，
+    // 用户都能通过"解析设置"弹窗切换到另一个状态。
+    // HomeScreen._showConsentDialog 不检查当前状态，直接弹窗让用户选择，
+    // 所以这里只验证 LlmConsentService.setStatus 的双向切换语义。
+
+    test('declined 状态下仍可切换到 accepted', () async {
+      final prefs = await SharedPreferences.getInstance();
+      final consent = await LlmConsentService.create(prefs);
+      await consent.setStatus(LlmConsentStatus.declined);
+      expect(consent.status, LlmConsentStatus.declined);
+      expect(consent.isAccepted, isFalse);
+
+      // 模拟用户在"解析设置"弹窗中点"同意 AI 解析"
+      await consent.setStatus(LlmConsentStatus.accepted);
+      expect(consent.status, LlmConsentStatus.accepted);
+      expect(consent.isAccepted, isTrue);
+
+      // 重启后仍是 accepted
+      final consent2 = await LlmConsentService.create(prefs);
+      expect(consent2.status, LlmConsentStatus.accepted);
+      expect(consent2.isAccepted, isTrue);
+    });
+
+    test('accepted 状态下仍可切换到 declined', () async {
+      final prefs = await SharedPreferences.getInstance();
+      final consent = await LlmConsentService.create(prefs);
+      await consent.setStatus(LlmConsentStatus.accepted);
+      expect(consent.isAccepted, isTrue);
+
+      // 模拟用户在"解析设置"弹窗中点"仅使用本地解析"
+      await consent.setStatus(LlmConsentStatus.declined);
+      expect(consent.status, LlmConsentStatus.declined);
+      expect(consent.isAccepted, isFalse);
+
+      // 重启后仍是 declined
+      final consent2 = await LlmConsentService.create(prefs);
+      expect(consent2.status, LlmConsentStatus.declined);
+      expect(consent2.isAccepted, isFalse);
+    });
+
+    test('unknown → accepted → declined → accepted 多次切换均持久化', () async {
+      final prefs = await SharedPreferences.getInstance();
+      final consent = await LlmConsentService.create(prefs);
+      expect(consent.status, LlmConsentStatus.unknown);
+
+      await consent.setStatus(LlmConsentStatus.accepted);
+      expect(
+        (await LlmConsentService.create(prefs)).status,
+        LlmConsentStatus.accepted,
+      );
+
+      await consent.setStatus(LlmConsentStatus.declined);
+      expect(
+        (await LlmConsentService.create(prefs)).status,
+        LlmConsentStatus.declined,
+      );
+
+      await consent.setStatus(LlmConsentStatus.accepted);
+      expect(
+        (await LlmConsentService.create(prefs)).status,
+        LlmConsentStatus.accepted,
+      );
+    });
+  });
+
+  group('bootstrapServices 装配（main.dart 初始化）', () {
+    // 保存默认全局变量，测试后恢复，避免污染其他测试。
+    // 用普通可空变量（非 late final），否则多次 setUp 会报 LateInitializationError。
+    HealingPipeline? defaultPipeline;
+    dynamic defaultRecorder;
+    dynamic defaultFeedback;
+
+    setUp(() {
+      SharedPreferences.setMockInitialValues({});
+      defaultPipeline = activePipeline;
+      defaultRecorder = sessionRecorder;
+      defaultFeedback = feedbackRepository;
+    });
+
+    tearDown(() {
+      // 恢复默认 mock 实现
+      activePipeline = defaultPipeline ?? mockPipeline;
+      sessionRecorder = defaultRecorder;
+      feedbackRepository = defaultFeedback;
+      llmConsentService = null;
+      moodAnalyzerGateway = null;
+    });
+
+    test('bootstrapServices 后 activePipeline 不是纯 mockPipeline', () async {
+      await bootstrapServices();
+
+      // activePipeline 应被替换为带 gateway 的新实例，不再是默认 mockPipeline
+      expect(identical(activePipeline, mockPipeline), isFalse);
+      expect(moodAnalyzerGateway, isNotNull);
+      expect(llmConsentService, isNotNull);
+    });
+
+    test('bootstrapServices 后 llmConsentService 状态为 unknown（首次）', () async {
+      await bootstrapServices();
+      expect(llmConsentService, isNotNull);
+      expect(llmConsentService!.status, LlmConsentStatus.unknown);
+      expect(llmConsentService!.needsPrompt, isTrue);
+    });
+
+    test('bootstrapServices 后 consent 持久化能读回', () async {
+      // 第一次启动：用户同意
+      await bootstrapServices();
+      await llmConsentService!.setStatus(LlmConsentStatus.accepted);
+
+      // 模拟刷新页面：重新 bootstrapServices
+      // 先重置全局变量（模拟页面刷新后的初始状态）
+      llmConsentService = null;
+      moodAnalyzerGateway = null;
+      activePipeline = mockPipeline;
+      await bootstrapServices();
+
+      // consent 状态应从 shared_preferences 读回
+      expect(llmConsentService, isNotNull);
+      expect(llmConsentService!.status, LlmConsentStatus.accepted);
+      expect(llmConsentService!.isAccepted, isTrue);
+    });
+
+    test(
+      'bootstrapServices 后 gateway 与 activePipeline 共享同一 consentService',
+      () async {
+        await bootstrapServices();
+        expect(moodAnalyzerGateway, isNotNull);
+        expect(
+          identical(moodAnalyzerGateway!.consentService, llmConsentService),
+          isTrue,
+        );
+      },
+    );
   });
 }
 

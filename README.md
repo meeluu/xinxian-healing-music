@@ -229,6 +229,83 @@ Web 与 Android 的构建链路相互独立：Android 的 Gradle 配置不参与
 - 清除浏览器数据 / 卸载应用后，本地记录将丢失。
 - 浏览器隐私 / 无痕模式下本地持久化可能不可用，应用会回退到内存态运行（重启后丢失），不影响 Demo 体验。
 
+### Web 端 localStorage 按 origin 隔离（重要）
+
+Flutter Web 的 `shared_preferences` 底层使用浏览器 `localStorage`，**按 origin 隔离**：
+
+- `https://xinxian-music.xyz` 与 `https://www.xinxian-music.xyz` 是不同 origin，历史记录不共享。
+- `https://xinxian-healing-music.pages.dev` 与每次部署生成的 `https://xxxx.xinxian-healing-music.pages.dev` 是不同 origin，历史记录不共享。
+- 同理，AI 解析的同意状态（accepted/declined）也按 origin 隔离，不同子域名下需要重新选择。
+
+因此验证体验时请**始终使用稳定域名**：
+
+- Netlify 稳定域名：`https://www.xinxian-music.xyz`
+- Cloudflare Pages 稳定域名：`https://xinxian-healing-music.pages.dev`
+
+不要使用 `wrangler pages deploy` 每次返回的临时部署域名（形如 `https://abc12345.xinxian-healing-music.pages.dev`），否则刷新页面后历史记录和同意状态会"消失"（实际是落在了不同 origin 的 localStorage 中）。
+
+## 十二·补、Cloudflare Pages 部署说明
+
+### 稳定域名
+
+Cloudflare Pages 测试站稳定域名：`https://xinxian-healing-music.pages.dev`
+
+每次 `wrangler pages deploy` 还会生成一个临时部署域名（形如 `https://<commit-hash>.xinxian-healing-music.pages.dev`），**仅用于预览某次部署**，不要用于日常体验（localStorage 按 origin 隔离，历史记录不共享）。
+
+### 环境变量配置
+
+在 Cloudflare Pages Dashboard → 项目 → Settings → Environment variables 中配置：
+
+| 变量名 | 说明 | 示例 |
+| --- | --- | --- |
+| `OPENAI_API_KEY` | LLM API Key（必填，不提交到代码） | `sk-...` |
+| `OPENAI_BASE_URL` | OpenAI-compatible API 地址 | `https://api.deepseek.com` |
+| `OPENAI_MODEL` | 模型名 | `deepseek-chat` |
+| `ENABLE_LLM` | 是否启用 LLM（`false` 时强制 fallback） | `true` |
+
+### 本地测试
+
+```bash
+# 1. 构建 Flutter Web 产物
+flutter build web --release
+
+# 2. 用 wrangler 本地预览（读取 .dev.vars 中的环境变量）
+npx wrangler pages dev build/web
+```
+
+### 部署到 Cloudflare Pages 测试站
+
+```bash
+# 1. 构建 Flutter Web 产物（会自动复制 web/_redirects 到 build/web/）
+flutter build web --release
+
+# 2. 部署到 production 分支（绑定到稳定域名 xinxian-healing-music.pages.dev）
+npx wrangler pages deploy build/web --project-name=xinxian-healing-music --branch=main
+```
+
+### 验证 /api/analyze-mood
+
+```bash
+curl -X POST https://xinxian-healing-music.pages.dev/api/analyze-mood \
+  -H "Content-Type: application/json" \
+  -d '{"text":"最近备考压力很大，晚上睡不着"}'
+```
+
+预期返回 `{ "ok": true, "source": "llm", "mood": {...} }` 或 fallback 响应。
+
+### 启动自检日志
+
+App 启动时会在浏览器 Console 输出以下自检日志（仅 debugPrint，不影响 UI）：
+
+```
+[Startup] SharedPreferences ready: true
+[Startup] sessionRecorder type: LocalListeningSessionRecorder
+[Startup] llmConsentService status: LlmConsentStatus.unknown
+[Startup] activePipeline analyzer mode: gateway
+```
+
+如果 `llmConsentService status: null` 或 `activePipeline analyzer mode: mock`，说明初始化失败，可向上查看具体哪一步抛了异常。
+
 ## 十三、免责声明
 
 本项目为高校竞赛 Demo 原型，定位为情绪调节与正念放松辅助工具，提供的音乐体验不具备医疗诊断或治疗功能，不替代专业心理咨询与医疗建议。如有严重情绪困扰或睡眠障碍，请及时寻求专业医师帮助。

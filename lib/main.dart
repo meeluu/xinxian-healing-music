@@ -11,52 +11,117 @@ import 'package:xinxian_healing_music/pipeline/services.dart';
 import 'package:xinxian_healing_music/screens/home_screen.dart';
 import 'package:xinxian_healing_music/theme/app_colors.dart';
 
-void main() async {
-  // shared_preferences 是平台插件，需要初始化 binding
-  WidgetsFlutterBinding.ensureInitialized();
-
-  // 尝试装配 shared_preferences 本地持久化实现；
-  // 失败时（隐私模式 / 平台不支持 / 损坏）保持默认 mock 内存态，Demo 仍可用。
+/// 装配运行时服务（SharedPreferences / 本地仓储 / LLM 同意状态 / Pipeline 网关）。
+///
+/// 拆分为独立 try/catch 块，任一步骤失败不影响其他步骤：
+/// - SharedPreferences 失败 → 后续都保持默认 mock
+/// - sessionRecorder 失败 → feedbackRepository / consentService 仍可继续
+/// - feedbackRepository 失败 → consentService 仍可继续
+/// - consentService 失败 → gateway 保持 null，activePipeline 保持 mockPipeline
+///
+/// 每个步骤都有 debugPrint 自检日志，便于 Cloudflare Pages / Netlify 环境下诊断。
+/// 失败不静默：日志明确输出失败原因，但 UI 仍可用（回退 mock）。
+///
+/// 提取为顶层函数便于在测试中直接调用验证装配结果。
+Future<void> bootstrapServices() async {
+  // ─── 1. SharedPreferences（后续步骤的前置依赖）───
+  SharedPreferences? prefs;
   try {
-    final prefs = await SharedPreferences.getInstance();
-    // 诊断 1：确认 SharedPreferences 读写正常
+    prefs = await SharedPreferences.getInstance();
+    // 诊断写读：确认 localStorage 可用（Web 端按 origin 隔离）
     await prefs.setString(
       'xinxian.diagnostic',
       'ok-${DateTime.now().millisecondsSinceEpoch}',
     );
     final diag = prefs.getString('xinxian.diagnostic');
-    debugPrint('[M3] diagnostic: SharedPreferences read back = "$diag"');
+    debugPrint('[Startup] SharedPreferences ready: true, diag="$diag"');
+  } catch (e, st) {
+    debugPrint('[Startup] SharedPreferences 失败: $e');
+    debugPrint('$st');
+  }
 
+  if (prefs == null) {
+    debugPrint('[Startup] SharedPreferences 不可用，全部保持默认 mock 实现');
+    debugPrint(
+      '[Startup] 自检汇总: prefs=false, recorder=${sessionRecorder.runtimeType}, '
+      'consent=null, pipeline=mock',
+    );
+    return;
+  }
+
+  // ─── 2. sessionRecorder（独立 try/catch，失败不影响后续）───
+  try {
     sessionRecorder = await LocalListeningSessionRecorder.create(prefs);
     debugPrint(
-      '[M3] sessionRecorder 装配完成: type=${sessionRecorder.runtimeType}, '
+      '[Startup] sessionRecorder 装配完成: type=${sessionRecorder.runtimeType}, '
       'loaded=${sessionRecorder.all().length} sessions',
     );
+  } catch (e, st) {
+    debugPrint('[Startup] sessionRecorder 装配失败，保持 mock: $e');
+    debugPrint('$st');
+  }
 
+  // ─── 3. feedbackRepository（独立 try/catch）───
+  try {
     feedbackRepository = await LocalFeedbackRepository.create(prefs);
     debugPrint(
-      '[M3] feedbackRepository 装配完成: type=${feedbackRepository.runtimeType}',
+      '[Startup] feedbackRepository 装配完成: type=${feedbackRepository.runtimeType}',
     );
+  } catch (e, st) {
+    debugPrint('[Startup] feedbackRepository 装配失败，保持 mock: $e');
+    debugPrint('$st');
+  }
 
-    // M4B: 装配 LLM 同意状态服务 + 情绪解析网关
+  // ─── 4. llmConsentService（独立 try/catch）───
+  try {
     llmConsentService = await LlmConsentService.create(prefs);
     debugPrint(
-      '[M4B] llmConsentService 装配完成: status=${llmConsentService!.status}',
+      '[Startup] llmConsentService 装配完成: status=${llmConsentService!.status}',
     );
-
-    moodAnalyzerGateway = MoodAnalyzerGateway(
-      llmAnalyzer: const LlmMoodAnalyzer(),
-      mockAnalyzer: const MockMoodAnalyzer(),
-      consentService: llmConsentService!,
-    );
-    // 用 gateway 替换默认的 mockPipeline，激活 LLM 解析 + 自动 fallback
-    activePipeline = buildPipelineWith(moodAnalyzerGateway!);
-    debugPrint('[M4B] activePipeline 已切换为带 MoodAnalyzerGateway 的版本');
   } catch (e, st) {
-    debugPrint('[M3] 初始化失败，fallback 到 Mock: $e');
+    debugPrint('[Startup] llmConsentService 装配失败，保持 null: $e');
     debugPrint('$st');
-    // 保持 services.dart 中默认的 mock 实现 + activePipeline 默认指向 mockPipeline
   }
+
+  // ─── 5. moodAnalyzerGateway + activePipeline（仅当 consentService 装配成功）───
+  if (llmConsentService != null) {
+    try {
+      moodAnalyzerGateway = MoodAnalyzerGateway(
+        llmAnalyzer: const LlmMoodAnalyzer(),
+        mockAnalyzer: const MockMoodAnalyzer(),
+        consentService: llmConsentService!,
+      );
+      activePipeline = buildPipelineWith(moodAnalyzerGateway!);
+      debugPrint('[Startup] activePipeline 已切换为带 MoodAnalyzerGateway 的版本');
+    } catch (e, st) {
+      debugPrint(
+        '[Startup] moodAnalyzerGateway 装配失败，activePipeline 保持 mock: $e',
+      );
+      debugPrint('$st');
+    }
+  } else {
+    debugPrint(
+      '[Startup] llmConsentService 为 null，跳过 gateway 装配，activePipeline 保持 mock',
+    );
+  }
+
+  // ─── 启动自检汇总（仅 debugPrint，不显示到 UI）───
+  final analyzerMode = moodAnalyzerGateway != null ? 'gateway' : 'mock';
+  debugPrint('[Startup] ===== 自检汇总 =====');
+  debugPrint('[Startup] SharedPreferences ready: true');
+  debugPrint('[Startup] sessionRecorder type: ${sessionRecorder.runtimeType}');
+  debugPrint(
+    '[Startup] llmConsentService status: ${llmConsentService?.status ?? "null"}',
+  );
+  debugPrint('[Startup] activePipeline analyzer mode: $analyzerMode');
+  debugPrint('[Startup] ======================');
+}
+
+void main() async {
+  // shared_preferences 是平台插件，需要初始化 binding
+  WidgetsFlutterBinding.ensureInitialized();
+
+  await bootstrapServices();
 
   runApp(const XinXianApp());
 }

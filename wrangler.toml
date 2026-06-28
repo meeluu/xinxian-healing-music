@@ -22,5 +22,5 @@ pages_build_output_dir = "build/web"
 # ─── 非敏感环境变量（敏感的 OPENAI_API_KEY 在 Dashboard 配置）───
 [vars]
 OPENAI_BASE_URL = "https://api.deepseek.com"
-OPENAI_MODEL = "deepseek-chat"
+OPENAI_MODEL = "deepseek-v4-flash"
 ENABLE_LLM = "true"
