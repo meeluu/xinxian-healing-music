@@ -300,20 +300,24 @@ class _HomeScreenState extends State<HomeScreen> {
           const SizedBox(height: 12),
           // 版本号小字：点击打开"关于"对话框，展示完整运行时信息。
           // 不影响主视觉，弱化颜色 + 小号字体，但必须可见以便线上排查版本。
-          GestureDetector(
-            onTap: _showAboutDialog,
-            behavior: HitTestBehavior.opaque,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 4),
-              child: Text(
-                AppVersion.shortLine,
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  fontSize: 10,
-                  color: AppColors.textMuted,
-                  letterSpacing: 0.3,
-                  height: 1.4,
-                ),
+          // 用 TextButton 替代 GestureDetector + HitTestBehavior.opaque：
+          // 后者在 Flutter Web debug 下会创建大范围 hit test 区域，
+          // 鼠标 hover 时触发 mouse_tracker.dart:199 断言循环。
+          TextButton(
+            onPressed: _showAboutDialog,
+            style: TextButton.styleFrom(
+              padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
+              minimumSize: const Size(0, 28),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+            child: Text(
+              AppVersion.shortLine,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: 10,
+                color: AppColors.textMuted,
+                letterSpacing: 0.3,
+                height: 1.4,
               ),
             ),
           ),
@@ -328,7 +332,12 @@ class _HomeScreenState extends State<HomeScreen> {
   /// [moodAnalyzerGateway] / [llmConsentService] 读取，反映 bootstrap 装配结果，
   /// 方便线上排查"为什么历史记录丢了 / 为什么没有 AI 解析"等问题。
   void _showAboutDialog() {
-    showDialog<void>(context: context, builder: (_) => const _AboutDialog());
+    // 延迟到下一帧打开弹窗，避免在 pointer/hover 事件栈中同步触发 showDialog，
+    // 后者在 Flutter Web debug 下会触发 mouse_tracker.dart:199 断言循环。
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      showDialog<void>(context: context, builder: (_) => const _AboutDialog());
+    });
   }
 }
 

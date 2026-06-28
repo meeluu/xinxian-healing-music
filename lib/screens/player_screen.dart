@@ -390,7 +390,16 @@ class _PlayButtonState extends State<_PlayButton> {
 }
 
 /// 进度条 + 当前时间 / 总时长。柔和蓝绿。
-class _ProgressSection extends StatelessWidget {
+///
+/// 拖动逻辑（M6.1 修复）：
+/// - `onChanged`：只更新临时 [_dragValue]，不调用 `player.seek`，
+///   避免拖动时频繁 seek 导致 Web 端 30 分钟音频被重置回 0。
+/// - `onChangeEnd`：拖动结束才调用一次 `player.seek`，目标位置 clamp
+///   在 `0..total` 之间。
+/// - 拖动期间 slider 显示 [_dragValue]，不跟随 positionStream，避免抖动。
+/// - seek 后保持原播放状态（just_audio 的 seek 不会改变 playing/paused）。
+/// - duration 未加载完成时禁用拖动（`onChanged: null`）。
+class _ProgressSection extends StatefulWidget {
   final AudioPlayer player;
   final String Function(Duration) fmt;
   final bool enabled;
@@ -402,32 +411,59 @@ class _ProgressSection extends StatelessWidget {
   });
 
   @override
+  State<_ProgressSection> createState() => _ProgressSectionState();
+}
+
+class _ProgressSectionState extends State<_ProgressSection> {
+  /// 拖动期间的临时 slider 值（0..1）。
+  /// null 表示未在拖动，slider 跟随 positionStream。
+  /// 非 null 表示用户正在拖动，slider 显示临时值，不跟随 positionStream。
+  double? _dragValue;
+
+  @override
   Widget build(BuildContext context) {
     return StreamBuilder<Duration?>(
-      stream: player.durationStream,
+      stream: widget.player.durationStream,
       builder: (context, durSnap) {
         final total = durSnap.data ?? Duration.zero;
+        final totalMs = total.inMilliseconds.toDouble();
         return StreamBuilder<Duration>(
-          stream: player.positionStream,
+          stream: widget.player.positionStream,
           builder: (context, posSnap) {
             final pos = posSnap.data ?? Duration.zero;
-            final totalMs = total.inMilliseconds.toDouble();
             double value = 0;
             if (totalMs > 0) {
               value = (pos.inMilliseconds / totalMs).clamp(0.0, 1.0);
             }
+            // 拖动期间显示临时值，避免 slider 抖动回旧位置
+            final displayValue = _dragValue ?? value;
+            final canDrag = widget.enabled && totalMs > 0;
             return Column(
               children: [
                 Slider(
-                  value: value,
+                  value: displayValue,
                   activeColor: AppColors.primary,
                   inactiveColor: AppColors.cardBorder,
                   thumbColor: AppColors.primary,
-                  onChanged: enabled && totalMs > 0
+                  onChanged: canDrag
                       ? (v) {
-                          player.seek(
-                            Duration(milliseconds: (v * totalMs).round()),
+                          setState(() => _dragValue = v);
+                        }
+                      : null,
+                  onChangeEnd: canDrag
+                      ? (v) {
+                          // 拖动结束才调用 seek（只一次），避免频繁 seek
+                          // 导致 Web 端音频重置回 0。
+                          final targetMs = (v * totalMs).round().clamp(
+                            0,
+                            total.inMilliseconds,
                           );
+                          widget.player.seek(Duration(milliseconds: targetMs));
+                          // 清除临时值，让 slider 重新跟随 positionStream。
+                          // just_audio 的 seek 是异步的，positionStream 会在
+                          // 几十~几百 ms 内更新到目标位置。seek 不会改变
+                          // playing/paused 状态，原状态自动保持。
+                          setState(() => _dragValue = null);
                         }
                       : null,
                 ),
@@ -437,14 +473,14 @@ class _ProgressSection extends StatelessWidget {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Text(
-                        fmt(pos),
+                        widget.fmt(pos),
                         style: const TextStyle(
                           fontSize: 11,
                           color: AppColors.textMuted,
                         ),
                       ),
                       Text(
-                        totalMs > 0 ? fmt(total) : '--:--',
+                        totalMs > 0 ? widget.fmt(total) : '--:--',
                         style: const TextStyle(
                           fontSize: 11,
                           color: AppColors.textMuted,
