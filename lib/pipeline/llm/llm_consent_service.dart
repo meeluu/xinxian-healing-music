@@ -1,4 +1,4 @@
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:xinxian_healing_music/pipeline/local/preferences_port.dart';
 
 /// LLM 解析同意状态。
 enum LlmConsentStatus {
@@ -12,23 +12,27 @@ enum LlmConsentStatus {
   declined,
 }
 
-/// LLM 同意状态持久化服务（shared_preferences）。
+/// LLM 同意状态持久化服务。
 ///
 /// - key: `xinxian.llm.consent`
 /// - value: 'unknown' / 'accepted' / 'declined'
 ///
 /// 仅保存用户选择，不保存任何心境文本或解析结果。
 /// 遵循项目 Local 实现范式：异步工厂 + 损坏回退 + fire-and-forget 持久化。
+///
+/// 底层存储由 [PreferencesPort] 抽象，正常运行时是 [SharedPrefsAdapter]
+/// （包装 SharedPreferences），Web 端 SharedPreferences 插件失败时
+/// 自动切换为 [WebLocalStoragePrefs]（直接用 window.localStorage）。
 class LlmConsentService {
   static const String key = 'xinxian.llm.consent';
 
-  final SharedPreferences _prefs;
+  final PreferencesPort _prefs;
   LlmConsentStatus _status;
 
   LlmConsentService._(this._prefs, this._status);
 
   /// 从磁盘加载当前同意状态；损坏/缺失时回退 [LlmConsentStatus.unknown]。
-  static Future<LlmConsentService> create(SharedPreferences prefs) async {
+  static Future<LlmConsentService> create(PreferencesPort prefs) async {
     LlmConsentStatus status;
     try {
       final raw = prefs.getString(key);

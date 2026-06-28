@@ -1,7 +1,10 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:xinxian_healing_music/pipeline/local/local_feedback_repository.dart';
 import 'package:xinxian_healing_music/pipeline/local/local_listening_session_recorder.dart';
+import 'package:xinxian_healing_music/pipeline/local/preferences_port.dart';
+import 'package:xinxian_healing_music/pipeline/local/web_preferences_factory.dart';
 import 'package:xinxian_healing_music/pipeline/llm/llm_consent_service.dart';
 import 'package:xinxian_healing_music/pipeline/llm/llm_mood_analyzer.dart';
 import 'package:xinxian_healing_music/pipeline/llm/mood_analyzer_gateway.dart';
@@ -11,10 +14,16 @@ import 'package:xinxian_healing_music/pipeline/services.dart';
 import 'package:xinxian_healing_music/screens/home_screen.dart';
 import 'package:xinxian_healing_music/theme/app_colors.dart';
 
-/// 装配运行时服务（SharedPreferences / 本地仓储 / LLM 同意状态 / Pipeline 网关）。
+/// 装配运行时服务（PreferencesPort / 本地仓储 / LLM 同意状态 / Pipeline 网关）。
+///
+/// 存储层装配策略（重点修复 Web 端 shared_preferences 插件未注册问题）：
+/// 1. 优先尝试 [SharedPreferences.getInstance()]（跨平台标准路径）
+/// 2. 若失败（MissingPluginException 等）且当前为 Web 平台（kIsWeb），
+///    自动 fallback 到 [createWebLocalStoragePrefs()]（直接用 window.localStorage）
+/// 3. 非 Web 平台失败则保持默认 mock 实现
 ///
 /// 拆分为独立 try/catch 块，任一步骤失败不影响其他步骤：
-/// - SharedPreferences 失败 → 后续都保持默认 mock
+/// - storage 装配失败 → 后续都保持默认 mock
 /// - sessionRecorder 失败 → feedbackRepository / consentService 仍可继续
 /// - feedbackRepository 失败 → consentService 仍可继续
 /// - consentService 失败 → gateway 保持 null，activePipeline 保持 mockPipeline
@@ -24,10 +33,13 @@ import 'package:xinxian_healing_music/theme/app_colors.dart';
 ///
 /// 提取为顶层函数便于在测试中直接调用验证装配结果。
 Future<void> bootstrapServices() async {
-  // ─── 1. SharedPreferences（后续步骤的前置依赖）───
-  SharedPreferences? prefs;
+  // ─── 1. PreferencesPort 装配（SharedPreferences 优先，Web 端 fallback localStorage）───
+  PreferencesPort? storage;
+  bool prefsOk = false;
+  bool webFallback = false;
+
   try {
-    prefs = await SharedPreferences.getInstance();
+    final prefs = await SharedPreferences.getInstance();
     // 诊断写读：确认 localStorage 可用（Web 端按 origin 隔离）
     await prefs.setString(
       'xinxian.diagnostic',
@@ -35,23 +47,41 @@ Future<void> bootstrapServices() async {
     );
     final diag = prefs.getString('xinxian.diagnostic');
     debugPrint('[Startup] SharedPreferences ready: true, diag="$diag"');
+    storage = SharedPrefsAdapter(prefs);
+    prefsOk = true;
   } catch (e, st) {
     debugPrint('[Startup] SharedPreferences 失败: $e');
     debugPrint('$st');
+
+    // Web 平台 fallback：直接用 dart:html window.localStorage
+    // 解决 MissingPluginException(getAll on channel plugins.flutter.io/shared_preferences)
+    if (kIsWeb) {
+      try {
+        storage = createWebLocalStoragePrefs();
+        webFallback = true;
+        debugPrint(
+          '[Startup] Web localStorage fallback 已启用 '
+          '(storage type=${storage.runtimeType})',
+        );
+      } catch (e2, st2) {
+        debugPrint('[Startup] Web localStorage fallback 也失败: $e2');
+        debugPrint('$st2');
+      }
+    }
   }
 
-  if (prefs == null) {
-    debugPrint('[Startup] SharedPreferences 不可用，全部保持默认 mock 实现');
+  if (storage == null) {
+    debugPrint('[Startup] 全部存储不可用，保持默认 mock 实现');
     debugPrint(
-      '[Startup] 自检汇总: prefs=false, recorder=${sessionRecorder.runtimeType}, '
-      'consent=null, pipeline=mock',
+      '[Startup] 自检汇总: prefs=false, webFallback=false, '
+      'recorder=${sessionRecorder.runtimeType}, consent=null, pipeline=mock',
     );
     return;
   }
 
   // ─── 2. sessionRecorder（独立 try/catch，失败不影响后续）───
   try {
-    sessionRecorder = await LocalListeningSessionRecorder.create(prefs);
+    sessionRecorder = await LocalListeningSessionRecorder.create(storage);
     debugPrint(
       '[Startup] sessionRecorder 装配完成: type=${sessionRecorder.runtimeType}, '
       'loaded=${sessionRecorder.all().length} sessions',
@@ -63,7 +93,7 @@ Future<void> bootstrapServices() async {
 
   // ─── 3. feedbackRepository（独立 try/catch）───
   try {
-    feedbackRepository = await LocalFeedbackRepository.create(prefs);
+    feedbackRepository = await LocalFeedbackRepository.create(storage);
     debugPrint(
       '[Startup] feedbackRepository 装配完成: type=${feedbackRepository.runtimeType}',
     );
@@ -74,7 +104,7 @@ Future<void> bootstrapServices() async {
 
   // ─── 4. llmConsentService（独立 try/catch）───
   try {
-    llmConsentService = await LlmConsentService.create(prefs);
+    llmConsentService = await LlmConsentService.create(storage);
     debugPrint(
       '[Startup] llmConsentService 装配完成: status=${llmConsentService!.status}',
     );
@@ -108,7 +138,9 @@ Future<void> bootstrapServices() async {
   // ─── 启动自检汇总（仅 debugPrint，不显示到 UI）───
   final analyzerMode = moodAnalyzerGateway != null ? 'gateway' : 'mock';
   debugPrint('[Startup] ===== 自检汇总 =====');
-  debugPrint('[Startup] SharedPreferences ready: true');
+  debugPrint('[Startup] SharedPreferences ready: $prefsOk');
+  debugPrint('[Startup] webLocalStorageFallback: $webFallback');
+  debugPrint('[Startup] storage type: ${storage.runtimeType}');
   debugPrint('[Startup] sessionRecorder type: ${sessionRecorder.runtimeType}');
   debugPrint(
     '[Startup] llmConsentService status: ${llmConsentService?.status ?? "null"}',

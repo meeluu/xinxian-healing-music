@@ -1,26 +1,30 @@
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:xinxian_healing_music/models/feedback_record.dart';
+import 'package:xinxian_healing_music/pipeline/local/preferences_port.dart';
 import 'package:xinxian_healing_music/pipeline/ports/feedback_repository.dart';
 
-/// shared_preferences 本地持久化版反馈仓储。
+/// 本地持久化版反馈仓储。
 ///
 /// - save 采用 upsert 语义（按 sessionId 覆盖更新），与 MockFeedbackRepository 一致。
 /// - 最多保留 [_maxRecords] 条，超出按 createdAt 最旧的裁剪。
 /// - 损坏 JSON 容错：[create] 不崩溃，返回空缓存起步。
+///
+/// 底层存储由 [PreferencesPort] 抽象，正常运行时是 [SharedPrefsAdapter]
+/// （包装 SharedPreferences），Web 端 SharedPreferences 插件失败时
+/// 自动切换为 [WebLocalStoragePrefs]（直接用 window.localStorage）。
 class LocalFeedbackRepository implements FeedbackRepository {
   static const String key = 'xinxian.feedback';
   static const int _maxRecords = 100;
 
-  final SharedPreferences _prefs;
+  final PreferencesPort _prefs;
   final Map<String, FeedbackRecord> _cache;
 
   LocalFeedbackRepository._(this._prefs, this._cache);
 
   /// 异步工厂：从磁盘加载缓存。损坏数据会被忽略，返回空缓存。
-  static Future<LocalFeedbackRepository> create(SharedPreferences prefs) async {
+  static Future<LocalFeedbackRepository> create(PreferencesPort prefs) async {
     final cache = <String, FeedbackRecord>{};
     final raw = prefs.getString(key);
     debugPrint(

@@ -1,13 +1,13 @@
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:xinxian_healing_music/models/feedback_record.dart';
 import 'package:xinxian_healing_music/models/listening_session.dart';
 import 'package:xinxian_healing_music/models/music_plan.dart';
+import 'package:xinxian_healing_music/pipeline/local/preferences_port.dart';
 import 'package:xinxian_healing_music/pipeline/ports/listening_session_recorder.dart';
 
-/// shared_preferences 本地持久化版会话记录器。
+/// 本地持久化版会话记录器。
 ///
 /// 设计要点：
 /// - M2 同步方法（begin / updateListening / attachFeedback / get / all）保持不变，
@@ -16,18 +16,22 @@ import 'package:xinxian_healing_music/pipeline/ports/listening_session_recorder.
 ///   落盘失败不影响 Demo 可用性（下次启动从最近一次成功落盘的数据恢复）。
 /// - 最多保留 [_maxRecords] 条，超出按 startedAt 最旧的裁剪。
 /// - 损坏 JSON 容错：[create] 不崩溃，返回空缓存起步。
+///
+/// 底层存储由 [PreferencesPort] 抽象，正常运行时是 [SharedPrefsAdapter]
+/// （包装 SharedPreferences），Web 端 SharedPreferences 插件失败时
+/// 自动切换为 [WebLocalStoragePrefs]（直接用 window.localStorage）。
 class LocalListeningSessionRecorder implements ListeningSessionRecorder {
   static const String key = 'xinxian.sessions';
   static const int _maxRecords = 100;
 
-  final SharedPreferences _prefs;
+  final PreferencesPort _prefs;
   final Map<String, ListeningSession> _cache;
 
   LocalListeningSessionRecorder._(this._prefs, this._cache);
 
   /// 异步工厂：从磁盘加载缓存。损坏数据会被忽略，返回空缓存。
   static Future<LocalListeningSessionRecorder> create(
-    SharedPreferences prefs,
+    PreferencesPort prefs,
   ) async {
     final cache = <String, ListeningSession>{};
     final raw = prefs.getString(key);

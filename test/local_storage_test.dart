@@ -6,6 +6,7 @@ import 'package:xinxian_healing_music/models/listening_session.dart';
 import 'package:xinxian_healing_music/models/music_plan.dart';
 import 'package:xinxian_healing_music/pipeline/local/local_feedback_repository.dart';
 import 'package:xinxian_healing_music/pipeline/local/local_listening_session_recorder.dart';
+import 'package:xinxian_healing_music/pipeline/local/preferences_port.dart';
 import 'package:xinxian_healing_music/pipeline/mock/mock_pipeline_factory.dart';
 import 'package:xinxian_healing_music/pipeline/mock/mock_template_registry.dart';
 
@@ -103,7 +104,9 @@ void main() {
       final plan = await mockPipeline.run('备考压力大，睡不着');
 
       // 第一次启动：begin → updateListening → attachFeedback
-      final recorder1 = await LocalListeningSessionRecorder.create(prefs);
+      final recorder1 = await LocalListeningSessionRecorder.create(
+        SharedPrefsAdapter(prefs),
+      );
       recorder1.begin(sessionId: plan.sessionId, moodText: '备考压力大', plan: plan);
       recorder1.updateListening(plan.sessionId, const Duration(seconds: 30));
 
@@ -129,7 +132,9 @@ void main() {
       expect(s1.variant, ExperimentVariant.custom);
 
       // 模拟重启：重新 create 从磁盘加载
-      final recorder2 = await LocalListeningSessionRecorder.create(prefs);
+      final recorder2 = await LocalListeningSessionRecorder.create(
+        SharedPrefsAdapter(prefs),
+      );
       final s2 = recorder2.get(plan.sessionId);
       expect(s2, isNotNull);
       expect(s2!.sessionId, plan.sessionId);
@@ -147,7 +152,9 @@ void main() {
 
     test('最多保留 100 条，超出按最旧裁剪', () async {
       final prefs = await SharedPreferences.getInstance();
-      final recorder = await LocalListeningSessionRecorder.create(prefs);
+      final recorder = await LocalListeningSessionRecorder.create(
+        SharedPrefsAdapter(prefs),
+      );
       final plan = await mockPipeline.run('test');
 
       // 插入 105 条
@@ -168,7 +175,9 @@ void main() {
 
     test('delete 删除单条 + clear 清空全部', () async {
       final prefs = await SharedPreferences.getInstance();
-      final recorder = await LocalListeningSessionRecorder.create(prefs);
+      final recorder = await LocalListeningSessionRecorder.create(
+        SharedPrefsAdapter(prefs),
+      );
       final plan = await mockPipeline.run('test');
 
       recorder.begin(sessionId: 's1', moodText: 'm1', plan: plan);
@@ -184,14 +193,18 @@ void main() {
       expect(recorder.all().length, 0);
 
       // 重启后也是空
-      final recorder2 = await LocalListeningSessionRecorder.create(prefs);
+      final recorder2 = await LocalListeningSessionRecorder.create(
+        SharedPrefsAdapter(prefs),
+      );
       expect(recorder2.all().length, 0);
     });
 
     test('损坏 JSON 不崩溃，返回空缓存', () async {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(LocalListeningSessionRecorder.key, '{broken json');
-      final recorder = await LocalListeningSessionRecorder.create(prefs);
+      final recorder = await LocalListeningSessionRecorder.create(
+        SharedPrefsAdapter(prefs),
+      );
       expect(recorder.all().length, 0);
     });
   });
@@ -199,7 +212,9 @@ void main() {
   group('LocalFeedbackRepository', () {
     test('save upsert 语义：同 sessionId 两次 save 只保留一条', () async {
       final prefs = await SharedPreferences.getInstance();
-      final repo = await LocalFeedbackRepository.create(prefs);
+      final repo = await LocalFeedbackRepository.create(
+        SharedPrefsAdapter(prefs),
+      );
 
       final f1 = FeedbackRecord(
         sessionId: 's1',
@@ -225,7 +240,9 @@ void main() {
 
     test('重新加载后数据一致 + delete + clear', () async {
       final prefs = await SharedPreferences.getInstance();
-      final repo1 = await LocalFeedbackRepository.create(prefs);
+      final repo1 = await LocalFeedbackRepository.create(
+        SharedPrefsAdapter(prefs),
+      );
 
       await repo1.save(
         FeedbackRecord(
@@ -248,7 +265,9 @@ void main() {
       );
 
       // 重启
-      final repo2 = await LocalFeedbackRepository.create(prefs);
+      final repo2 = await LocalFeedbackRepository.create(
+        SharedPrefsAdapter(prefs),
+      );
       final all = await repo2.all();
       expect(all.length, 2);
       // 按 createdAt 倒序
@@ -263,7 +282,9 @@ void main() {
 
     test('最多保留 100 条', () async {
       final prefs = await SharedPreferences.getInstance();
-      final repo = await LocalFeedbackRepository.create(prefs);
+      final repo = await LocalFeedbackRepository.create(
+        SharedPrefsAdapter(prefs),
+      );
       for (var i = 0; i < 105; i++) {
         await repo.save(
           FeedbackRecord(

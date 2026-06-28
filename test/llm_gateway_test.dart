@@ -7,6 +7,8 @@ import 'package:xinxian_healing_music/models/music_plan.dart';
 import 'package:xinxian_healing_music/pipeline/healing_pipeline.dart';
 import 'package:xinxian_healing_music/pipeline/llm/llm_consent_service.dart';
 import 'package:xinxian_healing_music/pipeline/llm/mood_analyzer_gateway.dart';
+import 'package:xinxian_healing_music/pipeline/local/local_listening_session_recorder.dart';
+import 'package:xinxian_healing_music/pipeline/local/preferences_port.dart';
 import 'package:xinxian_healing_music/pipeline/mock/mock_mood_analyzer.dart';
 import 'package:xinxian_healing_music/pipeline/mock/mock_pipeline_factory.dart';
 import 'package:xinxian_healing_music/pipeline/ports/mood_analyzer_port.dart';
@@ -20,7 +22,7 @@ void main() {
   group('MoodAnalyzerGateway', () {
     test('未同意（unknown）时 source=mock，走 MockMoodAnalyzer', () async {
       final prefs = await SharedPreferences.getInstance();
-      final consent = await LlmConsentService.create(prefs);
+      final consent = await LlmConsentService.create(SharedPrefsAdapter(prefs));
       // status 默认 unknown
       expect(consent.status, LlmConsentStatus.unknown);
 
@@ -40,7 +42,7 @@ void main() {
 
     test('拒绝（declined）后 source=mock', () async {
       final prefs = await SharedPreferences.getInstance();
-      final consent = await LlmConsentService.create(prefs);
+      final consent = await LlmConsentService.create(SharedPrefsAdapter(prefs));
       await consent.setStatus(LlmConsentStatus.declined);
 
       final gateway = MoodAnalyzerGateway(
@@ -55,7 +57,7 @@ void main() {
 
     test('同意（accepted）后 LLM 成功 source=llm', () async {
       final prefs = await SharedPreferences.getInstance();
-      final consent = await LlmConsentService.create(prefs);
+      final consent = await LlmConsentService.create(SharedPrefsAdapter(prefs));
       await consent.setStatus(LlmConsentStatus.accepted);
 
       final gateway = MoodAnalyzerGateway(
@@ -74,7 +76,7 @@ void main() {
 
     test('同意后 LLM 失败 → fallback 到 mock，source=fallback', () async {
       final prefs = await SharedPreferences.getInstance();
-      final consent = await LlmConsentService.create(prefs);
+      final consent = await LlmConsentService.create(SharedPrefsAdapter(prefs));
       await consent.setStatus(LlmConsentStatus.accepted);
 
       final gateway = MoodAnalyzerGateway(
@@ -92,7 +94,7 @@ void main() {
 
     test('同意状态切换后 gateway 立即生效', () async {
       final prefs = await SharedPreferences.getInstance();
-      final consent = await LlmConsentService.create(prefs);
+      final consent = await LlmConsentService.create(SharedPrefsAdapter(prefs));
       // 初始 unknown → mock
       var gateway = MoodAnalyzerGateway(
         llmAnalyzer: _FakeLlmAnalyzer(profile: _fakeLlmProfile),
@@ -117,7 +119,7 @@ void main() {
   group('LlmConsentService', () {
     test('默认状态为 unknown', () async {
       final prefs = await SharedPreferences.getInstance();
-      final consent = await LlmConsentService.create(prefs);
+      final consent = await LlmConsentService.create(SharedPrefsAdapter(prefs));
       expect(consent.status, LlmConsentStatus.unknown);
       expect(consent.isAccepted, isFalse);
       expect(consent.needsPrompt, isTrue);
@@ -125,25 +127,33 @@ void main() {
 
     test('切换到 accepted 后持久化 + 重启保留', () async {
       final prefs = await SharedPreferences.getInstance();
-      final consent1 = await LlmConsentService.create(prefs);
+      final consent1 = await LlmConsentService.create(
+        SharedPrefsAdapter(prefs),
+      );
       await consent1.setStatus(LlmConsentStatus.accepted);
       expect(prefs.getString(LlmConsentService.key), 'accepted');
       expect(consent1.isAccepted, isTrue);
       expect(consent1.needsPrompt, isFalse);
 
       // 模拟重启
-      final consent2 = await LlmConsentService.create(prefs);
+      final consent2 = await LlmConsentService.create(
+        SharedPrefsAdapter(prefs),
+      );
       expect(consent2.status, LlmConsentStatus.accepted);
       expect(consent2.isAccepted, isTrue);
     });
 
     test('切换到 declined 后持久化 + 重启保留', () async {
       final prefs = await SharedPreferences.getInstance();
-      final consent1 = await LlmConsentService.create(prefs);
+      final consent1 = await LlmConsentService.create(
+        SharedPrefsAdapter(prefs),
+      );
       await consent1.setStatus(LlmConsentStatus.declined);
       expect(prefs.getString(LlmConsentService.key), 'declined');
 
-      final consent2 = await LlmConsentService.create(prefs);
+      final consent2 = await LlmConsentService.create(
+        SharedPrefsAdapter(prefs),
+      );
       expect(consent2.status, LlmConsentStatus.declined);
       expect(consent2.isAccepted, isFalse);
     });
@@ -151,7 +161,7 @@ void main() {
     test('损坏的存储值回退 unknown', () async {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(LlmConsentService.key, 'garbage_value');
-      final consent = await LlmConsentService.create(prefs);
+      final consent = await LlmConsentService.create(SharedPrefsAdapter(prefs));
       expect(consent.status, LlmConsentStatus.unknown);
       expect(consent.needsPrompt, isTrue);
     });
@@ -165,7 +175,7 @@ void main() {
 
     test('buildPipelineWith(gateway) 正确传递 llm source', () async {
       final prefs = await SharedPreferences.getInstance();
-      final consent = await LlmConsentService.create(prefs);
+      final consent = await LlmConsentService.create(SharedPrefsAdapter(prefs));
       await consent.setStatus(LlmConsentStatus.accepted);
 
       final gateway = MoodAnalyzerGateway(
@@ -182,7 +192,7 @@ void main() {
 
     test('buildPipelineWith(gateway) LLM 失败时传递 fallback source', () async {
       final prefs = await SharedPreferences.getInstance();
-      final consent = await LlmConsentService.create(prefs);
+      final consent = await LlmConsentService.create(SharedPrefsAdapter(prefs));
       await consent.setStatus(LlmConsentStatus.accepted);
 
       final gateway = MoodAnalyzerGateway(
@@ -200,7 +210,7 @@ void main() {
 
     test('buildPipelineWith(gateway) 未同意时传递 mock source', () async {
       final prefs = await SharedPreferences.getInstance();
-      final consent = await LlmConsentService.create(prefs);
+      final consent = await LlmConsentService.create(SharedPrefsAdapter(prefs));
       // status = unknown
 
       final gateway = MoodAnalyzerGateway(
@@ -216,7 +226,7 @@ void main() {
 
     test('analyzerSource 持久化到 plan.toJson 并可从 fromJson 恢复', () async {
       final prefs = await SharedPreferences.getInstance();
-      final consent = await LlmConsentService.create(prefs);
+      final consent = await LlmConsentService.create(SharedPrefsAdapter(prefs));
       await consent.setStatus(LlmConsentStatus.accepted);
 
       final gateway = MoodAnalyzerGateway(
@@ -244,7 +254,7 @@ void main() {
 
     test('declined 状态下仍可切换到 accepted', () async {
       final prefs = await SharedPreferences.getInstance();
-      final consent = await LlmConsentService.create(prefs);
+      final consent = await LlmConsentService.create(SharedPrefsAdapter(prefs));
       await consent.setStatus(LlmConsentStatus.declined);
       expect(consent.status, LlmConsentStatus.declined);
       expect(consent.isAccepted, isFalse);
@@ -255,14 +265,16 @@ void main() {
       expect(consent.isAccepted, isTrue);
 
       // 重启后仍是 accepted
-      final consent2 = await LlmConsentService.create(prefs);
+      final consent2 = await LlmConsentService.create(
+        SharedPrefsAdapter(prefs),
+      );
       expect(consent2.status, LlmConsentStatus.accepted);
       expect(consent2.isAccepted, isTrue);
     });
 
     test('accepted 状态下仍可切换到 declined', () async {
       final prefs = await SharedPreferences.getInstance();
-      final consent = await LlmConsentService.create(prefs);
+      final consent = await LlmConsentService.create(SharedPrefsAdapter(prefs));
       await consent.setStatus(LlmConsentStatus.accepted);
       expect(consent.isAccepted, isTrue);
 
@@ -272,31 +284,33 @@ void main() {
       expect(consent.isAccepted, isFalse);
 
       // 重启后仍是 declined
-      final consent2 = await LlmConsentService.create(prefs);
+      final consent2 = await LlmConsentService.create(
+        SharedPrefsAdapter(prefs),
+      );
       expect(consent2.status, LlmConsentStatus.declined);
       expect(consent2.isAccepted, isFalse);
     });
 
     test('unknown → accepted → declined → accepted 多次切换均持久化', () async {
       final prefs = await SharedPreferences.getInstance();
-      final consent = await LlmConsentService.create(prefs);
+      final consent = await LlmConsentService.create(SharedPrefsAdapter(prefs));
       expect(consent.status, LlmConsentStatus.unknown);
 
       await consent.setStatus(LlmConsentStatus.accepted);
       expect(
-        (await LlmConsentService.create(prefs)).status,
+        (await LlmConsentService.create(SharedPrefsAdapter(prefs))).status,
         LlmConsentStatus.accepted,
       );
 
       await consent.setStatus(LlmConsentStatus.declined);
       expect(
-        (await LlmConsentService.create(prefs)).status,
+        (await LlmConsentService.create(SharedPrefsAdapter(prefs))).status,
         LlmConsentStatus.declined,
       );
 
       await consent.setStatus(LlmConsentStatus.accepted);
       expect(
-        (await LlmConsentService.create(prefs)).status,
+        (await LlmConsentService.create(SharedPrefsAdapter(prefs))).status,
         LlmConsentStatus.accepted,
       );
     });
@@ -371,6 +385,74 @@ void main() {
       },
     );
   });
+
+  group('Web localStorage fallback（PreferencesPort 抽象）', () {
+    // 模拟 shared_preferences 插件失败（MissingPluginException）的场景。
+    // Web 端会 fallback 到 WebLocalStoragePrefs（dart:html window.localStorage），
+    // 此处用 _FakePreferencesPort（内存 Map）等价模拟 localStorage 行为，
+    // 验证 LlmConsentService / LocalListeningSessionRecorder 在 fallback storage
+    // 下仍能正常读写。这等价于 Web 端 SharedPreferences 失败后的行为。
+
+    test('fallback storage 仍能保存 consent 且刷新后读回', () async {
+      final fake = _FakePreferencesPort();
+      final consent = await LlmConsentService.create(fake);
+      expect(consent.status, LlmConsentStatus.unknown);
+
+      await consent.setStatus(LlmConsentStatus.accepted);
+
+      // 模拟刷新页面：用同一 storage 重新创建
+      final consent2 = await LlmConsentService.create(fake);
+      expect(consent2.status, LlmConsentStatus.accepted);
+      expect(consent2.isAccepted, isTrue);
+    });
+
+    test('fallback storage 历史记录刷新后能读回', () async {
+      final fake = _FakePreferencesPort();
+      final recorder = await LocalListeningSessionRecorder.create(fake);
+      expect(recorder.all(), isEmpty);
+
+      // 写入一条 session
+      final plan = await mockPipeline.run('fallback test');
+      const sessionId = 'fallback-test-session';
+      recorder.begin(
+        sessionId: sessionId,
+        moodText: 'fallback test',
+        plan: plan,
+      );
+
+      // 模拟刷新页面：用同一 storage 重新创建
+      final recorder2 = await LocalListeningSessionRecorder.create(fake);
+      expect(recorder2.all().length, 1);
+      expect(recorder2.get(sessionId), isNotNull);
+    });
+
+    test('fallback storage consent 双向切换均持久化', () async {
+      final fake = _FakePreferencesPort();
+      final consent = await LlmConsentService.create(fake);
+
+      await consent.setStatus(LlmConsentStatus.accepted);
+      expect(
+        (await LlmConsentService.create(fake)).status,
+        LlmConsentStatus.accepted,
+      );
+
+      await consent.setStatus(LlmConsentStatus.declined);
+      expect(
+        (await LlmConsentService.create(fake)).status,
+        LlmConsentStatus.declined,
+      );
+    });
+
+    test('fallback storage 损坏 JSON 不崩溃（回退空缓存）', () async {
+      final fake = _FakePreferencesPort();
+      // 写入损坏的 JSON 到 sessions key
+      await fake.setString(LocalListeningSessionRecorder.key, '{broken json');
+
+      // 创建时不崩溃，返回空缓存
+      final recorder = await LocalListeningSessionRecorder.create(fake);
+      expect(recorder.all(), isEmpty);
+    });
+  });
 }
 
 // ─── 测试辅助 ──────────────────────────────────────────────────
@@ -406,5 +488,34 @@ class _FakeLlmAnalyzer implements MoodAnalyzerPort {
   Future<MoodProfile> analyze(MoodInput input) async {
     if (throwsException) throw Exception('fake_llm_error');
     return profile!;
+  }
+}
+
+/// 内存 Map 实现的 [PreferencesPort]，用于模拟 Web localStorage 行为。
+///
+/// 在 VM 测试环境中无法直接用 `dart:html`，用此 fake 等价验证：
+/// 当 shared_preferences 插件失败、fallback 到 localStorage 风格的存储时，
+/// [LlmConsentService] / [LocalListeningSessionRecorder] 仍能正常工作。
+///
+/// 行为与 [WebLocalStoragePrefs] 一致：
+/// - `getString` 返回 null 表示 key 不存在
+/// - `setString` 覆盖旧值
+/// - `remove` 删除 key（不存在时不报错）
+class _FakePreferencesPort implements PreferencesPort {
+  final Map<String, String> _store = {};
+
+  @override
+  String? getString(String key) => _store[key];
+
+  @override
+  Future<bool> setString(String key, String value) async {
+    _store[key] = value;
+    return true;
+  }
+
+  @override
+  Future<bool> remove(String key) async {
+    _store.remove(key);
+    return true;
   }
 }
