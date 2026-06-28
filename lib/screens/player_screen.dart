@@ -5,6 +5,7 @@ import 'package:xinxian_healing_music/models/music_plan.dart';
 import 'package:xinxian_healing_music/pipeline/services.dart';
 import 'package:xinxian_healing_music/screens/feedback_screen.dart';
 import 'package:xinxian_healing_music/theme/app_colors.dart';
+import 'package:xinxian_healing_music/utils/audio_asset_uri.dart';
 import 'package:xinxian_healing_music/widgets/centered_page.dart';
 import 'package:xinxian_healing_music/widgets/param_chip.dart';
 
@@ -56,8 +57,12 @@ class _PlayerScreenState extends State<PlayerScreen>
 
   Future<void> _initAudio() async {
     try {
+      // 统一调用 AudioAssetUriResolver：
+      // Web 下用 AudioSource.uri 指向 assets/<key>，避免 just_audio 的
+      // AudioSource.asset 在 Flutter Web 报 "asset does not exist"。
+      // 非 Web 下继续用 AudioSource.asset 走 AssetBundle。
       await _player.setAudioSource(
-        AudioSource.asset(widget.plan.audio.assetPath),
+        AudioAssetUriResolver.resolveAudioSource(widget.plan.audio.assetPath),
       );
       if (!mounted) return;
       setState(() => _loading = false);
@@ -128,6 +133,19 @@ class _PlayerScreenState extends State<PlayerScreen>
               height: 1.5,
             ),
           ),
+          // M6：显示当前播放音频名（不暴露文件路径）
+          if (plan.audio.title.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Text(
+              '当前音频：${plan.audio.title}',
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: 11,
+                color: AppColors.textMuted,
+                letterSpacing: 0.5,
+              ),
+            ),
+          ],
           const SizedBox(height: 32),
 
           // 可视化 + 播放按钮

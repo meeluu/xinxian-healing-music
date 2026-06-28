@@ -19,6 +19,9 @@ class PassthroughPostProcessor implements AudioPostProcessorPort {
       assetPath: audio.assetPath,
       sourceType: audio.sourceType,
       processingChain: const ['passthrough'],
+      // M6：透传音频展示名与时长，供 UI 显示
+      title: audio.title,
+      durationSeconds: audio.durationSeconds,
     );
   }
 }
