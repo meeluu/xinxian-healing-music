@@ -29,7 +29,7 @@ class AppVersion {
   /// - `M{n}-dev`：开发中
   /// - `M{n}-preview`：预览部署
   /// - `M{n}-stable`：正式发布
-  static const String buildLabel = 'M7-dev';
+  static const String buildLabel = 'M7-stable';
 
   /// 构建日期（YYYY-MM-DD），手动维护。
   static const String buildDate = '2026-06-28';
