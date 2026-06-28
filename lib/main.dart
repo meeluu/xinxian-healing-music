@@ -2,6 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:xinxian_healing_music/pipeline/local/local_feedback_repository.dart';
 import 'package:xinxian_healing_music/pipeline/local/local_listening_session_recorder.dart';
+import 'package:xinxian_healing_music/pipeline/llm/llm_consent_service.dart';
+import 'package:xinxian_healing_music/pipeline/llm/llm_mood_analyzer.dart';
+import 'package:xinxian_healing_music/pipeline/llm/mood_analyzer_gateway.dart';
+import 'package:xinxian_healing_music/pipeline/mock/mock_mood_analyzer.dart';
+import 'package:xinxian_healing_music/pipeline/mock/mock_pipeline_factory.dart';
 import 'package:xinxian_healing_music/pipeline/services.dart';
 import 'package:xinxian_healing_music/screens/home_screen.dart';
 import 'package:xinxian_healing_music/theme/app_colors.dart';
@@ -32,10 +37,25 @@ void main() async {
     debugPrint(
       '[M3] feedbackRepository 装配完成: type=${feedbackRepository.runtimeType}',
     );
+
+    // M4B: 装配 LLM 同意状态服务 + 情绪解析网关
+    llmConsentService = await LlmConsentService.create(prefs);
+    debugPrint(
+      '[M4B] llmConsentService 装配完成: status=${llmConsentService!.status}',
+    );
+
+    moodAnalyzerGateway = MoodAnalyzerGateway(
+      llmAnalyzer: const LlmMoodAnalyzer(),
+      mockAnalyzer: const MockMoodAnalyzer(),
+      consentService: llmConsentService!,
+    );
+    // 用 gateway 替换默认的 mockPipeline，激活 LLM 解析 + 自动 fallback
+    activePipeline = buildPipelineWith(moodAnalyzerGateway!);
+    debugPrint('[M4B] activePipeline 已切换为带 MoodAnalyzerGateway 的版本');
   } catch (e, st) {
     debugPrint('[M3] 初始化失败，fallback 到 Mock: $e');
     debugPrint('$st');
-    // 保持 services.dart 中默认的 mock 实现
+    // 保持 services.dart 中默认的 mock 实现 + activePipeline 默认指向 mockPipeline
   }
 
   runApp(const XinXianApp());

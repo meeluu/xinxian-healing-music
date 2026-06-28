@@ -1,3 +1,5 @@
+import 'package:xinxian_healing_music/pipeline/llm/llm_consent_service.dart';
+import 'package:xinxian_healing_music/pipeline/llm/mood_analyzer_gateway.dart';
 import 'package:xinxian_healing_music/pipeline/mock/mock_feedback_repository.dart';
 import 'package:xinxian_healing_music/pipeline/mock/mock_listening_session_recorder.dart';
 import 'package:xinxian_healing_music/pipeline/ports/feedback_repository.dart';
@@ -15,3 +17,15 @@ ListeningSessionRecorder sessionRecorder = MockListeningSessionRecorder();
 
 /// 全局共享的反馈仓储单例（语义同 [sessionRecorder]）。
 FeedbackRepository feedbackRepository = MockFeedbackRepository();
+
+/// M4B: LLM 同意状态服务。
+///
+/// 默认 null（保证 `runApp` 前可用）；`main.dart` 启动时装配
+/// shared_preferences 持久化实现。UI 层应判空后使用。
+LlmConsentService? llmConsentService;
+
+/// M4B: 情绪解析网关单例。
+///
+/// 默认 null（保证 `runApp` 前可用）；`main.dart` 启动时装配
+/// LLM + Mock 组合实现。UI 层一般不直接调用，由 [activePipeline] 持有。
+MoodAnalyzerGateway? moodAnalyzerGateway;

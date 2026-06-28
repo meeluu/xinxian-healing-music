@@ -310,8 +310,11 @@ class _SessionCard extends StatelessWidget {
                       ),
                     ),
                     const Spacer(),
-                    if (s.plan.analyzerSource == 'mock')
-                      const _SourceChip(label: '本地解析'),
+                    if (_sourceChipLabel(s.plan.analyzerSource) != null)
+                      _SourceChip(
+                        label: _sourceChipLabel(s.plan.analyzerSource)!,
+                        kind: s.plan.analyzerSource,
+                      ),
                     const SizedBox(width: 6),
                     _VariantChip(label: variantLabel(s.variant)),
                   ],
@@ -445,24 +448,48 @@ class _VariantChip extends StatelessWidget {
 }
 
 /// 解析来源小标签 chip。
-/// M4A 阶段所有记录均为 'mock'，显示"本地解析"；
-/// M4B 接入 LLM 后可根据 analyzerSource 切换为"AI 解析"。
+/// - mock：本地解析（青绿色）
+/// - llm：AI 解析（蓝色，强调）
+/// - fallback：本地解析·兜底（杏色，提示降级）
 class _SourceChip extends StatelessWidget {
   final String label;
-  const _SourceChip({required this.label});
+  final String kind; // 'mock' | 'llm' | 'fallback'
+  const _SourceChip({required this.label, required this.kind});
 
   @override
   Widget build(BuildContext context) {
+    final (bg, fg) = switch (kind) {
+      'llm' => (
+        AppColors.primary.withValues(alpha: 0.16),
+        AppColors.primaryDeep,
+      ),
+      'fallback' => (
+        AppColors.apricot.withValues(alpha: 0.28),
+        AppColors.apricotDeep,
+      ),
+      _ => (AppColors.teal.withValues(alpha: 0.16), AppColors.tealDeep),
+    };
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
-        color: AppColors.teal.withValues(alpha: 0.16),
+        color: bg,
         borderRadius: BorderRadius.circular(6),
       ),
-      child: Text(
-        label,
-        style: const TextStyle(fontSize: 11, color: AppColors.tealDeep),
-      ),
+      child: Text(label, style: TextStyle(fontSize: 11, color: fg)),
     );
+  }
+}
+
+/// 根据 analyzerSource 返回 chip 文案；返回 null 表示不显示 chip。
+String? _sourceChipLabel(String source) {
+  switch (source) {
+    case 'llm':
+      return 'AI 解析';
+    case 'fallback':
+      return '本地解析·兜底';
+    case 'mock':
+      return '本地解析';
+    default:
+      return null;
   }
 }

@@ -12,6 +12,9 @@ class MockMoodAnalyzer implements MoodAnalyzerPort {
   const MockMoodAnalyzer();
 
   @override
+  String get currentSource => 'mock';
+
+  @override
   Future<MoodProfile> analyze(MoodInput input) async {
     final rules = <(List<String>, String)>[
       (
@@ -30,63 +33,18 @@ class MockMoodAnalyzer implements MoodAnalyzerPort {
         'highPressure',
       ),
       (
-        const [
-          '失眠',
-          '睡不着',
-          '停不下来',
-          '入睡',
-          '睡眠',
-          '辗转',
-          '脑子',
-          '胡思乱想',
-          '夜醒',
-        ],
+        const ['失眠', '睡不着', '停不下来', '入睡', '睡眠', '辗转', '脑子', '胡思乱想', '夜醒'],
         'insomnia',
       ),
       (
-        const [
-          '悲伤',
-          '低落',
-          '失落',
-          '难过',
-          '想哭',
-          '沮丧',
-          'emo',
-          '抑郁',
-          '孤独',
-          '空虚',
-        ],
+        const ['悲伤', '低落', '失落', '难过', '想哭', '沮丧', 'emo', '抑郁', '孤独', '空虚'],
         'lowMood',
       ),
       (
-        const [
-          '愤怒',
-          '烦躁',
-          '火大',
-          '生气',
-          '气死',
-          '烦',
-          '暴',
-          '吵架',
-          '冲突',
-          '委屈',
-        ],
+        const ['愤怒', '烦躁', '火大', '生气', '气死', '烦', '暴', '吵架', '冲突', '委屈'],
         'agitated',
       ),
-      (
-        const [
-          '疲惫',
-          '累',
-          '耗尽',
-          '无力',
-          '精疲力',
-          '虚',
-          '倦',
-          '透支',
-          '麻木',
-        ],
-        'exhausted',
-      ),
+      (const ['疲惫', '累', '耗尽', '无力', '精疲力', '虚', '倦', '透支', '麻木'], 'exhausted'),
     ];
 
     String bestKey = 'balanced';

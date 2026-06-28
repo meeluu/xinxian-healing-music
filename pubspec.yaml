@@ -41,6 +41,9 @@ dependencies:
   # 本地持久化（ListeningSession / FeedbackRecord，最多 100 条，纯本地不上传）
   shared_preferences: ^2.3.2
 
+  # HTTP 客户端（M4B-2：前端调用同域 Netlify Function /api/analyze-mood）
+  http: ^1.2.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

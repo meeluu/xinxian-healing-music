@@ -37,7 +37,7 @@ class _AnalysisScreenState extends State<AnalysisScreen>
       }
       await Future.delayed(const Duration(milliseconds: 450));
       if (!mounted) return;
-      final plan = await mockPipeline.run(widget.moodText);
+      final plan = await activePipeline.run(widget.moodText);
       if (!mounted) return;
       // 会话开始：plan 产出后记录 moodText + plan 快照
       sessionRecorder.begin(

@@ -1,12 +1,19 @@
 import 'package:flutter/material.dart';
+import 'package:xinxian_healing_music/pipeline/llm/llm_consent_service.dart';
+import 'package:xinxian_healing_music/pipeline/services.dart';
 import 'package:xinxian_healing_music/screens/analysis_screen.dart';
 import 'package:xinxian_healing_music/screens/history_screen.dart';
 import 'package:xinxian_healing_music/theme/app_colors.dart';
 import 'package:xinxian_healing_music/widgets/breathing_halo.dart';
 import 'package:xinxian_healing_music/widgets/centered_page.dart';
+import 'package:xinxian_healing_music/widgets/llm_consent_dialog.dart';
 import 'package:xinxian_healing_music/widgets/mood_input_field.dart';
 
 /// 首页：输入当前心境描述。
+///
+/// M4B: 首次进入时弹出 AI 解析隐私同意弹窗（[LlmConsentDialog]），
+/// 用户选择后持久化到 [LlmConsentService]；底部提供"解析设置"入口
+/// 允许随时切换。
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
@@ -30,13 +37,62 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     _controller.addListener(() => setState(() {}));
+
+    // 首次进入：若同意状态为 unknown，弹窗请用户选择。
+    // 用 addPostFrameCallback 避免在 build 阶段触发 dialog。
+    WidgetsBinding.instance.addPostFrameCallback((_) => _maybePromptConsent());
   }
 
-  @override
-  void dispose() {
-    _controller.dispose();
-    _focus.dispose();
-    super.dispose();
+  void _maybePromptConsent() {
+    final service = llmConsentService;
+    if (!mounted || service == null) return;
+    if (!service.needsPrompt) return;
+    _showConsentDialog(firstTime: true);
+  }
+
+  Future<void> _showConsentDialog({required bool firstTime}) async {
+    final service = llmConsentService;
+    if (service == null || !mounted) return;
+
+    final accepted = await LlmConsentDialog.show(
+      context,
+      barrierDismissible: !firstTime,
+    );
+    if (!mounted) return;
+
+    if (accepted == true) {
+      await service.setStatus(LlmConsentStatus.accepted);
+    } else if (accepted == false) {
+      await service.setStatus(LlmConsentStatus.declined);
+    }
+    // accepted == null（用户关闭弹窗，仅非首次时可能）：不改变状态
+
+    if (mounted) setState(() {});
+  }
+
+  /// 底部说明文案：根据同意状态动态切换。
+  String get _footerText {
+    final service = llmConsentService;
+    if (service == null) {
+      return 'Demo 版本 · 全部参数由本地模板生成';
+    }
+    switch (service.status) {
+      case LlmConsentStatus.accepted:
+        return '已开启 AI 解析 · 心境文本将发送到 AI 服务进行情绪解析';
+      case LlmConsentStatus.declined:
+        return '仅使用本地解析 · 全部参数由本地模板生成';
+      case LlmConsentStatus.unknown:
+        return 'Demo 版本 · 全部参数由本地模板生成';
+    }
+  }
+
+  /// "解析设置"按钮的当前标签。
+  String get _settingsLabel {
+    final service = llmConsentService;
+    if (service != null && service.isAccepted) {
+      return '解析设置 · AI';
+    }
+    return '解析设置 · 本地';
   }
 
   void _goAnalyze() {
@@ -46,6 +102,13 @@ class _HomeScreenState extends State<HomeScreen> {
     Navigator.of(
       context,
     ).push(MaterialPageRoute(builder: (_) => AnalysisScreen(moodText: text)));
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    _focus.dispose();
+    super.dispose();
   }
 
   @override
@@ -169,32 +232,68 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
           const SizedBox(height: 14),
-          const Text(
-            'Demo 版本 · 全部参数由本地模板生成，不接真实 AI',
+          Text(
+            _footerText,
             textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 11, color: AppColors.textMuted),
+            style: const TextStyle(fontSize: 11, color: AppColors.textMuted),
           ),
           const SizedBox(height: 8),
-          TextButton.icon(
-            onPressed: () {
-              Navigator.of(
-                context,
-              ).push(MaterialPageRoute(builder: (_) => const HistoryScreen()));
-            },
-            icon: const Icon(
-              Icons.history_rounded,
-              size: 16,
-              color: AppColors.textSecondary,
-            ),
-            label: const Text(
-              '查看历史记录',
-              style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
-            ),
-            style: TextButton.styleFrom(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              minimumSize: const Size(0, 36),
-              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-            ),
+          // 历史记录 + 解析设置 并排入口
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              TextButton.icon(
+                onPressed: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const HistoryScreen()),
+                  );
+                },
+                icon: const Icon(
+                  Icons.history_rounded,
+                  size: 16,
+                  color: AppColors.textSecondary,
+                ),
+                label: const Text(
+                  '查看历史记录',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+                style: TextButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 6,
+                  ),
+                  minimumSize: const Size(0, 36),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+              ),
+              const SizedBox(width: 8),
+              TextButton.icon(
+                onPressed: () => _showConsentDialog(firstTime: false),
+                icon: const Icon(
+                  Icons.tune_rounded,
+                  size: 16,
+                  color: AppColors.textSecondary,
+                ),
+                label: Text(
+                  _settingsLabel,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+                style: TextButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 6,
+                  ),
+                  minimumSize: const Size(0, 36),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+              ),
+            ],
           ),
         ],
       ),
