@@ -18,10 +18,10 @@ class AppVersion {
   static const String appName = '心弦';
 
   /// 当前里程碑阶段（M1 / M2 / ... / M8）。
-  static const String milestone = 'M6';
+  static const String milestone = 'M7';
 
-  /// 语义化版本号（与里程碑对应：M4 → v0.4.x，M5 → v0.5.x，M6 → v0.6.x）。
-  static const String versionName = 'v0.6.0';
+  /// 语义化版本号（与里程碑对应：M4 → v0.4.x，M5 → v0.5.x，M6 → v0.6.x，M7 → v0.7.x）。
+  static const String versionName = 'v0.7.0';
 
   /// 构建标签，用于区分开发 / 预览 / 正式版本。
   ///
@@ -29,7 +29,7 @@ class AppVersion {
   /// - `M{n}-dev`：开发中
   /// - `M{n}-preview`：预览部署
   /// - `M{n}-stable`：正式发布
-  static const String buildLabel = 'M6-stable';
+  static const String buildLabel = 'M7-dev';
 
   /// 构建日期（YYYY-MM-DD），手动维护。
   static const String buildDate = '2026-06-28';

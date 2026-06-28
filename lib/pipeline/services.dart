@@ -1,7 +1,11 @@
+import 'package:xinxian_healing_music/pipeline/cloud/mock_cloud_feedback_uploader.dart';
+import 'package:xinxian_healing_music/pipeline/consent/cloud_feedback_consent_service.dart';
+import 'package:xinxian_healing_music/pipeline/consent/cloud_text_consent_service.dart';
 import 'package:xinxian_healing_music/pipeline/llm/llm_consent_service.dart';
 import 'package:xinxian_healing_music/pipeline/llm/mood_analyzer_gateway.dart';
 import 'package:xinxian_healing_music/pipeline/mock/mock_feedback_repository.dart';
 import 'package:xinxian_healing_music/pipeline/mock/mock_listening_session_recorder.dart';
+import 'package:xinxian_healing_music/pipeline/ports/cloud_feedback_uploader.dart';
 import 'package:xinxian_healing_music/pipeline/ports/feedback_repository.dart';
 import 'package:xinxian_healing_music/pipeline/ports/listening_session_recorder.dart';
 
@@ -29,6 +33,27 @@ LlmConsentService? llmConsentService;
 /// 默认 null（保证 `runApp` 前可用）；`main.dart` 启动时装配
 /// LLM + Mock 组合实现。UI 层一般不直接调用，由 [activePipeline] 持有。
 MoodAnalyzerGateway? moodAnalyzerGateway;
+
+/// M7: 云端反馈采集同意状态服务。
+///
+/// 默认 null；`main.dart` 启动时装配持久化实现。UI 层应判空后使用。
+CloudFeedbackConsentService? cloudFeedbackConsentService;
+
+/// M7: 云端文字反馈同意状态服务（独立于云端采集总开关）。
+///
+/// 默认 null；`main.dart` 启动时装配持久化实现。UI 层应判空后使用。
+/// 即使同意云端采集，文字反馈默认也不上传，需单独勾选同意。
+CloudTextConsentService? cloudTextConsentService;
+
+/// M7: 云端反馈上传器单例。
+///
+/// 默认指向内存态 mock 实现（保证 `runApp` 前可用，且不发起 HTTP 请求）；
+/// `main.dart` 启动时若 consent 服务装配成功，切换为 [HttpCloudFeedbackUploader]。
+/// UI 层（[FeedbackScreen]）在保存本地反馈后调用 `upload()`，fire-and-forget。
+CloudFeedbackUploader cloudFeedbackUploader = MockCloudFeedbackUploader(
+  consentAccepted: false,
+  textConsentAccepted: false,
+);
 
 /// 启动自检状态：SharedPreferences 是否装配成功。
 ///

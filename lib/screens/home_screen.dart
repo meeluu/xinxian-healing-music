@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:xinxian_healing_music/config/app_version.dart';
+import 'package:xinxian_healing_music/pipeline/consent/cloud_feedback_consent_service.dart';
 import 'package:xinxian_healing_music/pipeline/llm/llm_consent_service.dart';
 import 'package:xinxian_healing_music/pipeline/services.dart';
 import 'package:xinxian_healing_music/screens/analysis_screen.dart';
@@ -7,6 +8,7 @@ import 'package:xinxian_healing_music/screens/history_screen.dart';
 import 'package:xinxian_healing_music/theme/app_colors.dart';
 import 'package:xinxian_healing_music/widgets/breathing_halo.dart';
 import 'package:xinxian_healing_music/widgets/centered_page.dart';
+import 'package:xinxian_healing_music/widgets/cloud_feedback_consent_dialog.dart';
 import 'package:xinxian_healing_music/widgets/llm_consent_dialog.dart';
 import 'package:xinxian_healing_music/widgets/mood_input_field.dart';
 import 'package:xinxian_healing_music/widgets/responsive_dialog_container.dart';
@@ -95,6 +97,37 @@ class _HomeScreenState extends State<HomeScreen> {
       return '解析设置 · AI';
     }
     return '解析设置 · 本地';
+  }
+
+  /// "云端采集"按钮的当前标签。
+  /// M7：根据云端采集同意状态切换标签，便于用户快速识别当前状态。
+  String get _cloudFeedbackLabel {
+    final service = cloudFeedbackConsentService;
+    if (service != null && service.isAccepted) {
+      return '云端采集 · 已开启';
+    }
+    return '云端采集 · 已关闭';
+  }
+
+  /// 弹出云端采集同意弹窗（从"云端采集"入口触发，可关闭）。
+  Future<void> _showCloudFeedbackConsentDialog() async {
+    final service = cloudFeedbackConsentService;
+    if (service == null || !mounted) return;
+
+    final accepted = await CloudFeedbackConsentDialog.show(
+      context,
+      barrierDismissible: true,
+    );
+    if (!mounted) return;
+
+    if (accepted == true) {
+      await service.setStatus(CloudFeedbackConsentStatus.accepted);
+    } else if (accepted == false) {
+      await service.setStatus(CloudFeedbackConsentStatus.declined);
+    }
+    // accepted == null（用户关闭弹窗）：不改变状态
+
+    if (mounted) setState(() {});
   }
 
   void _goAnalyze() {
@@ -240,9 +273,12 @@ class _HomeScreenState extends State<HomeScreen> {
             style: const TextStyle(fontSize: 11, color: AppColors.textMuted),
           ),
           const SizedBox(height: 8),
-          // 历史记录 + 解析设置 并排入口
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
+          // 历史记录 + 解析设置 + 云端采集 并排入口
+          // M7：新增"云端采集"入口，允许用户随时切换云端匿名反馈采集开关。
+          Wrap(
+            alignment: WrapAlignment.center,
+            spacing: 8,
+            runSpacing: 4,
             children: [
               TextButton.icon(
                 onPressed: () {
@@ -271,7 +307,6 @@ class _HomeScreenState extends State<HomeScreen> {
                   tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                 ),
               ),
-              const SizedBox(width: 8),
               TextButton.icon(
                 onPressed: () => _showConsentDialog(firstTime: false),
                 icon: const Icon(
@@ -281,6 +316,29 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
                 label: Text(
                   _settingsLabel,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+                style: TextButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 6,
+                  ),
+                  minimumSize: const Size(0, 36),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+              ),
+              TextButton.icon(
+                onPressed: _showCloudFeedbackConsentDialog,
+                icon: const Icon(
+                  Icons.cloud_outlined,
+                  size: 16,
+                  color: AppColors.textSecondary,
+                ),
+                label: Text(
+                  _cloudFeedbackLabel,
                   style: const TextStyle(
                     fontSize: 13,
                     color: AppColors.textSecondary,

@@ -24,3 +24,12 @@ pages_build_output_dir = "build/web"
 OPENAI_BASE_URL = "https://api.deepseek.com"
 OPENAI_MODEL = "deepseek-v4-flash"
 ENABLE_LLM = "true"
+
+# ─── M7: Cloudflare D1 数据库 binding（匿名云端反馈采集）───
+# 创建命令：npx wrangler d1 create xinxian-feedback
+# 初始化 schema：npx wrangler d1 execute xinxian-feedback --remote --file=./schema/feedback.sql
+# Function 内通过 env.xinxian_feedback.prepare('INSERT INTO ...') 访问
+[[d1_databases]]
+binding = "xinxian_feedback"
+database_name = "xinxian-feedback"
+database_id = "a3019d62-a2d3-4eb5-9c34-b345858f81e2"

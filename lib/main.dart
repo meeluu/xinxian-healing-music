@@ -1,6 +1,9 @@
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:xinxian_healing_music/pipeline/cloud/http_cloud_feedback_uploader.dart';
+import 'package:xinxian_healing_music/pipeline/consent/cloud_feedback_consent_service.dart';
+import 'package:xinxian_healing_music/pipeline/consent/cloud_text_consent_service.dart';
 import 'package:xinxian_healing_music/pipeline/local/local_feedback_repository.dart';
 import 'package:xinxian_healing_music/pipeline/local/local_listening_session_recorder.dart';
 import 'package:xinxian_healing_music/pipeline/local/preferences_port.dart';
@@ -146,6 +149,53 @@ Future<void> bootstrapServices() async {
     );
   }
 
+  // ─── 6. cloudFeedbackConsentService（M7 新增，独立 try/catch）───
+  try {
+    cloudFeedbackConsentService = await CloudFeedbackConsentService.create(
+      storage,
+    );
+    debugPrint(
+      '[Startup] cloudFeedbackConsentService 装配完成: '
+      'status=${cloudFeedbackConsentService!.status}',
+    );
+  } catch (e, st) {
+    debugPrint('[Startup] cloudFeedbackConsentService 装配失败，保持 null: $e');
+    debugPrint('$st');
+  }
+
+  // ─── 7. cloudTextConsentService（M7 新增，独立 try/catch）───
+  try {
+    cloudTextConsentService = await CloudTextConsentService.create(storage);
+    debugPrint(
+      '[Startup] cloudTextConsentService 装配完成: '
+      'status=${cloudTextConsentService!.status}',
+    );
+  } catch (e, st) {
+    debugPrint('[Startup] cloudTextConsentService 装配失败，保持 null: $e');
+    debugPrint('$st');
+  }
+
+  // ─── 8. cloudFeedbackUploader（M7 新增，依赖 6/7 两个 consent 服务）───
+  // 仅当两个 consent 服务都装配成功时才切换为 HTTP 实现，
+  // 否则保持默认 MockCloudFeedbackUploader（不发起 HTTP 请求）。
+  if (cloudFeedbackConsentService != null && cloudTextConsentService != null) {
+    try {
+      cloudFeedbackUploader = HttpCloudFeedbackUploader(
+        consent: cloudFeedbackConsentService!,
+        textConsent: cloudTextConsentService!,
+      );
+      debugPrint(
+        '[Startup] cloudFeedbackUploader 装配完成: '
+        'type=${cloudFeedbackUploader.runtimeType}',
+      );
+    } catch (e, st) {
+      debugPrint('[Startup] cloudFeedbackUploader 装配失败，保持 mock: $e');
+      debugPrint('$st');
+    }
+  } else {
+    debugPrint('[Startup] cloud consent 服务未就绪，cloudFeedbackUploader 保持 mock');
+  }
+
   // ─── 启动自检汇总（仅 debugPrint，不显示到 UI）───
   final analyzerMode = moodAnalyzerGateway != null ? 'gateway' : 'mock';
   debugPrint('[Startup] ===== 自检汇总 =====');
@@ -157,6 +207,17 @@ Future<void> bootstrapServices() async {
     '[Startup] llmConsentService status: ${llmConsentService?.status ?? "null"}',
   );
   debugPrint('[Startup] activePipeline analyzer mode: $analyzerMode');
+  debugPrint(
+    '[Startup] cloudFeedbackConsentService status: '
+    '${cloudFeedbackConsentService?.status ?? "null"}',
+  );
+  debugPrint(
+    '[Startup] cloudTextConsentService status: '
+    '${cloudTextConsentService?.status ?? "null"}',
+  );
+  debugPrint(
+    '[Startup] cloudFeedbackUploader type: ${cloudFeedbackUploader.runtimeType}',
+  );
   debugPrint('[Startup] ======================');
 }
 

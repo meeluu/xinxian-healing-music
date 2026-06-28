@@ -169,6 +169,12 @@ class _HistoryScreenState extends State<HistoryScreen> {
           : Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
+                // M7：云端采集已开启时显示提示条（强调本地仍完整保存）
+                if (_cloudCollectionEnabled)
+                  const Padding(
+                    padding: EdgeInsets.only(bottom: 12),
+                    child: _CloudCollectionBanner(),
+                  ),
                 const Padding(
                   padding: EdgeInsets.only(bottom: 16),
                   child: Text(
@@ -202,6 +208,12 @@ class _HistoryScreenState extends State<HistoryScreen> {
               ],
             ),
     );
+  }
+
+  /// M7：云端采集是否已开启（用于决定是否显示提示条）。
+  bool get _cloudCollectionEnabled {
+    final consent = cloudFeedbackConsentService;
+    return consent != null && consent.isAccepted;
   }
 
   Widget _buildEmpty() {
@@ -491,5 +503,45 @@ String? _sourceChipLabel(String source) {
       return '本地解析';
     default:
       return null;
+  }
+}
+
+/// M7：云端采集已开启提示条。
+///
+/// 在历史记录列表顶部显示，告知用户：
+/// - 反馈会匿名上传到云端（不含心境原文）
+/// - 本地记录仍完整保存，可随时删除
+/// - 删除本地记录不会联动删除云端匿名数据
+class _CloudCollectionBanner extends StatelessWidget {
+  const _CloudCollectionBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: AppColors.teal.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.teal.withValues(alpha: 0.24)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: const [
+          Icon(Icons.cloud_outlined, size: 16, color: AppColors.tealDeep),
+          SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              '云端匿名采集已开启：体验评分与参数会匿名上传（不含心境原文）。'
+              '本地记录仍完整保存，删除本地不会联动删除云端匿名数据。',
+              style: TextStyle(
+                fontSize: 11,
+                color: AppColors.textSecondary,
+                height: 1.5,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }

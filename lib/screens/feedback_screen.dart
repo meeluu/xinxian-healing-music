@@ -1,11 +1,17 @@
 import 'package:flutter/material.dart';
+import 'package:xinxian_healing_music/config/app_version.dart';
+import 'package:xinxian_healing_music/models/cloud_feedback_payload.dart';
 import 'package:xinxian_healing_music/models/feedback_record.dart';
 import 'package:xinxian_healing_music/models/music_plan.dart';
+import 'package:xinxian_healing_music/pipeline/consent/cloud_feedback_consent_service.dart';
+import 'package:xinxian_healing_music/pipeline/consent/cloud_text_consent_service.dart';
 import 'package:xinxian_healing_music/pipeline/services.dart';
 import 'package:xinxian_healing_music/screens/home_screen.dart';
 import 'package:xinxian_healing_music/screens/history_screen.dart';
 import 'package:xinxian_healing_music/theme/app_colors.dart';
+import 'package:xinxian_healing_music/utils/user_agent_helper.dart';
 import 'package:xinxian_healing_music/widgets/centered_page.dart';
+import 'package:xinxian_healing_music/widgets/cloud_feedback_consent_dialog.dart';
 
 /// 反馈表单页：评分 + 紧绷度前后 + 文字反馈 → 柔和淡入感谢页 → 回首页。
 class FeedbackScreen extends StatefulWidget {
@@ -22,6 +28,17 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
   double _after = 0.4;
   final TextEditingController _note = TextEditingController();
   bool _submitted = false;
+  // M7：文字反馈上传勾选框，仅在用户已同意云端采集时显示。
+  // 勾选后本次提交的文字反馈会上传到云端（受 cloudTextConsentService 控制）。
+  bool _shareTextFeedback = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // 初始化勾选状态：若用户此前已同意上传文字反馈，则默认勾选
+    final textConsent = cloudTextConsentService;
+    _shareTextFeedback = textConsent?.isAccepted ?? false;
+  }
 
   @override
   void dispose() {
@@ -173,27 +190,19 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
             contentPadding: const EdgeInsets.all(14),
           ),
         ),
+        // M7：文字反馈上传勾选框，仅在已同意云端采集时显示。
+        // 默认不上传文字反馈，用户需主动勾选；勾选状态会持久化到 cloudTextConsentService。
+        if (_canShareTextFeedback) ...[
+          const SizedBox(height: 8),
+          _ShareTextCheckbox(
+            value: _shareTextFeedback,
+            onChanged: (v) => setState(() => _shareTextFeedback = v ?? false),
+          ),
+        ],
         const SizedBox(height: 28),
 
         FilledButton.icon(
-          onPressed: _rating == 0
-              ? null
-              : () async {
-                  final record = FeedbackRecord(
-                    sessionId: widget.plan.sessionId,
-                    rating: _rating,
-                    tensionBefore: _before,
-                    tensionAfter: _after,
-                    note: _note.text.trim().isEmpty ? null : _note.text.trim(),
-                    completed: false,
-                    createdAt: DateTime.now(),
-                  );
-                  await feedbackRepository.save(record);
-                  // 关联反馈到会话记录器，标记会话完成
-                  sessionRecorder.attachFeedback(widget.plan.sessionId, record);
-                  if (!mounted) return;
-                  setState(() => _submitted = true);
-                },
+          onPressed: _rating == 0 ? null : _submitFeedback,
           icon: const Icon(Icons.send_rounded, size: 20),
           label: const Padding(
             padding: EdgeInsets.symmetric(vertical: 4),
@@ -207,13 +216,110 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
           ),
         ),
         const SizedBox(height: 10),
-        const Text(
-          'Demo 版本 · 记录仅保存在本设备，不会上传任何服务器',
+        Text(
+          _footerText,
           textAlign: TextAlign.center,
-          style: TextStyle(fontSize: 11, color: AppColors.textMuted),
+          style: const TextStyle(fontSize: 11, color: AppColors.textMuted),
         ),
       ],
     );
+  }
+
+  /// 底部说明文案：根据云端采集同意状态动态切换。
+  String get _footerText {
+    final consent = cloudFeedbackConsentService;
+    if (consent == null || !consent.isAccepted) {
+      return 'Demo 版本 · 记录仅保存在本设备，不会上传任何服务器';
+    }
+    return '已开启匿名云端采集 · 心境原文不上传，仅上传结构化参数';
+  }
+
+  /// 是否显示"同意上传文字反馈"勾选框。
+  /// 仅当云端采集已同意且文字同意服务可用时显示。
+  bool get _canShareTextFeedback {
+    final consent = cloudFeedbackConsentService;
+    final textConsent = cloudTextConsentService;
+    return consent != null && consent.isAccepted && textConsent != null;
+  }
+
+  /// 提交反馈：本地保存 → 首次弹出云端同意弹窗 → fire-and-forget 云端上传。
+  Future<void> _submitFeedback() async {
+    // 首次提交：若云端采集同意状态为 unknown，弹出同意弹窗请用户选择。
+    // 用户拒绝或弹窗装配失败时，仅保存本地，不上传云端。
+    final consent = cloudFeedbackConsentService;
+    if (consent != null && consent.needsPrompt && mounted) {
+      final accepted = await CloudFeedbackConsentDialog.show(
+        context,
+        barrierDismissible: false,
+      );
+      if (!mounted) return;
+      if (accepted == true) {
+        await consent.setStatus(CloudFeedbackConsentStatus.accepted);
+      } else {
+        // accepted == false（用户点"仅保存在本设备"）
+        await consent.setStatus(CloudFeedbackConsentStatus.declined);
+      }
+      setState(() {});
+    }
+
+    final noteText = _note.text.trim().isEmpty ? null : _note.text.trim();
+    final record = FeedbackRecord(
+      sessionId: widget.plan.sessionId,
+      rating: _rating,
+      tensionBefore: _before,
+      tensionAfter: _after,
+      note: noteText,
+      completed: false,
+      createdAt: DateTime.now(),
+    );
+
+    // 1. 本地保存（核心路径，必须成功）
+    await feedbackRepository.save(record);
+    sessionRecorder.attachFeedback(widget.plan.sessionId, record);
+
+    // 2. 持久化文字反馈勾选状态（便于下次默认勾选）
+    final textConsent = cloudTextConsentService;
+    if (textConsent != null) {
+      final newStatus = _shareTextFeedback
+          ? CloudTextConsentStatus.accepted
+          : CloudTextConsentStatus.declined;
+      await textConsent.setStatus(newStatus);
+    }
+
+    // 3. fire-and-forget 云端上传
+    // 不 await：上传失败/超时不影响 UI 流程；上传器内部已 catch 所有异常。
+    // 若用户未填文字或未勾选上传文字，uploader 会根据 textConsent 状态剥离 freeTextFeedback。
+    _fireCloudUpload(record);
+
+    if (!mounted) return;
+    setState(() => _submitted = true);
+  }
+
+  /// 触发云端上传（fire-and-forget）。
+  ///
+  /// 不 await 调用结果，任何异常由 [HttpCloudFeedbackUploader] 内部 catch。
+  /// 此处仅 debugPrint 防御性日志，确保上传失败不影响本地体验。
+  void _fireCloudUpload(FeedbackRecord record) {
+    // 同步读取当前 consent 状态（已被 _submitFeedback 更新过）
+    final consent = cloudFeedbackConsentService;
+    if (consent == null || !consent.isAccepted) {
+      debugPrint('[M7] cloud upload skipped: consent not accepted');
+      return;
+    }
+
+    try {
+      final payload = CloudFeedbackPayload.fromFeedback(
+        record: record,
+        plan: widget.plan,
+        clientVersion: AppVersion.versionName,
+        userAgent: getUserAgent(),
+      );
+      // 不 await：fire-and-forget
+      cloudFeedbackUploader.upload(payload);
+    } catch (e) {
+      // 防御性 catch：理论上不应抛出，但确保万无一失
+      debugPrint('[M7] cloud upload trigger failed: $e');
+    }
   }
 
   Widget _buildThanks(Key key) {
@@ -337,6 +443,54 @@ class _TensionSlider extends StatelessWidget {
           max: 1.0,
         ),
       ],
+    );
+  }
+}
+
+/// M7：文字反馈上传勾选框。
+///
+/// 仅在已同意云端采集时显示。勾选后本次提交的文字反馈会上传到云端，
+/// 受 [CloudTextConsentService] 独立同意开关控制。默认不勾选。
+class _ShareTextCheckbox extends StatelessWidget {
+  final bool value;
+  final ValueChanged<bool?> onChanged;
+
+  const _ShareTextCheckbox({required this.value, required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: () => onChanged(!value),
+      borderRadius: BorderRadius.circular(8),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 4),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            SizedBox(
+              width: 24,
+              height: 24,
+              child: Checkbox(
+                value: value,
+                onChanged: onChanged,
+                visualDensity: VisualDensity.compact,
+                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+            ),
+            const SizedBox(width: 8),
+            const Expanded(
+              child: Text(
+                '同时上传本次文字反馈（可选，默认不上传）',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: AppColors.textSecondary,
+                  height: 1.4,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
