@@ -1,0 +1,26 @@
+# 心弦 · Cloudflare Pages 配置
+#
+# 部署结构：
+# - 静态站点：build/web（Flutter Web 产物）
+# - Functions：functions/（LLM 情绪解析网关）
+#
+# 本地开发：
+#   wrangler pages dev build/web
+#   （自动读取 .dev.vars 中的环境变量）
+#
+# 部署：
+#   wrangler pages deploy build/web --project-name=xinxian-healing-music
+#
+# 注意：OPENAI_API_KEY 不写在此文件中！
+#   生产环境 → Cloudflare Dashboard → Pages → Settings → Environment variables（设为 Secret）
+#   本地开发 → .dev.vars 文件（已 gitignore）
+
+name = "xinxian-healing-music"
+compatibility_date = "2024-09-01"
+pages_build_output_dir = "build/web"
+
+# ─── 非敏感环境变量（敏感的 OPENAI_API_KEY 在 Dashboard 配置）───
+[vars]
+OPENAI_BASE_URL = "https://api.deepseek.com"
+OPENAI_MODEL = "deepseek-chat"
+ENABLE_LLM = "true"
