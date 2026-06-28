@@ -3,8 +3,15 @@ import 'package:xinxian_healing_music/theme/app_colors.dart';
 
 /// 轻量卡片：白色背景、浅蓝灰边框、极轻阴影。
 ///
-/// Web 端 hover 时轻微上浮、边框变亮（克制，不影响布局）。
-class AppCard extends StatefulWidget {
+/// M6.1 修复：移除 MouseRegion + hover setState。
+///
+/// 原实现用 `MouseRegion + onEnter/onExit + setState(_hover)` 实现 hover 上浮，
+/// 这是 Flutter Web debug 下 `mouse_tracker.dart:199` 断言的经典触发模式：
+/// hover 时 setState 导致重建，MouseRegion 在重建期间被重新挂载，
+/// mouse tracker 内部状态不一致触发断言循环。
+///
+/// 改为静态卡片（无 hover 反馈），更稳定。卡片视觉风格保持不变。
+class AppCard extends StatelessWidget {
   final Widget child;
   final EdgeInsets padding;
   final double radius;
@@ -17,42 +24,22 @@ class AppCard extends StatefulWidget {
   });
 
   @override
-  State<AppCard> createState() => _AppCardState();
-}
-
-class _AppCardState extends State<AppCard> {
-  bool _hover = false;
-
-  @override
   Widget build(BuildContext context) {
-    return MouseRegion(
-      onEnter: (_) => setState(() => _hover = true),
-      onExit: (_) => setState(() => _hover = false),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 220),
-        curve: Curves.easeOutCubic,
-        transform: _hover
-            ? Matrix4.translationValues(0, -2, 0)
-            : Matrix4.identity(),
-        padding: widget.padding,
-        decoration: BoxDecoration(
-          color: AppColors.cardBg,
-          borderRadius: BorderRadius.circular(widget.radius),
-          border: Border.all(
-            color: _hover
-                ? AppColors.primary.withValues(alpha: 0.45)
-                : AppColors.cardBorder,
+    return Container(
+      padding: padding,
+      decoration: BoxDecoration(
+        color: AppColors.cardBg,
+        borderRadius: BorderRadius.circular(radius),
+        border: Border.all(color: AppColors.cardBorder),
+        boxShadow: const [
+          BoxShadow(
+            color: AppColors.cardShadow,
+            blurRadius: 12,
+            offset: Offset(0, 4),
           ),
-          boxShadow: [
-            BoxShadow(
-              color: AppColors.cardShadow,
-              blurRadius: _hover ? 20 : 12,
-              offset: Offset(0, _hover ? 6 : 4),
-            ),
-          ],
-        ),
-        child: widget.child,
+        ],
       ),
+      child: child,
     );
   }
 }

@@ -298,27 +298,19 @@ class _HomeScreenState extends State<HomeScreen> {
             ],
           ),
           const SizedBox(height: 12),
-          // 版本号小字：点击打开"关于"对话框，展示完整运行时信息。
-          // 不影响主视觉，弱化颜色 + 小号字体，但必须可见以便线上排查版本。
-          // 用 TextButton 替代 GestureDetector + HitTestBehavior.opaque：
-          // 后者在 Flutter Web debug 下会创建大范围 hit test 区域，
-          // 鼠标 hover 时触发 mouse_tracker.dart:199 断言循环。
-          TextButton(
-            onPressed: _showAboutDialog,
-            style: TextButton.styleFrom(
-              padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
-              minimumSize: const Size(0, 28),
-              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-            ),
-            child: Text(
-              AppVersion.shortLine,
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                fontSize: 10,
-                color: AppColors.textMuted,
-                letterSpacing: 0.3,
-                height: 1.4,
-              ),
+          // 版本号小字：纯 Text，不可点击。
+          // M6.1 修复：移除 TextButton 包裹，避免 Material hover 状态参与
+          // mouse tracking。TextButton 的 Material hover 在 Flutter Web debug
+          // 下可能与 mouse_tracker 交互触发断言。改为纯 Text 不参与 hit test，
+          // 彻底规避。About 弹窗入口暂停，后续可在 AppBar info 图标恢复。
+          Text(
+            AppVersion.shortLine,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              fontSize: 10,
+              color: AppColors.textMuted,
+              letterSpacing: 0.3,
+              height: 1.4,
             ),
           ),
         ],
@@ -331,9 +323,10 @@ class _HomeScreenState extends State<HomeScreen> {
   /// 运行时状态从全局 [sharedPrefsReady] / [webLocalStorageFallback] /
   /// [moodAnalyzerGateway] / [llmConsentService] 读取，反映 bootstrap 装配结果，
   /// 方便线上排查"为什么历史记录丢了 / 为什么没有 AI 解析"等问题。
+  /// "关于"对话框入口（M6.1 暂停：版本号改为纯 Text 后不再触发）。
+  /// 保留代码以便后续在 AppBar info 图标恢复入口。
+  // ignore: unused_element
   void _showAboutDialog() {
-    // 延迟到下一帧打开弹窗，避免在 pointer/hover 事件栈中同步触发 showDialog，
-    // 后者在 Flutter Web debug 下会触发 mouse_tracker.dart:199 断言循环。
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       showDialog<void>(context: context, builder: (_) => const _AboutDialog());
