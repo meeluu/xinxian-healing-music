@@ -1,5 +1,6 @@
 import 'package:xinxian_healing_music/models/mood_profile.dart';
 import 'package:xinxian_healing_music/models/music_plan_draft.dart';
+import 'package:xinxian_healing_music/pipeline/intent/target_state_resolver.dart';
 import 'package:xinxian_healing_music/pipeline/mock/mock_template_registry.dart';
 
 /// LLM 情绪画像 → 音乐方案的核心映射层（M5 新增）。
@@ -18,7 +19,8 @@ import 'package:xinxian_healing_music/pipeline/mock/mock_template_registry.dart'
 /// 6. 不夸大医疗效果，统一使用"辅助放松 / 情绪调节 / 睡前舒缓 / 正念陪伴"
 ///
 /// 映射规则概述：
-/// - 第 1 步：按 [MoodProfile.tags] 关键词修正 [TargetState]（失眠→sleep，焦虑→regulate/sleep，等）
+/// - 第 1 步：委托 [TargetStateResolver] 用原文 + tags 修正 [TargetState]
+///   （M6.1：支持"专注学习""不想睡""运动后很空"等原文意图识别）
 /// - 第 2 步：按修正后的 targetState 取 5 套基础音乐参数（BPM 范围 / 脑波 / 乐器 / 噪音 / 和声）
 /// - 第 3 步：按 [MoodProfile.arousal] 在 BPM 范围内插值（arousal 越高 BPM 越低）
 /// - 第 4 步：按 [MoodProfile.valence] 调整和声色彩（越低越偏小调）
@@ -98,100 +100,28 @@ class EmotionToMusicPlanMapper {
   }
 
   // ───────────────────────────────────────────────────────────────────────
-  // 第 1 步：按 tags 关键词修正 targetState
+  // 第 1 步：委托 TargetStateResolver 用原文 + tags 修正 targetState
   // ───────────────────────────────────────────────────────────────────────
 
-  /// 按 tags 关键词修正 targetState。
+  /// 委托 [TargetStateResolver] 修正 targetState（M6.1 重构）。
   ///
-  /// 优先级：tags 强信号 > LLM 返回的 targetState > 默认 regulate。
-  /// - 失眠 / 睡不着 / 夜晚 → sleep
-  /// - 焦虑 / 压力 / 紧张 / 思绪过载 → regulate（arousal 高时）或 sleep（arousal 中低时）
-  /// - 疲惫 / 空 / 内耗 → soothe（valence 低）或 energize（valence 中）
-  /// - 烦躁 / 愤怒 / 静不下心 → regulate
+  /// M5 原本只看 `profile.tags`，无法识别"专注学习""不想睡"等原文意图。
+  /// M6.1 改为统一调用 [TargetStateResolver.resolve]，传入：
+  /// - `profile.sourceText`：用户原文（实时分析时有值，旧历史记录为空）
+  /// - `profile.tags`：情绪标签（来自模板或 LLM）
+  /// - `profile.valence` / `profile.arousal`：情绪维度
+  /// - `profile.targetState`：LLM/mock 返回的 targetState（作为 fallback）
+  ///
+  /// resolver 内部 8 级优先级规则详见 [TargetStateResolver] 类注释。
+  /// 旧历史记录（sourceText 为空）时退回到 tags + llmTargetState 逻辑，向后兼容。
   TargetState _resolveTargetState(MoodProfile profile) {
-    final tags = profile.tags.map((e) => e.toLowerCase()).toList();
-    final text = tags.join(' ');
-
-    // 失眠类强信号
-    const sleepKeywords = ['失眠', '睡不着', '夜晚', '夜里', '夜醒', '入睡', '辗转', '睡眠'];
-    if (sleepKeywords.any((kw) => text.contains(kw))) {
-      return TargetState.sleep;
-    }
-
-    // 烦躁 / 愤怒类
-    const agitatedKeywords = ['烦躁', '愤怒', '火大', '生气', '气死', '静不下心', '吵架'];
-    if (agitatedKeywords.any((kw) => text.contains(kw))) {
-      return TargetState.regulate;
-    }
-
-    // 焦虑 / 压力 / 紧张类
-    const anxietyKeywords = [
-      '焦虑',
-      '压力',
-      '紧张',
-      '紧绷',
-      '思绪过载',
-      '焦躁',
-      'deadline',
-      'kpi',
-      '加班',
-    ];
-    if (anxietyKeywords.any((kw) => text.contains(kw))) {
-      // arousal 高 → regulate（情绪降温）；arousal 中低 → sleep（睡前舒缓）
-      return profile.arousal >= 0.6 ? TargetState.regulate : TargetState.sleep;
-    }
-
-    // 疲惫 / 空 / 内耗类
-    const exhaustionKeywords = [
-      '疲惫',
-      '累',
-      '耗尽',
-      '无力',
-      '空虚',
-      '内耗',
-      '麻木',
-      '倦',
-      '透支',
-    ];
-    if (exhaustionKeywords.any((kw) => text.contains(kw))) {
-      // valence 低 → soothe（自我安抚）；valence 中 → energize（温和充能）
-      return profile.valence < -0.3 ? TargetState.soothe : TargetState.energize;
-    }
-
-    // 低落 / 悲伤类
-    const lowMoodKeywords = [
-      '低落',
-      '失落',
-      '难过',
-      '想哭',
-      '沮丧',
-      'emo',
-      '抑郁',
-      '孤独',
-      '悲伤',
-    ];
-    if (lowMoodKeywords.any((kw) => text.contains(kw))) {
-      return TargetState.soothe;
-    }
-
-    // 无强信号时，信任 LLM 返回的 targetState
-    // 向后兼容：relax 当作 regulate，company 当作 soothe
-    switch (profile.targetState) {
-      case TargetState.sleep:
-        return TargetState.sleep;
-      case TargetState.focus:
-        return TargetState.focus;
-      case TargetState.regulate:
-        return TargetState.regulate;
-      case TargetState.soothe:
-        return TargetState.soothe;
-      case TargetState.energize:
-        return TargetState.energize;
-      case TargetState.relax:
-        return TargetState.regulate;
-      case TargetState.company:
-        return TargetState.soothe;
-    }
+    return TargetStateResolver.resolve(
+      text: profile.sourceText,
+      tags: profile.tags,
+      valence: profile.valence,
+      arousal: profile.arousal,
+      llmTargetState: profile.targetState,
+    );
   }
 
   // ───────────────────────────────────────────────────────────────────────

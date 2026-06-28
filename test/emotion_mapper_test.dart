@@ -111,7 +111,7 @@ void main() {
 
     test('energize：BPM 72-92，Alpha uplift，森林环境音/轻自然音', () {
       final profile = MoodProfile(
-        tags: const ['疲惫', '空虚'],
+        tags: const ['疲惫', '耗尽'],
         valence: 0.0,
         arousal: 0.2,
         intensity: 0.5,
@@ -294,7 +294,10 @@ void main() {
       expect(draft.targetState, TargetState.regulate);
     });
 
-    test('tags 含"焦虑"+ arousal 低 → sleep', () {
+    test('tags 含"焦虑" → regulate（M6.1：不再按 arousal 区分 sleep/regulate）', () {
+      // M5 原逻辑：焦虑 + arousal 低 → sleep
+      // M6.1 改为：焦虑 → regulate（固定），因为焦虑更偏情绪降温
+      // 睡眠意图由 sleep 关键词（失眠/睡不着/想睡）单独识别
       final draft = mapper.map(
         const MoodProfile(
           tags: ['焦虑'],
@@ -304,7 +307,7 @@ void main() {
           targetState: TargetState.relax,
         ),
       );
-      expect(draft.targetState, TargetState.sleep);
+      expect(draft.targetState, TargetState.regulate);
     });
 
     test('tags 含"烦躁" → regulate', () {
@@ -320,7 +323,10 @@ void main() {
       expect(draft.targetState, TargetState.regulate);
     });
 
-    test('tags 含"疲惫"+ valence 低 → soothe', () {
+    test('tags 含"疲惫" → energize（M6.1：不再按 valence 区分 soothe/energize）', () {
+      // M5 原逻辑：疲惫 + valence 低 → soothe
+      // M6.1 改为：疲惫 → energize（固定），因为疲惫更偏低能量恢复
+      // 悲伤安抚由 soothe 关键词（难过/低落/孤独）单独识别
       final draft = mapper.map(
         const MoodProfile(
           tags: ['疲惫', '内耗'],
@@ -330,7 +336,7 @@ void main() {
           targetState: TargetState.relax,
         ),
       );
-      expect(draft.targetState, TargetState.soothe);
+      expect(draft.targetState, TargetState.energize);
     });
 
     test('tags 含"疲惫"+ valence 中 → energize', () {

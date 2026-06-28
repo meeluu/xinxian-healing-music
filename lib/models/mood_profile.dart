@@ -24,6 +24,14 @@ class MoodProfile {
   /// 主导需求（自然语言描述，可空），例如 "快速入眠"、"情绪降温"
   final String? dominantNeed;
 
+  /// 用户原文（M6.1 新增，不持久化）。
+  ///
+  /// 供 [EmotionToMusicPlanMapper] / [TargetStateResolver] 做意图修正。
+  /// - 实时分析时由 MockMoodAnalyzer / LlmMoodAnalyzer 设置
+  /// - 旧历史记录反序列化时为空字符串，mapper 退回到 tags-based 逻辑
+  /// - 不参与 toJson（隐私 + 无需持久化）
+  final String sourceText;
+
   const MoodProfile({
     required this.tags,
     required this.valence,
@@ -32,6 +40,7 @@ class MoodProfile {
     this.intensity = 0.5,
     this.targetState = TargetState.relax,
     this.dominantNeed,
+    this.sourceText = '',
   });
 
   /// 序列化为 JSON 友好的 Map（供 shared_preferences 持久化）。

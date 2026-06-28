@@ -59,12 +59,15 @@ class LlmMoodAnalyzer implements MoodAnalyzerPort {
       throw Exception('llm_no_mood');
     }
 
-    return _toMoodProfile(moodRaw);
+    return _toMoodProfile(moodRaw, input.text);
   }
 
   /// 将后端返回的 mood JSON 转为 MoodProfile。
   /// 任何字段缺失/类型错误都抛异常（由 Gateway catch）。
-  MoodProfile _toMoodProfile(Map<String, dynamic> m) {
+  ///
+  /// M6.1：设置 [MoodProfile.sourceText] = 用户原文，让 mapper 的
+  /// [TargetStateResolver] 能用原文修正 LLM 返回的 targetState。
+  MoodProfile _toMoodProfile(Map<String, dynamic> m, String sourceText) {
     final tagsRaw = m['tags'];
     if (tagsRaw is! List) throw Exception('llm_bad_tags');
     final tags = tagsRaw.map((e) => e.toString()).toList();
@@ -88,6 +91,7 @@ class LlmMoodAnalyzer implements MoodAnalyzerPort {
       summary: summary,
       targetState: TargetState.fromName(targetName),
       dominantNeed: dominantNeed,
+      sourceText: sourceText,
     );
   }
 }

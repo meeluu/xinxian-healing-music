@@ -1,5 +1,6 @@
 import 'package:xinxian_healing_music/models/mood_input.dart';
 import 'package:xinxian_healing_music/models/mood_profile.dart';
+import 'package:xinxian_healing_music/pipeline/intent/target_state_resolver.dart';
 import 'package:xinxian_healing_music/pipeline/mock/mock_template_registry.dart';
 import 'package:xinxian_healing_music/pipeline/ports/mood_analyzer_port.dart';
 
@@ -8,6 +9,10 @@ import 'package:xinxian_healing_music/pipeline/ports/mood_analyzer_port.dart';
 /// 用关键词命中数选模板，命中最多者胜出；无命中则走"平衡调和型"。
 /// 逻辑迁自旧 `services/mood_analyzer.dart`，输出由 [HealingMusicPlan]
 /// 收窄为 [MoodProfile]，对齐 Translation Pipeline 分层。
+///
+/// M6.1：模板匹配后，调用 [TargetStateResolver] 用用户原文修正 targetState，
+/// 解决"专注学习""不想睡""运动后很空"等模板无法覆盖的意图。
+/// valence/arousal/tags/summary 仍来自模板（保证 M5 行为一致）。
 class MockMoodAnalyzer implements MoodAnalyzerPort {
   const MockMoodAnalyzer();
 
@@ -59,6 +64,27 @@ class MockMoodAnalyzer implements MoodAnalyzerPort {
         bestKey = key;
       }
     }
-    return MockTemplateRegistry.moodForKey(bestKey);
+
+    final template = MockTemplateRegistry.moodForKey(bestKey);
+
+    // M6.1：用原文 + tags 修正 targetState，覆盖模板的原始 targetState
+    final resolvedTarget = TargetStateResolver.resolve(
+      text: input.text,
+      tags: template.tags,
+      valence: template.valence,
+      arousal: template.arousal,
+      llmTargetState: template.targetState,
+    );
+
+    return MoodProfile(
+      tags: template.tags,
+      valence: template.valence,
+      arousal: template.arousal,
+      summary: template.summary,
+      intensity: template.intensity,
+      targetState: resolvedTarget,
+      dominantNeed: template.dominantNeed,
+      sourceText: input.text,
+    );
   }
 }
