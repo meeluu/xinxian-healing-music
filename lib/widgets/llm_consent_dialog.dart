@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:xinxian_healing_music/theme/app_colors.dart';
+import 'package:xinxian_healing_music/widgets/responsive_dialog_container.dart';
 
 /// LLM 隐私同意弹窗。
 ///
@@ -15,6 +16,10 @@ import 'package:xinxian_healing_music/theme/app_colors.dart';
 ///
 /// 首次进入首页时 [show] 不可关闭背景（必须做选择）；
 /// "解析设置"入口再次调用时可传 [barrierDismissible] 允许关闭。
+///
+/// 移动端适配（M5 修复）：
+/// - 使用 [ResponsiveDialogContainer] 替代 [AlertDialog]，避免窄屏渲染异常
+/// - 内容区可滚动，按钮区固定底部，保证 360px 宽手机完整可见
 class LlmConsentDialog extends StatelessWidget {
   final bool barrierDismissible;
 
@@ -31,59 +36,69 @@ class LlmConsentDialog extends StatelessWidget {
     return showDialog<bool>(
       context: context,
       barrierDismissible: barrierDismissible,
-      builder: (_) => LlmConsentDialog(barrierDismissible: barrierDismissible),
+      // insetPadding: EdgeInsets.zero 取消 AlertDialog 默认 inset，
+      // 改由 ResponsiveDialogContainer 内部 SafeArea + ConstrainedBox 控制尺寸
+      builder: (_) => PopScope(
+        canPop: barrierDismissible,
+        child: LlmConsentDialog(barrierDismissible: barrierDismissible),
+      ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    return PopScope(
-      // barrierDismissible=false 时禁止系统返回键关闭弹窗
-      canPop: barrierDismissible,
-      child: AlertDialog(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(20),
-        ),
-        titlePadding: const EdgeInsets.fromLTRB(24, 20, 24, 0),
-        contentPadding: const EdgeInsets.fromLTRB(24, 16, 24, 0),
-        actionsPadding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
-        title: const Row(
-          children: [
-            Icon(Icons.shield_rounded, color: AppColors.tealDeep, size: 22),
-            SizedBox(width: 8),
-            Text(
+    return ResponsiveDialogContainer(
+      title: const Row(
+        children: [
+          Icon(Icons.shield_rounded, color: AppColors.tealDeep, size: 22),
+          SizedBox(width: 8),
+          Expanded(
+            child: Text(
               'AI 解析隐私说明',
               style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
+              overflow: TextOverflow.ellipsis,
             ),
-          ],
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: const [
-            Text(
-              '心弦提供两种情绪解析方式：',
-              style: TextStyle(fontSize: 14, color: AppColors.textPrimary),
-            ),
-            SizedBox(height: 12),
-            _Bullet(text: '开启 AI 解析后，你输入的心境文本会发送到 AI 服务用于情绪解析'),
-            _Bullet(text: '解析结果和历史记录仍然保存在本设备，不上传服务器'),
-            _Bullet(text: '本功能仅用于辅助情绪调节和音乐推荐，不提供医疗诊断'),
-            _Bullet(text: '你可以随时在"解析设置"中切换为仅使用本地解析'),
-          ],
-        ),
-        actions: [
+          ),
+        ],
+      ),
+      footer: DialogButtonBar(
+        children: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
-            child: const Text(
-              '仅使用本地解析',
-              style: TextStyle(color: AppColors.textSecondary),
+            style: TextButton.styleFrom(
+              foregroundColor: AppColors.textSecondary,
+              minimumSize: const Size.fromHeight(44),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
             ),
+            child: const Text('仅使用本地解析', style: TextStyle(fontSize: 14)),
           ),
           FilledButton(
             onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('同意 AI 解析'),
+            style: FilledButton.styleFrom(
+              minimumSize: const Size.fromHeight(44),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            child: const Text('同意 AI 解析', style: TextStyle(fontSize: 14)),
           ),
+        ],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: const [
+          Text(
+            '心弦提供两种情绪解析方式：',
+            style: TextStyle(fontSize: 14, color: AppColors.textPrimary),
+          ),
+          SizedBox(height: 12),
+          _Bullet(text: '开启 AI 解析后，你输入的心境文本会发送到 AI 服务用于情绪解析'),
+          _Bullet(text: '解析结果和历史记录仍然保存在本设备，不上传服务器'),
+          _Bullet(text: '本功能仅用于辅助情绪调节和音乐推荐，不提供医疗诊断'),
+          _Bullet(text: '你可以随时在"解析设置"中切换为仅使用本地解析'),
         ],
       ),
     );

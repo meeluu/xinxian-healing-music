@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:xinxian_healing_music/config/app_version.dart';
 import 'package:xinxian_healing_music/pipeline/llm/llm_consent_service.dart';
 import 'package:xinxian_healing_music/pipeline/services.dart';
 import 'package:xinxian_healing_music/screens/analysis_screen.dart';
@@ -8,6 +9,7 @@ import 'package:xinxian_healing_music/widgets/breathing_halo.dart';
 import 'package:xinxian_healing_music/widgets/centered_page.dart';
 import 'package:xinxian_healing_music/widgets/llm_consent_dialog.dart';
 import 'package:xinxian_healing_music/widgets/mood_input_field.dart';
+import 'package:xinxian_healing_music/widgets/responsive_dialog_container.dart';
 
 /// 首页：输入当前心境描述。
 ///
@@ -294,6 +296,159 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
             ],
+          ),
+          const SizedBox(height: 12),
+          // 版本号小字：点击打开"关于"对话框，展示完整运行时信息。
+          // 不影响主视觉，弱化颜色 + 小号字体，但必须可见以便线上排查版本。
+          GestureDetector(
+            onTap: _showAboutDialog,
+            behavior: HitTestBehavior.opaque,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: Text(
+                AppVersion.shortLine,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 10,
+                  color: AppColors.textMuted,
+                  letterSpacing: 0.3,
+                  height: 1.4,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// "关于"对话框：展示完整版本信息 + 运行时状态。
+  ///
+  /// 运行时状态从全局 [sharedPrefsReady] / [webLocalStorageFallback] /
+  /// [moodAnalyzerGateway] / [llmConsentService] 读取，反映 bootstrap 装配结果，
+  /// 方便线上排查"为什么历史记录丢了 / 为什么没有 AI 解析"等问题。
+  void _showAboutDialog() {
+    showDialog<void>(context: context, builder: (_) => const _AboutDialog());
+  }
+}
+
+/// "关于"对话框：展示版本号、里程碑、部署平台、API 模式、本地存储状态。
+class _AboutDialog extends StatelessWidget {
+  const _AboutDialog();
+
+  @override
+  Widget build(BuildContext context) {
+    return ResponsiveDialogContainer(
+      title: const Row(
+        children: [
+          Icon(Icons.info_outline_rounded, color: AppColors.primary, size: 22),
+          SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              '关于心弦',
+              style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      ),
+      footer: DialogButtonBar(
+        children: [
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(),
+            style: FilledButton.styleFrom(
+              minimumSize: const Size.fromHeight(44),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            child: const Text('关闭'),
+          ),
+        ],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _AboutInfoRow(label: '应用名称', value: AppVersion.appName),
+          _AboutInfoRow(label: '当前版本', value: AppVersion.versionName),
+          _AboutInfoRow(label: '里程碑阶段', value: AppVersion.milestone),
+          _AboutInfoRow(label: '构建标签', value: AppVersion.buildLabel),
+          _AboutInfoRow(label: '构建日期', value: AppVersion.buildDate),
+          _AboutInfoRow(label: '部署平台', value: AppVersion.deployTarget),
+          const Divider(height: 24, color: AppColors.cardBorder),
+          _AboutInfoRow(label: 'API 模式', value: _apiModeLabel),
+          _AboutInfoRow(label: 'AI 解析状态', value: _consentLabel),
+          _AboutInfoRow(label: '本地存储状态', value: _storageLabel),
+        ],
+      ),
+    );
+  }
+
+  /// API 模式：gateway（LLM + Mock 自动 fallback）或 mock（纯本地）。
+  String get _apiModeLabel =>
+      moodAnalyzerGateway != null ? 'gateway（LLM + 本地 fallback）' : 'mock（纯本地）';
+
+  /// AI 解析同意状态。
+  String get _consentLabel {
+    final service = llmConsentService;
+    if (service == null) return '未装配（mock）';
+    switch (service.status) {
+      case LlmConsentStatus.accepted:
+        return '已同意 AI 解析';
+      case LlmConsentStatus.declined:
+        return '仅使用本地解析';
+      case LlmConsentStatus.unknown:
+        return '未选择（首次未弹窗）';
+    }
+  }
+
+  /// 本地存储状态：综合 SharedPreferences / Web localStorage fallback / mock。
+  String get _storageLabel {
+    final prefsOk = sharedPrefsReady;
+    final webFallback = webLocalStorageFallback;
+    if (prefsOk == null) {
+      return '未启动装配';
+    }
+    if (prefsOk) {
+      return 'SharedPreferences 可用';
+    }
+    if (webFallback == true) {
+      return 'Web localStorage fallback';
+    }
+    return '不可用（回退内存态）';
+  }
+}
+
+/// "关于"对话框中的"标签：值"行。
+class _AboutInfoRow extends StatelessWidget {
+  final String label;
+  final String value;
+
+  const _AboutInfoRow({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 88,
+            child: Text(
+              label,
+              style: const TextStyle(fontSize: 12, color: AppColors.textMuted),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              style: const TextStyle(
+                fontSize: 13,
+                color: AppColors.textPrimary,
+              ),
+            ),
           ),
         ],
       ),

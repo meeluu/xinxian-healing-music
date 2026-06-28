@@ -29,3 +29,15 @@ LlmConsentService? llmConsentService;
 /// 默认 null（保证 `runApp` 前可用）；`main.dart` 启动时装配
 /// LLM + Mock 组合实现。UI 层一般不直接调用，由 [activePipeline] 持有。
 MoodAnalyzerGateway? moodAnalyzerGateway;
+
+/// 启动自检状态：SharedPreferences 是否装配成功。
+///
+/// 由 `main.dart` 的 `bootstrapServices()` 写入，UI 层只读。
+/// 用于"关于"对话框展示当前运行时存储状态。null 表示尚未启动装配。
+bool? sharedPrefsReady;
+
+/// 启动自检状态：是否启用了 Web localStorage fallback。
+///
+/// 由 `main.dart` 的 `bootstrapServices()` 写入，UI 层只读。
+/// true 表示 SharedPreferences 失败后回退到 dart:html window.localStorage。
+bool? webLocalStorageFallback;

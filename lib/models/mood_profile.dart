@@ -59,7 +59,7 @@ class MoodProfile {
 
 /// 期望调节到的目标状态。
 enum TargetState {
-  /// 辅助放松
+  /// 辅助放松（M1-M4 旧值，向后兼容；M5 mapper 内部当作 regulate 处理）
   relax,
 
   /// 睡前舒缓
@@ -68,11 +68,17 @@ enum TargetState {
   /// 专注聚焦
   focus,
 
-  /// 正念陪伴
+  /// 正念陪伴（M1-M4 旧值，向后兼容；M5 mapper 内部当作 soothe 处理）
   company,
 
   /// 情绪调节
-  regulate;
+  regulate,
+
+  /// 自我安抚、情绪陪伴（M5 新增）
+  soothe,
+
+  /// 温和恢复能量（M5 新增）
+  energize;
 
   /// 按 name 反序列化；未知值回退到 [relax]。
   static TargetState fromName(String? name) {

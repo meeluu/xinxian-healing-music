@@ -38,6 +38,10 @@ Future<void> bootstrapServices() async {
   bool prefsOk = false;
   bool webFallback = false;
 
+  // 同步到全局诊断变量（供 UI "关于"对话框读取），先重置为未启动状态。
+  sharedPrefsReady = null;
+  webLocalStorageFallback = null;
+
   try {
     final prefs = await SharedPreferences.getInstance();
     // 诊断写读：确认 localStorage 可用（Web 端按 origin 隔离）
@@ -76,8 +80,15 @@ Future<void> bootstrapServices() async {
       '[Startup] 自检汇总: prefs=false, webFallback=false, '
       'recorder=${sessionRecorder.runtimeType}, consent=null, pipeline=mock',
     );
+    // 同步到全局诊断变量（供 UI "关于"对话框读取）
+    sharedPrefsReady = false;
+    webLocalStorageFallback = false;
     return;
   }
+
+  // 存储装配成功，同步到全局诊断变量（供 UI "关于"对话框读取）
+  sharedPrefsReady = prefsOk;
+  webLocalStorageFallback = webFallback;
 
   // ─── 2. sessionRecorder（独立 try/catch，失败不影响后续）───
   try {
