@@ -37,6 +37,40 @@
 8. 再查看历史记录
 9. 历史仍然存在
 
+### P1-Web-v1.0 第三批产品化修复
+
+第三批产品化修复聚焦历史记录数据完整性、移动端小屏适配与 Web 元信息补齐，不改 API、D1 schema、pipeline 与播放器核心逻辑。
+
+**改动目的**：
+
+1. 修复历史记录撤销删除时丢失原始 `startedAt` 时间戳的问题（原先撤销会以 `DateTime.now()` 重置时间，导致排序错乱）
+2. 修复 `analysis_screen` 在移动端小屏（高度受限）时呼吸圆与文案溢出的问题，改为基于 `LayoutBuilder` 的响应式尺寸
+3. 补齐 `index.html` 元信息（`description` / `theme-color`），改善 SEO 与移动端浏览器 UI 一致性
+4. 历史记录空状态增加"创建第一条音乐方案" CTA，避免用户在空状态卡死
+
+**涉及模块**：
+
+- **会话恢复抽象**：`ListeningSessionRecorder` 新增 `restore(ListeningSession)` 抽象方法，支持完整还原会话（含原始 `startedAt`）
+- **本地持久化实现**：`LocalListeningSessionRecorder` / `MockListeningSessionRecorder` 实现 `restore`，内部走 `_upsert` 语义
+- **历史记录撤销逻辑**：[history_screen.dart](file:///d:/xinxian_healing_music/lib/screens/history_screen.dart) 撤销操作从"重新 begin"改为调用 `restore(session)`，完整保留原始 `startedAt` / `listenedDuration` / `feedback`
+- **解析动画页响应式**：[analysis_screen.dart](file:///d:/xinxian_healing_music/lib/screens/analysis_screen.dart) 使用 `LayoutBuilder` 按可用宽高较小者的 55% 计算呼吸圆区域，限制 180-260，超出时可滚动
+- **Web 元信息**：[index.html](file:///d:/xinxian_healing_music/web/index.html) 新增 `<meta name="description">` 与 `<meta name="theme-color">`
+- **单元测试**：[local_storage_test.dart](file:///d:/xinxian_healing_music/test/local_storage_test.dart) 新增 `restore 恢复已删除会话时保留原始 startedAt` 测试（含重启后一致性验证）
+
+**验证结果**：
+
+- `flutter analyze`：No issues found! (ran in 2.9s)
+- `flutter test`：196 passed + 5 skipped（含新增 restore 测试）
+- `flutter build web --release`：√ Built `build\web` (29.0s)
+
+**当前状态（未改动）**：
+
+- `functions/api/*.js`（API 协议不变）
+- `schema/feedback.sql` / D1 schema（零迁移）
+- pipeline 核心逻辑（推荐链路不变）
+- 播放器核心逻辑（本批未改）
+- 未引入新依赖
+
 ## 一、项目背景
 
 当下 18-30 岁青年群体普遍面临备考压力、职场焦虑、睡眠困扰、情绪低落、精神内耗等心理亚健康问题。传统心理咨询存在时间、经济和心理门槛，而通用歌单、白噪音 App、脑波音频产品大多采用固定内容推荐，难以匹配用户当下具体而细腻的情绪状态。
@@ -347,6 +381,10 @@ M7.0 之前，用户反馈仅保存在本地浏览器，无法用于跨设备聚
 | **M8.1** | 消融对比实验分组记录（保守 MVP）：`HashExperimentAssigner` 按 sessionId FNV-1a hash 稳定分流到 custom / generic / control 三组（默认 1:1:1），编译期常量 `ENABLE_EXPERIMENT` 控制启用（默认 false 零体验影响），M8.1 仅记录分组标签不改推荐逻辑，音频旁路留到 M8.2 | ✅ 已完成 |
 | **M8.2**（下一阶段） | 消融对比实验音频旁路：在 `StockAudioGenerator` 按 `experimentVariant` 分流，generic 固定 `soothe_01.mp3`、control 固定 `sleep_01.mp3`，真正改变推荐结果；可选补 `completionRatio` D1 字段 | 🔜 下一阶段 |
 | **M9**             | AI 音乐生成模型接入：将 `AudioGenerationPort` 从本地预置音频替换为真实 AI 音乐生成模型（如 MusicGen / Suno API），按 `generationPrompt` 实时生成个性化音频                                              | ⏳ 计划中   |
+| **P1-Web-v1.0**（待办） | API CORS / 限流：补充 `/api/analyze-mood` 与 `/api/submit-feedback` 的 CORS 白名单与速率限制策略，避免公网滥用                                                                                       | ⏳ 待办     |
+| **P1-Web-v1.0**（待办） | submit-feedback 超时保护：`HttpCloudFeedbackUploader` 已有 6 秒超时，但 Pages Function 端缺少显式超时控制                                                                                              | ⏳ 待办     |
+| **P1-Web-v1.0**（待办） | `/api/health` 健康检查：新增轻量健康检查端点，便于 Cloudflare 监控与运维                                                                                                                              | ⏳ 待办     |
+| **P1-Web-v1.0**（待办） | PWA 缓存策略：补齐 Service Worker 缓存策略，提升二次访问加载速度                                                                                                                                     | ⏳ 待办     |
 
 ## 九、项目价值
 

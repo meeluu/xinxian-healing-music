@@ -121,166 +121,221 @@ class _AnalysisScreenState extends State<AnalysisScreen>
   }
 
   /// 正常 + 加载态：呼吸圆 + 文案 / 加载指示器。
+  ///
+  /// 响应式尺寸：根据可用宽高较小者的 55% 计算呼吸圆区域，限制 180-260。
+  /// 小屏 / 横屏时自动缩小，避免溢出；内容超出时可滚动。
   Widget _buildProgress() {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        // 呼吸圆 + 扩散波纹
-        SizedBox(
-          width: 260,
-          height: 260,
-          child: AnimatedBuilder(
-            animation: _breath,
-            builder: (context, _) {
-              final t = _breath.value; // 0..1..0
-              return Stack(
-                alignment: Alignment.center,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final availH = constraints.maxHeight.isFinite
+            ? constraints.maxHeight
+            : 600.0;
+        final availW = constraints.maxWidth;
+        final minDim = availW < availH ? availW : availH;
+        // 呼吸圆区域：屏幕较小维度的 55%，限制 180-260
+        final area = (minDim * 0.55).clamp(180.0, 260.0);
+        // 内部元素按比例缩放（基于 260 基准）
+        final rippleBase = area * 0.577; // 150/260
+        final rippleExpansion = area * 0.423; // 110/260
+        final coreSize = area * 0.5; // 130/260
+        final iconSize = area * 0.208; // 54/260
+        final blurRadius = area * 0.154; // 40/260
+
+        return SingleChildScrollView(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minHeight: availH),
+            child: Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  // 外层波纹（随呼吸扩散、淡出）
-                  _ripple(t, baseSize: 150, phase: 0.0),
-                  _ripple(t, baseSize: 150, phase: 0.33),
-                  _ripple(t, baseSize: 150, phase: 0.66),
-                  // 中心呼吸圆
-                  Opacity(
-                    opacity: 0.65 + t * 0.35,
-                    child: Transform.scale(
-                      scale: 0.86 + t * 0.14,
-                      child: Container(
-                        width: 130,
-                        height: 130,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          gradient: RadialGradient(
-                            colors: [
-                              AppColors.primary.withValues(alpha: 0.55),
-                              AppColors.teal.withValues(alpha: 0.25),
-                            ],
-                          ),
-                          boxShadow: [
-                            BoxShadow(
-                              color: AppColors.primary.withValues(
-                                alpha: 0.25,
+                  // 呼吸圆 + 扩散波纹
+                  SizedBox(
+                    width: area,
+                    height: area,
+                    child: AnimatedBuilder(
+                      animation: _breath,
+                      builder: (context, _) {
+                        final t = _breath.value; // 0..1..0
+                        return Stack(
+                          alignment: Alignment.center,
+                          children: [
+                            // 外层波纹（随呼吸扩散、淡出）
+                            _ripple(
+                              t,
+                              baseSize: rippleBase,
+                              expansion: rippleExpansion,
+                              phase: 0.0,
+                            ),
+                            _ripple(
+                              t,
+                              baseSize: rippleBase,
+                              expansion: rippleExpansion,
+                              phase: 0.33,
+                            ),
+                            _ripple(
+                              t,
+                              baseSize: rippleBase,
+                              expansion: rippleExpansion,
+                              phase: 0.66,
+                            ),
+                            // 中心呼吸圆
+                            Opacity(
+                              opacity: 0.65 + t * 0.35,
+                              child: Transform.scale(
+                                scale: 0.86 + t * 0.14,
+                                child: Container(
+                                  width: coreSize,
+                                  height: coreSize,
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    gradient: RadialGradient(
+                                      colors: [
+                                        AppColors.primary.withValues(
+                                          alpha: 0.55,
+                                        ),
+                                        AppColors.teal.withValues(alpha: 0.25),
+                                      ],
+                                    ),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: AppColors.primary.withValues(
+                                          alpha: 0.25,
+                                        ),
+                                        blurRadius: blurRadius,
+                                        spreadRadius: 2,
+                                      ),
+                                    ],
+                                  ),
+                                  child: Icon(
+                                    Icons.spa_rounded,
+                                    size: iconSize,
+                                    color: Colors.white,
+                                  ),
+                                ),
                               ),
-                              blurRadius: 40,
-                              spreadRadius: 2,
                             ),
                           ],
+                        );
+                      },
+                    ),
+                  ),
+                  const SizedBox(height: 40),
+                  // 动画播完后显示加载指示器，否则显示当前文案
+                  if (_loadingPlan)
+                    Column(
+                      children: [
+                        const SizedBox(
+                          width: 24,
+                          height: 24,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2.5,
+                            color: AppColors.primary,
+                          ),
                         ),
-                        child: const Icon(
-                          Icons.spa_rounded,
-                          size: 54,
-                          color: Colors.white,
+                        const SizedBox(height: 16),
+                        const Text(
+                          '还在整理适合你的音乐方案…',
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: AppColors.textSecondary,
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+                      ],
+                    )
+                  else
+                    AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 360),
+                      transitionBuilder: (child, anim) =>
+                          FadeTransition(opacity: anim, child: child),
+                      child: Text(
+                        _lines[_lineIndex],
+                        key: ValueKey(_lineIndex),
+                        style: const TextStyle(
+                          fontSize: 16,
+                          color: AppColors.textSecondary,
+                          letterSpacing: 1,
                         ),
                       ),
                     ),
-                  ),
                 ],
-              );
-            },
-          ),
-        ),
-        const SizedBox(height: 40),
-        // 动画播完后显示加载指示器，否则显示当前文案
-        if (_loadingPlan)
-          Column(
-            children: [
-              const SizedBox(
-                width: 24,
-                height: 24,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2.5,
-                  color: AppColors.primary,
-                ),
-              ),
-              const SizedBox(height: 16),
-              const Text(
-                '还在整理适合你的音乐方案…',
-                style: TextStyle(
-                  fontSize: 14,
-                  color: AppColors.textSecondary,
-                  letterSpacing: 0.5,
-                ),
-              ),
-            ],
-          )
-        else
-          AnimatedSwitcher(
-            duration: const Duration(milliseconds: 360),
-            transitionBuilder: (child, anim) =>
-                FadeTransition(opacity: anim, child: child),
-            child: Text(
-              _lines[_lineIndex],
-              key: ValueKey(_lineIndex),
-              style: const TextStyle(
-                fontSize: 16,
-                color: AppColors.textSecondary,
-                letterSpacing: 1,
               ),
             ),
           ),
-      ],
+        );
+      },
     );
   }
 
   /// 错误态：友好提示 + 重试 + 返回首页，不暴露内部异常。
   Widget _buildError() {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          width: 96,
-          height: 96,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: AppColors.apricot.withValues(alpha: 0.15),
-          ),
-          child: const Icon(
-            Icons.cloud_off_rounded,
-            size: 44,
-            color: AppColors.apricotDeep,
-          ),
-        ),
-        const SizedBox(height: 24),
-        const Text(
-          '生成方案失败，请稍后重试',
-          textAlign: TextAlign.center,
-          style: TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.w500,
-            color: AppColors.textPrimary,
-          ),
-        ),
-        const SizedBox(height: 28),
-        FilledButton.icon(
-          onPressed: _retry,
-          icon: const Icon(Icons.refresh_rounded, size: 20),
-          label: const Padding(
-            padding: EdgeInsets.symmetric(vertical: 4),
-            child: Text('重试', style: TextStyle(fontSize: 15)),
-          ),
-          style: FilledButton.styleFrom(
-            minimumSize: const Size(200, 48),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(14),
+    return SingleChildScrollView(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const SizedBox(height: 40),
+          Container(
+            width: 96,
+            height: 96,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: AppColors.apricot.withValues(alpha: 0.15),
+            ),
+            child: const Icon(
+              Icons.cloud_off_rounded,
+              size: 44,
+              color: AppColors.apricotDeep,
             ),
           ),
-        ),
-        const SizedBox(height: 10),
-        TextButton(
-          onPressed: _backHome,
-          child: const Text(
-            '返回首页',
-            style: TextStyle(fontSize: 14, color: AppColors.textSecondary),
+          const SizedBox(height: 24),
+          const Text(
+            '生成方案失败，请稍后重试',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w500,
+              color: AppColors.textPrimary,
+            ),
           ),
-        ),
-      ],
+          const SizedBox(height: 28),
+          FilledButton.icon(
+            onPressed: _retry,
+            icon: const Icon(Icons.refresh_rounded, size: 20),
+            label: const Padding(
+              padding: EdgeInsets.symmetric(vertical: 4),
+              child: Text('重试', style: TextStyle(fontSize: 15)),
+            ),
+            style: FilledButton.styleFrom(
+              minimumSize: const Size(200, 48),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14),
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+          TextButton(
+            onPressed: _backHome,
+            child: const Text(
+              '返回首页',
+              style: TextStyle(fontSize: 14, color: AppColors.textSecondary),
+            ),
+          ),
+          const SizedBox(height: 40),
+        ],
+      ),
     );
   }
 
   /// 单圈扩散波纹：根据呼吸进度 t 与相位 phase 计算半径与透明度。
-  Widget _ripple(double t, {required double baseSize, required double phase}) {
+  Widget _ripple(
+    double t, {
+    required double baseSize,
+    required double expansion,
+    required double phase,
+  }) {
     final p = (t + phase) % 1.0; // 0..1
-    final size = baseSize + p * 110;
+    final size = baseSize + p * expansion;
     final opacity = (1 - p) * 0.35;
     return Container(
       width: size,

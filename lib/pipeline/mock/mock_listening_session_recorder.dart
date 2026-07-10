@@ -27,6 +27,19 @@ class MockListeningSessionRecorder implements ListeningSessionRecorder {
   }
 
   @override
+  void restore(ListeningSession session) {
+    _store[session.sessionId] = _State(
+      sessionId: session.sessionId,
+      moodText: session.moodText,
+      startedAt: session.startedAt,
+      plan: session.plan,
+      listenedDuration: session.listenedDuration,
+      feedback: session.feedback,
+      completedAt: session.completedAt,
+    );
+  }
+
+  @override
   void updateListening(String sessionId, Duration listened) {
     final s = _store[sessionId];
     if (s == null) return;

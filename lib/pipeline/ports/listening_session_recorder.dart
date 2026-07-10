@@ -18,6 +18,9 @@ abstract class ListeningSessionRecorder {
     required HealingMusicPlan plan,
   });
 
+  /// 恢复已删除的会话（保留原始 startedAt，用于撤销删除）。
+  void restore(ListeningSession session);
+
   /// 更新聆听进度（由播放页在 dispose 等时机上报）。
   void updateListening(String sessionId, Duration listened);
 

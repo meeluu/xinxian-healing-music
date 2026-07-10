@@ -207,6 +207,45 @@ void main() {
       );
       expect(recorder.all().length, 0);
     });
+
+    test('restore 恢复已删除会话时保留原始 startedAt', () async {
+      final prefs = await SharedPreferences.getInstance();
+      final recorder = await LocalListeningSessionRecorder.create(
+        SharedPrefsAdapter(prefs),
+      );
+      final plan = await mockPipeline.run('test restore');
+
+      // begin 记录原始 startedAt
+      recorder.begin(
+        sessionId: plan.sessionId,
+        moodText: '原始心境',
+        plan: plan,
+      );
+      recorder.updateListening(plan.sessionId, const Duration(seconds: 42));
+      final original = recorder.get(plan.sessionId)!;
+      final originalStartedAt = original.startedAt;
+
+      // 等待一小段时间，确保 DateTime.now() 会不同
+      await Future.delayed(const Duration(milliseconds: 50));
+
+      // 删除后 restore
+      await recorder.delete(plan.sessionId);
+      expect(recorder.get(plan.sessionId), isNull);
+      recorder.restore(original);
+
+      // 验证 startedAt 未变
+      final restored = recorder.get(plan.sessionId)!;
+      expect(restored.startedAt, originalStartedAt);
+      expect(restored.moodText, '原始心境');
+      expect(restored.listenedDuration, const Duration(seconds: 42));
+
+      // 重启后 startedAt 仍不变
+      final recorder2 = await LocalListeningSessionRecorder.create(
+        SharedPrefsAdapter(prefs),
+      );
+      final afterRestart = recorder2.get(plan.sessionId)!;
+      expect(afterRestart.startedAt, originalStartedAt);
+    });
   });
 
   group('LocalFeedbackRepository', () {

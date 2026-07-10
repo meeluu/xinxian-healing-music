@@ -81,6 +81,12 @@ class LocalListeningSessionRecorder implements ListeningSessionRecorder {
   }
 
   @override
+  void restore(ListeningSession session) {
+    // 撤销删除：完整写回原 session，保留原始 startedAt
+    _upsert(session);
+  }
+
+  @override
   void updateListening(String sessionId, Duration listened) {
     final old = _cache[sessionId];
     if (old == null) return;

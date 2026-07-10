@@ -85,23 +85,10 @@ class _HistoryScreenState extends State<HistoryScreen> {
         action: SnackBarAction(
           label: '撤销',
           onPressed: () async {
-            // 重新 begin 还原 session（plan 快照已保留）
-            sessionRecorder.begin(
-              sessionId: session.sessionId,
-              moodText: session.moodText,
-              plan: session.plan,
-            );
-            // 还原聆听时长与反馈
-            sessionRecorder.updateListening(
-              session.sessionId,
-              session.listenedDuration,
-            );
+            // 完整还原 session（保留原始 startedAt）
+            sessionRecorder.restore(session);
             if (session.feedback != null) {
               await feedbackRepository.save(session.feedback!);
-              sessionRecorder.attachFeedback(
-                session.sessionId,
-                session.feedback!,
-              );
             }
             if (!mounted) return;
             _reload();
@@ -219,10 +206,10 @@ class _HistoryScreenState extends State<HistoryScreen> {
   Widget _buildEmpty() {
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
-      children: const [
-        Icon(Icons.history_rounded, size: 64, color: AppColors.textMuted),
-        SizedBox(height: 16),
-        Text(
+      children: [
+        const Icon(Icons.history_rounded, size: 64, color: AppColors.textMuted),
+        const SizedBox(height: 16),
+        const Text(
           '还没有历史记录',
           style: TextStyle(
             fontSize: 16,
@@ -230,11 +217,26 @@ class _HistoryScreenState extends State<HistoryScreen> {
             color: AppColors.textSecondary,
           ),
         ),
-        SizedBox(height: 8),
-        Text(
+        const SizedBox(height: 8),
+        const Text(
           '你的每一次体验都会安全地保存在本设备',
           textAlign: TextAlign.center,
           style: TextStyle(fontSize: 12, color: AppColors.textMuted),
+        ),
+        const SizedBox(height: 24),
+        FilledButton.icon(
+          onPressed: () => Navigator.of(context).pushAndRemoveUntil(
+            MaterialPageRoute(builder: (_) => const HomeScreen()),
+            (route) => false,
+          ),
+          icon: const Icon(Icons.music_note_rounded, size: 20),
+          label: const Text('创建第一条音乐方案'),
+          style: FilledButton.styleFrom(
+            minimumSize: const Size(220, 48),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(14),
+            ),
+          ),
         ),
       ],
     );
