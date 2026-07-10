@@ -381,6 +381,224 @@ curl -I https://xinxian-music.xyz/api/health
 - **没有修改 Cloudflare Dashboard 配置**：限流规则 / Cache Rule 保持上一轮已配置状态
 - **仅新增本 README 章节**："P1-Web-v1.0 收尾验收清单"，其余章节保持原状
 
+### P2-Web-v1.0 第一批体验优化
+
+> **说明**：本批为 P2-Web-v1.0 第一批，聚焦真实用户第一次进入网站、开始解析、进入播放页时的体验。**只改 UI 文案、弹窗触发时机、版本号**，不改 API / D1 schema / pipeline / 音频匹配逻辑。不删除任何隐私保护，不引入新依赖。
+
+**改动目的**：
+
+1. 修复首次进入首页立刻弹出 LLM 同意弹窗、用户还没看到产品价值就被迫选择的问题
+2. 去掉播放页 / 解析页中暴露给用户的"浏览器需用户手势触发""请检查网络后重试"等技术化或误导性文案
+3. 同步版本号到 P2-Web-v1.0，使首页底部显示与 README 阶段标注一致
+
+**涉及模块**：
+
+- **首页 LLM 同意弹窗时机**：[home_screen.dart](file:///d:/xinxian_healing_music/lib/screens/home_screen.dart)
+  - `initState` 移除 `addPostFrameCallback(_maybePromptConsent)`，首次进入首页不再自动弹窗
+  - `_goAnalyze` 改为 `Future<void>`，用户第一次点击"生成专属疗愈方案"时检查 `llmConsentService.needsPrompt`，若仍为 `unknown` 才弹出 `LlmConsentDialog`
+  - 弹窗结束后继续原本的 `Navigator.push(AnalysisScreen)` 跳转
+  - 已选择过（accepted / declined）或服务未装配时直接跳转，不打扰用户
+- **播放页文案去技术化**：[player_screen.dart](file:///d:/xinxian_healing_music/lib/screens/player_screen.dart)
+  - `'点击按钮开始播放（浏览器需用户手势触发）'` → `'点击中央按钮开始播放'`
+  - `'音频暂时加载失败'` → `'音频暂时无法加载'`
+  - `'请检查网络后重试'` → `'请稍后重试'`
+- **解析页等待文案**：[analysis_screen.dart](file:///d:/xinxian_healing_music/lib/screens/analysis_screen.dart)
+  - `'还在整理适合你的音乐方案…'` → `'AI 正在理解你的状态，再等一下…'`
+- **版本号同步**：[app_version.dart](file:///d:/xinxian_healing_music/lib/config/app_version.dart)
+  - `milestone`：`M8.1` → `P2-Web-v1.0`
+  - `versionName`：`v0.8.1` → `v0.9.0`
+  - `buildLabel`：`M8.1-dev` → `P2-ui-1`
+  - `buildDate`：`2026-07-10`（同步当日）
+  - `deployTarget`：保持 `Cloudflare Pages`
+
+**LLM 同意弹窗新触发时机**：
+
+| 场景 | 旧逻辑 | 新逻辑 |
+|---|---|---|
+| 首次进入首页 | 立刻弹窗（不可关闭背景） | 不弹窗，用户先看首屏 |
+| 首次点击"生成专属疗愈方案" | 无检查，直接跳转 | 检查 `needsPrompt`，若 `unknown` 才弹窗；选择后继续跳转 |
+| 已选择过 AI / 本地 | 不弹窗 | 不弹窗（与旧逻辑一致） |
+| 服务未装配（mock） | 不弹窗 | 不弹窗（与旧逻辑一致） |
+| "解析设置"入口再次调用 | 弹窗（可关闭背景） | 弹窗（可关闭背景，与旧逻辑一致） |
+
+**隐私保护保留项（未改动）**：
+
+- `LlmConsentService` 三态逻辑（unknown / accepted / declined）保持不变
+- 首次弹窗仍为 `barrierDismissible: false`，必须做选择
+- 用户拒绝时仍自动 fallback 到 mock 本地解析
+- "解析设置"入口仍可随时切换
+- 隐私政策页面入口与内容保持原状
+
+**文案合规性**：本批未使用"治疗焦虑 / 治疗失眠"等医疗化表达，保持"情绪调节 / 睡前舒缓 / 正念放松 / 音乐陪伴"等合规措辞。
+
+**验证结果**：
+
+- `flutter analyze`：No issues found!
+- `flutter test`：全部通过（与 P1 收尾一致，无回归）
+- `flutter build web --release`：√ Built `build\web`
+
+**当前状态（未改动）**：
+
+- `functions/api/*.js`（API 协议不变）
+- `schema/feedback.sql` / D1 schema（零迁移）
+- `web/_headers`（PWA / 缓存策略保持 P1 最终版本）
+- pipeline 核心逻辑（推荐链路不变）
+- 播放器核心逻辑（音频加载 / 拖动 / 播放控制不变）
+- 音频资源与匹配逻辑（`AudioAssetCatalog` 不变）
+- `wrangler.toml` 模型配置
+- 未引入新依赖
+
+**后续可选项（本批未做，保留到下一批）**：
+
+- 🔶 反馈页降成本：默认只显示评分，紧绷度 + 文字反馈折叠到"想多说一点？"展开区
+- 🔶 方案页参数折叠：BPM / 基准频率 / 脑波倾向 / 和声色彩 / 噪声层 等技术参数折叠到"查看音乐参数"展开区
+- 🔶 播放完成后反馈 CTA：音频播放完成后显示"听完这段了？记录一下感受"引导
+- 🔶 完整离线 PWA / SW 更新提示 UI（沿用 P1 后续可选）
+- 🔶 反馈提交时云端采集同意弹窗时机优化（首次提交默认本地保存，不强制弹窗）
+- 🔶 首屏底部入口折叠（云端采集 / 解析设置 / 隐私政策 收纳到"设置"入口）
+
+### P2-Web-v1.0 第二批体验优化
+
+> **说明**：本批为 P2-Web-v1.0 第二批，聚焦方案页去技术化 + 推荐理由增强 + 播放页去技术化。**只改 UI 展示与文案，不改 pipeline / 音频匹配逻辑 / API / D1 schema**。技术参数数据全部保留，只改变默认展示层级（默认折叠，用户可主动展开）。
+
+**改动目的**：
+
+1. 让用户在方案页先看懂"为什么推荐这段音乐"，而不是先看到 BPM / 频率 / 脑波 / 噪声层等技术参数
+2. 根据 `targetState` 生成用户可理解的推荐理由，替换技术化表达
+3. 播放页去掉默认铺开的 5 个技术参数 chip，只保留音频标题 + 推荐目标简短文案
+
+**涉及模块**：
+
+- **方案页技术参数默认收起**：[plan_screen.dart](file:///d:/xinxian_healing_music/lib/screens/plan_screen.dart)
+  - `PlanScreen` 从 `StatelessWidget` 改为 `StatefulWidget`，新增 `_showParams` 状态（默认 `false`）
+  - 新增"为什么推荐这段音乐"卡片，默认展示：推荐理由文案 + 主要音乐目标（`_MetaTag`）+ 推荐时长 + 推荐音频标题
+  - "音乐参数"卡片改为可展开：默认只显示"查看音乐参数"入口，点击后展开 BPM / 基准频率 / 脑波倾向 / 和声色彩 / 噪声层 / 推荐乐器
+  - "情绪画像"卡片去掉 `· ${templateName}` 后缀（templateName 是内部模板名，对用户无意义）
+  - 技术参数数据全部保留，未删除任何字段
+- **推荐理由增强**：[plan_screen.dart](file:///d:/xinxian_healing_music/lib/screens/plan_screen.dart) 新增 `_reasonText` getter
+  - 根据 `plan.mood.targetState` 生成用户可理解的推荐理由
+  - 旧值兼容：`relax` 按 `regulate` 处理，`company` 按 `soothe` 处理
+- **播放页去技术化**：[player_screen.dart](file:///d:/xinxian_healing_music/lib/screens/player_screen.dart)
+  - 移除 5 个技术参数 chip（BPM / 频率 / 脑波 / 乐器 / 噪声层）
+  - 移除 `param_chip.dart` import
+  - 替换为主要音乐目标的简短文案胶囊（`_goalLabel`，与方案页保持一致）
+  - 保留：音频标题、`templateName` 大标题、`guidance` 副标题、播放/暂停/进度/重试、"完成体验，去反馈"按钮
+  - 技术参数不重复展示，用户需要时可回方案页"查看音乐参数"折叠区
+- **版本号同步**：[app_version.dart](file:///d:/xinxian_healing_music/lib/config/app_version.dart)
+  - `buildLabel`：`P2-ui-1` → `P2-ui-2`
+  - `milestone` / `versionName` / `buildDate` / `deployTarget` 保持不变
+
+**每个 targetState 的推荐理由文案**：
+
+| targetState | 推荐理由文案 | 主要音乐目标 |
+|---|---|---|
+| `sleep` | 这段音乐节奏更慢、层次更柔和，适合在睡前把注意力从紧绷的思绪里慢慢移开。 | 睡前舒缓 |
+| `regulate` / `relax`（旧值兼容） | 这段音乐会先承接你的紧张感，再逐渐把节奏带回更稳定的状态。 | 情绪调节 |
+| `soothe` / `company`（旧值兼容） | 这段音乐整体更平稳，适合在疲惫或烦躁时做一段安静的缓冲。 | 安静放松 |
+| `focus` | 这段音乐减少了突兀变化，适合作为低干扰的专注陪伴。 | 专注陪伴 |
+| `energize` | 这段音乐节奏更明亮，适合在低能量时轻轻提振状态。 | 提振状态 |
+
+**文案合规性**：本批未使用"治疗焦虑 / 治疗失眠 / 治愈"等医疗化表达，保持"睡前舒缓 / 安静放松 / 专注陪伴 / 提振状态 / 情绪调节"等合规措辞。
+
+**方案页默认展示内容（用户进入方案页第一眼看到）**：
+
+1. 你的心境（用户输入的原文）
+2. 情绪画像（summary + tags）
+3. 为什么推荐这段音乐（推荐理由 + 音乐目标 + 推荐时长 + 推荐音频标题）
+4. 音乐参数卡片（默认折叠，只显示"查看音乐参数"入口）
+5. 引导语（guidance 渐变卡片）
+6. "进入疗愈播放"按钮
+
+**技术参数在哪里查看**：方案页"音乐参数"卡片，点击"查看音乐参数"展开后显示 BPM / 基准频率 / 脑波倾向 / 和声色彩 / 噪声层 / 推荐乐器。播放页不再重复展示技术参数。
+
+**验证结果**：
+
+- `flutter analyze`：No issues found!
+- `flutter test`：全部通过（与 P2 第一批一致，无回归）
+- `flutter build web --release`：√ Built `build\web`
+
+**当前状态（未改动）**：
+
+- `functions/api/*.js`（API 协议不变）
+- `schema/feedback.sql` / D1 schema（零迁移）
+- `web/_headers`（PWA / 缓存策略保持 P1 最终版本）
+- pipeline 核心逻辑（推荐链路不变）
+- 音频匹配逻辑（`AudioAssetCatalog` 不变）
+- `HealingMusicPlan` / `MoodProfile` / `MusicFeatureTags` 数据模型（未新增/删除字段）
+- `wrangler.toml` 模型配置
+- 未引入新依赖
+
+#### P2-Web-v1.0 第二批 fix1：推荐理由场景化
+
+> **说明**：本修复为第二批的小质量修补。第二批上线后发现"为什么推荐这段音乐"只按 `targetState` 使用静态模板，缺少对用户输入场景的回应（例如用户输入"刚和人吵完架，心里很乱"时，方案页只显示"这段音乐会先承接你的紧张感…"，显得不匹配）。本次修复让推荐理由优先结合用户原始输入 / `mood.summary` / `tags` / `dominantNeed` 按场景关键词生成，未命中再 fallback 到 targetState 模板。
+
+**改动目的**：
+
+1. 让推荐理由优先回应用户具体场景，而非只按 targetState 输出静态模板
+2. 方案页与播放页共用同一套 helper，避免两页说法冲突
+
+**涉及模块**：
+
+- **新增共享 helper**：[recommendation_reason.dart](file:///d:/xinxian_healing_music/lib/utils/recommendation_reason.dart)
+  - `buildRecommendationReason(HealingMusicPlan plan, String moodText)`：合并 `moodText` + `plan.mood.summary` + `tags` + `dominantNeed`，按场景关键词优先匹配，未命中 fallback 到 `_fallbackByTargetState`
+  - `goalLabelFor(TargetState ts)`：从方案页 / 播放页内部提取为公共函数，保证两页 `_goalLabel` 一致
+  - 场景匹配优先级：睡眠 > 专注 > 低能量 > 冲突 > 疲惫放松（目标导向优先于情绪事件，"备考睡不着"命中睡眠而非专注）
+- **方案页**：[plan_screen.dart](file:///d:/xinxian_healing_music/lib/screens/plan_screen.dart)
+  - `_reasonText` 改为调用 `buildRecommendationReason(_plan, widget.moodText)`
+  - `_goalLabel` 改为调用 `goalLabelFor(_plan.mood.targetState)`
+  - 移除不再需要的 `mood_profile.dart` import
+- **播放页**：[player_screen.dart](file:///d:/xinxian_healing_music/lib/screens/player_screen.dart)
+  - `_goalLabel` 改为调用 `goalLabelFor(widget.plan.mood.targetState)`
+  - 移除不再需要的 `mood_profile.dart` import
+- **版本号**：[app_version.dart](file:///d:/xinxian_healing_music/lib/config/app_version.dart) `buildLabel` → `P2-ui-2-fix1`
+
+**场景关键词与文案**：
+
+| 场景 | 命中关键词（部分） | 推荐理由文案 |
+|---|---|---|
+| 睡眠 | 睡不着 / 失眠 / 脑子停不下来 / 入睡 / 翻来覆去 | 你现在更需要从持续转动的思绪里慢慢退出来，这段音乐节奏更慢、层次更柔和，适合睡前安静下来。 |
+| 专注 | 专注 / 学习 / 工作 / 写论文 / 注意力 / 备考 | 你需要的是低干扰的陪伴声，这段音乐减少了突兀变化，适合帮助注意力保持在当前任务上。 |
+| 低能量 | 没精神 / 提不起劲 / 没动力 / 刚睡醒 / 困 | 你现在需要一点轻柔的带动感，这段音乐节奏更明亮，适合在低能量时慢慢提起状态。 |
+| 冲突 | 吵架 / 冲突 / 生气 / 烦躁 / 心乱 / 愤怒 | 你刚经历了一段让人心里发乱的冲突，这段音乐会尽量减少突兀变化，先给情绪一个缓冲，再慢慢把注意力带回更平稳的状态。 |
+| 疲惫放松 | 累 / 疲惫 / 想放松 / 有点累 / 休息 | 你现在像是需要一段不打扰的休息，这段音乐整体更平稳，适合给身心留出一个安静的缓冲。 |
+| fallback | 未命中以上场景 | 按 targetState 返回静态模板（与第二批原 `_reasonText` 一致） |
+
+**fallback 逻辑**：当用户输入与 `mood.summary` / `tags` / `dominantNeed` 合并后不包含任何场景关键词时，按 `plan.mood.targetState` 返回静态模板文案（sleep / regulate / soothe / focus / energize 各一条，旧值 `relax` 按 `regulate`、`company` 按 `soothe` 处理）。这保证任何输入都有推荐理由，不会出现空白。
+
+**手动验收（5 条测试输入）**：
+
+| # | 用户输入 | 命中场景 | 推荐理由 |
+|---|---|---|---|
+| 1 | 刚和人吵完架，心里很乱，想平静下来 | 冲突 | 你刚经历了一段让人心里发乱的冲突，这段音乐会尽量减少突兀变化，先给情绪一个缓冲，再慢慢把注意力带回更平稳的状态。 |
+| 2 | 最近备考压力很大，晚上睡不着，脑子停不下来 | 睡眠（优先级高于专注） | 你现在更需要从持续转动的思绪里慢慢退出来，这段音乐节奏更慢、层次更柔和，适合睡前安静下来。 |
+| 3 | 今天有点累，想安静放松一下 | 疲惫放松 | 你现在像是需要一段不打扰的休息，这段音乐整体更平稳，适合给身心留出一个安静的缓冲。 |
+| 4 | 下午要写论文，想找点不打扰注意力的声音 | 专注 | 你需要的是低干扰的陪伴声，这段音乐减少了突兀变化，适合帮助注意力保持在当前任务上。 |
+| 5 | 早上没精神，想让自己稍微有点动力 | 低能量 | 你现在需要一点轻柔的带动感，这段音乐节奏更明亮，适合在低能量时慢慢提起状态。 |
+
+**文案合规性**：未使用"治疗焦虑 / 治疗失眠 / 治愈"等医疗化表达，保持"平静下来 / 缓冲 / 放松 / 睡前舒缓 / 专注陪伴 / 提振状态"等措辞。
+
+**验证结果**：
+
+- `flutter analyze`：No issues found!
+- `flutter test`：全部通过（与第二批一致，无回归）
+- `flutter build web --release`：√ Built `build\web`
+
+**当前状态（未改动）**：
+
+- LLM API / D1 schema / 音频匹配逻辑 / pipeline 核心数据流（零改动）
+- `HealingMusicPlan` / `MoodProfile` 数据模型（未新增/删除字段）
+- `web/_headers` / `wrangler.toml` / `functions/api/*.js`
+- 未引入新依赖（`recommendation_reason.dart` 为项目内新增文件，非第三方包）
+
+**后续可选项（本批未做，保留到下一批）**：
+
+- 🔶 反馈页降成本：默认只显示评分，紧绷度 + 文字反馈折叠到"想多说一点？"展开区
+- 🔶 播放完成后反馈 CTA：音频播放完成后显示"听完这段了？记录一下感受"引导
+- 🔶 完整离线 PWA / SW 更新提示 UI（沿用 P1 后续可选）
+- 🔶 移动端 App 准备（Android/iOS 打包与发布流程）
+- 🔶 反馈提交时云端采集同意弹窗时机优化
+- 🔶 首屏底部入口折叠
+
 ## 一、项目背景
 
 当下 18-30 岁青年群体普遍面临备考压力、职场焦虑、睡眠困扰、情绪低落、精神内耗等心理亚健康问题。传统心理咨询存在时间、经济和心理门槛，而通用歌单、白噪音 App、脑波音频产品大多采用固定内容推荐，难以匹配用户当下具体而细腻的情绪状态。
@@ -693,6 +911,9 @@ M7.0 之前，用户反馈仅保存在本地浏览器，无法用于跨设备聚
 | **M9**             | AI 音乐生成模型接入：将 `AudioGenerationPort` 从本地预置音频替换为真实 AI 音乐生成模型（如 MusicGen / Suno API），按 `generationPrompt` 实时生成个性化音频                                              | ⏳ 计划中   |
 | **P1-Web-v1.0**（部分完成） | Cloudflare Dashboard 限流规则：`/api/analyze-mood` 已配置（Block，10 次/分钟，Active）；`/api/submit-feedback` 未配置（Free 计划规则上限 1/1，后续可选）。详见下方专门章节 | 🔶 部分完成 |
 | **P1-Web-v1.0** | PWA / 缓存策略：`web/_headers` 缓存头策略已实施并验证通过（音频 / API / SW 三路径全部生效）；完整离线 PWA / SW 更新提示为后续可选 | ✅ 已完成 |
+| **P2-Web-v1.0**（第一批） | 体验优化第一批：首页 LLM 同意弹窗延迟到首次点击"生成方案"时触发；播放页 / 解析页去技术化文案；`app_version.dart` 同步到 `P2-Web-v1.0 / v0.9.0 / P2-ui-1`。反馈页降成本 / 方案页参数折叠 / 播放完成 CTA 等留到下一批 | ✅ 已完成 |
+| **P2-Web-v1.0**（第二批） | 体验优化第二批：方案页技术参数默认折叠到"查看音乐参数" + 新增"为什么推荐这段音乐"卡片（按 targetState 生成推荐理由）；播放页去掉 5 个技术参数 chip 改为音乐目标简短文案；`buildLabel` 同步到 `P2-ui-2`。反馈页降成本 / 播放完成 CTA / 移动端 App 准备等留到下一批 | ✅ 已完成 |
+| **P2-Web-v1.0**（第二批 fix1） | 推荐理由场景化：新增 `lib/utils/recommendation_reason.dart` 共享 helper，优先按用户输入 / summary / tags / dominantNeed 场景关键词生成文案，未命中 fallback 到 targetState 模板；方案页与播放页共用 helper；`buildLabel` 同步到 `P2-ui-2-fix1` | ✅ 已完成 |
 
 ## 九、项目价值
 

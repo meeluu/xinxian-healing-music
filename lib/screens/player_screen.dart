@@ -6,8 +6,8 @@ import 'package:xinxian_healing_music/pipeline/services.dart';
 import 'package:xinxian_healing_music/screens/feedback_screen.dart';
 import 'package:xinxian_healing_music/theme/app_colors.dart';
 import 'package:xinxian_healing_music/utils/audio_asset_uri.dart';
+import 'package:xinxian_healing_music/utils/recommendation_reason.dart';
 import 'package:xinxian_healing_music/widgets/centered_page.dart';
-import 'package:xinxian_healing_music/widgets/param_chip.dart';
 
 /// 播放页：使用 just_audio 播放本地音频，浅色疗愈风。
 ///
@@ -120,6 +120,11 @@ class _PlayerScreenState extends State<PlayerScreen>
     return '$m:$s';
   }
 
+  /// P2-Web-v1.0 第二批 fix1：播放页只展示主要音乐目标的简短文案，
+  /// 不再默认铺开 BPM / 频率 / 脑波 / 乐器 / 噪声层等技术参数。
+  /// 与方案页共用 goalLabelFor，保证两页说法一致。
+  String get _goalLabel => goalLabelFor(widget.plan.mood.targetState);
+
   @override
   Widget build(BuildContext context) {
     final plan = widget.plan;
@@ -182,7 +187,7 @@ class _PlayerScreenState extends State<PlayerScreen>
             Column(
               children: [
                 const Text(
-                  '音频暂时加载失败',
+                  '音频暂时无法加载',
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     fontSize: 13,
@@ -192,7 +197,7 @@ class _PlayerScreenState extends State<PlayerScreen>
                 ),
                 const SizedBox(height: 4),
                 const Text(
-                  '请检查网络后重试',
+                  '请稍后重试',
                   textAlign: TextAlign.center,
                   style: TextStyle(fontSize: 11, color: AppColors.textMuted),
                 ),
@@ -216,7 +221,7 @@ class _PlayerScreenState extends State<PlayerScreen>
             )
           else
             const Text(
-              '点击按钮开始播放（浏览器需用户手势触发）',
+              '点击中央按钮开始播放',
               textAlign: TextAlign.center,
               style: TextStyle(fontSize: 11, color: AppColors.textMuted),
             ),
@@ -228,38 +233,34 @@ class _PlayerScreenState extends State<PlayerScreen>
 
           const SizedBox(height: 28),
 
-          // 参数 chips
-          Wrap(
-            alignment: WrapAlignment.center,
-            spacing: 10,
-            runSpacing: 10,
-            children: [
-              ParamChip(
-                label: 'BPM',
-                value: '${plan.features.bpm}',
-                icon: Icons.favorite_rounded,
-              ),
-              ParamChip(
-                label: '频率',
-                value: plan.features.frequency,
-                icon: Icons.graphic_eq_rounded,
-              ),
-              ParamChip(
-                label: '脑波',
-                value: plan.features.brainwave,
-                icon: Icons.waves_rounded,
-              ),
-              ParamChip(
-                label: '乐器',
-                value: plan.features.instruments.join(' / '),
-                icon: Icons.music_note_rounded,
-              ),
-              ParamChip(
-                label: '噪声层',
-                value: plan.features.noiseLayer,
-                icon: Icons.cloud_rounded,
-              ),
-            ],
+          // P2-Web-v1.0 第二批：播放页不再默认展示 BPM / 频率 / 脑波 / 乐器 / 噪声层
+          // 等技术参数 chip，改为只展示主要音乐目标的简短文案。
+          // 技术参数可在方案页"查看音乐参数"折叠区查看。
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            decoration: BoxDecoration(
+              color: const Color(0xFFE6F1F9),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(
+                  Icons.spa_rounded,
+                  size: 14,
+                  color: AppColors.primary,
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  _goalLabel,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: AppColors.primaryDeep,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
           ),
 
           const SizedBox(height: 32),

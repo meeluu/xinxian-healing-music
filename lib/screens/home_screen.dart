@@ -42,17 +42,9 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     _controller.addListener(() => setState(() {}));
-
-    // 首次进入：若同意状态为 unknown，弹窗请用户选择。
-    // 用 addPostFrameCallback 避免在 build 阶段触发 dialog。
-    WidgetsBinding.instance.addPostFrameCallback((_) => _maybePromptConsent());
-  }
-
-  void _maybePromptConsent() {
-    final service = llmConsentService;
-    if (!mounted || service == null) return;
-    if (!service.needsPrompt) return;
-    _showConsentDialog(firstTime: true);
+    // P2-Web-v1.0 第一批：不在首页初始化时自动弹出 LLM 同意弹窗。
+    // 改为用户第一次点击"生成专属疗愈方案"时，若尚未选择过 AI 解析偏好，再弹出。
+    // 这样用户能先看到产品首屏价值，再做隐私选择。
   }
 
   Future<void> _showConsentDialog({required bool firstTime}) async {
@@ -131,10 +123,22 @@ class _HomeScreenState extends State<HomeScreen> {
     if (mounted) setState(() {});
   }
 
-  void _goAnalyze() {
+  /// P2-Web-v1.0 第一批：用户第一次点击"生成专属疗愈方案"时，若 LLM 同意状态
+  /// 仍为 unknown，先弹出 LLM 同意弹窗请用户选择；选择后继续原本跳转流程。
+  /// 若已选择过（accepted / declined）或服务未装配，直接跳转。
+  Future<void> _goAnalyze() async {
     final text = _controller.text.trim();
     if (text.isEmpty) return;
     FocusScope.of(context).unfocus();
+
+    // 首次触发解析时检查 AI 解析偏好
+    final service = llmConsentService;
+    if (service != null && service.needsPrompt && mounted) {
+      await _showConsentDialog(firstTime: true);
+      if (!mounted) return;
+    }
+
+    if (!mounted) return;
     Navigator.of(
       context,
     ).push(MaterialPageRoute(builder: (_) => AnalysisScreen(moodText: text)));
