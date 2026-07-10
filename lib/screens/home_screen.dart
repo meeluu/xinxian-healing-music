@@ -5,6 +5,7 @@ import 'package:xinxian_healing_music/pipeline/llm/llm_consent_service.dart';
 import 'package:xinxian_healing_music/pipeline/services.dart';
 import 'package:xinxian_healing_music/screens/analysis_screen.dart';
 import 'package:xinxian_healing_music/screens/history_screen.dart';
+import 'package:xinxian_healing_music/screens/privacy_screen.dart';
 import 'package:xinxian_healing_music/theme/app_colors.dart';
 import 'package:xinxian_healing_music/widgets/breathing_halo.dart';
 import 'package:xinxian_healing_music/widgets/centered_page.dart';
@@ -78,15 +79,15 @@ class _HomeScreenState extends State<HomeScreen> {
   String get _footerText {
     final service = llmConsentService;
     if (service == null) {
-      return 'Demo 版本 · 全部参数由本地模板生成';
+      return '心弦 · 本地解析模式';
     }
     switch (service.status) {
       case LlmConsentStatus.accepted:
-        return '已开启 AI 解析 · 心境文本将发送到 AI 服务进行情绪解析';
+        return '心弦 · AI 解析模式';
       case LlmConsentStatus.declined:
-        return '仅使用本地解析 · 全部参数由本地模板生成';
+        return '心弦 · 本地解析模式';
       case LlmConsentStatus.unknown:
-        return 'Demo 版本 · 全部参数由本地模板生成';
+        return '心弦 · 本地解析模式';
     }
   }
 
@@ -340,6 +341,31 @@ class _HomeScreenState extends State<HomeScreen> {
                 label: Text(
                   _cloudFeedbackLabel,
                   style: const TextStyle(
+                    fontSize: 13,
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+                style: TextButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 6,
+                  ),
+                  minimumSize: const Size(0, 36),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+              ),
+              TextButton.icon(
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const PrivacyScreen()),
+                ),
+                icon: const Icon(
+                  Icons.privacy_tip_outlined,
+                  size: 16,
+                  color: AppColors.textSecondary,
+                ),
+                label: const Text(
+                  '隐私政策',
+                  style: TextStyle(
                     fontSize: 13,
                     color: AppColors.textSecondary,
                   ),

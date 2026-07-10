@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:xinxian_healing_music/screens/privacy_screen.dart';
 import 'package:xinxian_healing_music/theme/app_colors.dart';
 import 'package:xinxian_healing_music/widgets/responsive_dialog_container.dart';
 
@@ -23,7 +24,10 @@ import 'package:xinxian_healing_music/widgets/responsive_dialog_container.dart';
 class CloudFeedbackConsentDialog extends StatelessWidget {
   final bool barrierDismissible;
 
-  const CloudFeedbackConsentDialog({super.key, this.barrierDismissible = false});
+  const CloudFeedbackConsentDialog({
+    super.key,
+    this.barrierDismissible = false,
+  });
 
   /// 弹出弹窗并返回用户选择。
   /// - true：同意匿名上传
@@ -38,7 +42,9 @@ class CloudFeedbackConsentDialog extends StatelessWidget {
       barrierDismissible: barrierDismissible,
       builder: (_) => PopScope(
         canPop: barrierDismissible,
-        child: CloudFeedbackConsentDialog(barrierDismissible: barrierDismissible),
+        child: CloudFeedbackConsentDialog(
+          barrierDismissible: barrierDismissible,
+        ),
       ),
     );
   }
@@ -87,13 +93,13 @@ class CloudFeedbackConsentDialog extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
-        children: const [
-          Text(
+        children: [
+          const Text(
             '心弦希望收集匿名的反馈数据，用于改进音乐推荐和支持科研分析。',
             style: TextStyle(fontSize: 14, color: AppColors.textPrimary),
           ),
-          SizedBox(height: 14),
-          Text(
+          const SizedBox(height: 14),
+          const Text(
             '我们会采集：',
             style: TextStyle(
               fontSize: 13,
@@ -101,12 +107,12 @@ class CloudFeedbackConsentDialog extends StatelessWidget {
               color: AppColors.textPrimary,
             ),
           ),
-          SizedBox(height: 6),
-          _Bullet(text: '情绪标签与参数（如"焦虑"、放松度评分，不含心境原文）'),
-          _Bullet(text: '疗愈方案与音频匹配信息（方案标题、音频标识）'),
-          _Bullet(text: '你的体验评分与紧绷度变化'),
-          SizedBox(height: 12),
-          Text(
+          const SizedBox(height: 6),
+          const _Bullet(text: '情绪标签与参数（如"焦虑"、放松度评分，不含心境原文）'),
+          const _Bullet(text: '疗愈方案与音频匹配信息（方案标题、音频标识）'),
+          const _Bullet(text: '你的体验评分与紧绷度变化'),
+          const SizedBox(height: 12),
+          const Text(
             '我们不会采集：',
             style: TextStyle(
               fontSize: 13,
@@ -114,12 +120,12 @@ class CloudFeedbackConsentDialog extends StatelessWidget {
               color: AppColors.textPrimary,
             ),
           ),
-          SizedBox(height: 6),
-          _Bullet(text: '你的心境原文（仅保留在本设备）'),
-          _Bullet(text: '你的身份信息或账号（本应用无登录系统）'),
-          _Bullet(text: '你的 IP 地址'),
-          SizedBox(height: 12),
-          Text(
+          const SizedBox(height: 6),
+          const _Bullet(text: '你的心境原文（仅保留在本设备）'),
+          const _Bullet(text: '你的身份信息或账号（本应用无登录系统）'),
+          const _Bullet(text: '你的 IP 地址'),
+          const SizedBox(height: 12),
+          const Text(
             '数据匿名存储在 Cloudflare D1 数据库，仅用于产品优化和科研分析，'
             '不会分享给第三方。文字反馈默认不上传，需在反馈页单独勾选。'
             '你可以随时在"解析设置"中关闭云端采集，关闭后反馈仍保存在本设备。',
@@ -127,6 +133,16 @@ class CloudFeedbackConsentDialog extends StatelessWidget {
               fontSize: 12,
               color: AppColors.textSecondary,
               height: 1.5,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton(
+              onPressed: () => Navigator.of(
+                context,
+              ).push(MaterialPageRoute(builder: (_) => const PrivacyScreen())),
+              child: const Text('查看隐私政策', style: TextStyle(fontSize: 12)),
             ),
           ),
         ],

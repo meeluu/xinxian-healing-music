@@ -29,7 +29,7 @@ class _PlayerScreenState extends State<PlayerScreen>
   late final AnimationController _visualizer;
   StreamSubscription<PlayerState>? _stateSub;
   bool _loading = true;
-  String? _error;
+  bool _error = false;
 
   @override
   void initState() {
@@ -66,25 +66,41 @@ class _PlayerScreenState extends State<PlayerScreen>
       );
       if (!mounted) return;
       setState(() => _loading = false);
-    } catch (e) {
+    } catch (_) {
+      // 不暴露内部异常字符串给用户，统一显示友好文案
       if (!mounted) return;
       setState(() {
         _loading = false;
-        _error = '音频加载失败：$e';
+        _error = true;
       });
     }
   }
 
+  /// 重试加载音频：重置错误态后重新初始化。
+  Future<void> _retry() async {
+    setState(() {
+      _error = false;
+      _loading = true;
+    });
+    await _initAudio();
+  }
+
   Future<void> _toggle() async {
-    if (_loading || _error != null) return;
+    if (_loading || _error) return;
     final state = _player.playerState;
-    if (state.processingState == ProcessingState.completed) {
-      await _player.seek(Duration.zero);
-      await _player.play();
-    } else if (state.playing) {
-      await _player.pause();
-    } else {
-      await _player.play();
+    try {
+      if (state.processingState == ProcessingState.completed) {
+        await _player.seek(Duration.zero);
+        await _player.play();
+      } else if (state.playing) {
+        await _player.pause();
+      } else {
+        await _player.play();
+      }
+    } catch (_) {
+      // 播放过程中出错：标记错误态，提供重试入口
+      if (!mounted) return;
+      setState(() => _error = true);
     }
   }
 
@@ -155,21 +171,48 @@ class _PlayerScreenState extends State<PlayerScreen>
               controller: _visualizer,
               child: _PlayButton(
                 loading: _loading,
-                error: _error != null,
+                error: _error,
                 player: _player,
                 onTap: _toggle,
               ),
             ),
           ),
           const SizedBox(height: 14),
-          if (_error != null)
-            Text(
-              _error!,
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                fontSize: 12,
-                color: AppColors.apricotDeep,
-              ),
+          if (_error)
+            Column(
+              children: [
+                const Text(
+                  '音频暂时加载失败',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                    color: AppColors.apricotDeep,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                const Text(
+                  '请检查网络后重试',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 11, color: AppColors.textMuted),
+                ),
+                const SizedBox(height: 12),
+                OutlinedButton.icon(
+                  onPressed: _retry,
+                  icon: const Icon(Icons.refresh_rounded, size: 18),
+                  label: const Text('重试加载'),
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size(160, 40),
+                    foregroundColor: AppColors.primaryDeep,
+                    side: BorderSide(
+                      color: AppColors.primary.withValues(alpha: 0.4),
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                ),
+              ],
             )
           else
             const Text(
@@ -181,7 +224,7 @@ class _PlayerScreenState extends State<PlayerScreen>
           const SizedBox(height: 24),
 
           // 进度条 + 时长（柔和蓝绿）
-          _ProgressSection(player: _player, fmt: _fmt, enabled: _error == null),
+          _ProgressSection(player: _player, fmt: _fmt, enabled: !_error),
 
           const SizedBox(height: 28),
 

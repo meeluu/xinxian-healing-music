@@ -24,8 +24,8 @@ class FeedbackScreen extends StatefulWidget {
 
 class _FeedbackScreenState extends State<FeedbackScreen> {
   int _rating = 0;
-  double _before = 0.7;
-  double _after = 0.4;
+  double _before = 0.5;
+  double _after = 0.5;
   final TextEditingController _note = TextEditingController();
   bool _submitted = false;
   // M7：文字反馈上传勾选框，仅在用户已同意云端采集时显示。
@@ -229,9 +229,9 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
   String get _footerText {
     final consent = cloudFeedbackConsentService;
     if (consent == null || !consent.isAccepted) {
-      return 'Demo 版本 · 记录仅保存在本设备，不会上传任何服务器';
+      return '心弦 · 记录仅保存在本设备';
     }
-    return '已开启匿名云端采集 · 心境原文不上传，仅上传结构化参数';
+    return '心弦 · 匿名反馈已开启';
   }
 
   /// 是否显示"同意上传文字反馈"勾选框。

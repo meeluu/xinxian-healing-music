@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:xinxian_healing_music/screens/privacy_screen.dart';
 import 'package:xinxian_healing_music/theme/app_colors.dart';
 import 'package:xinxian_healing_music/widgets/responsive_dialog_container.dart';
 
@@ -89,16 +90,26 @@ class LlmConsentDialog extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
-        children: const [
-          Text(
+        children: [
+          const Text(
             '心弦提供两种情绪解析方式：',
             style: TextStyle(fontSize: 14, color: AppColors.textPrimary),
           ),
-          SizedBox(height: 12),
-          _Bullet(text: '开启 AI 解析后，你输入的心境文本会发送到 AI 服务用于情绪解析'),
-          _Bullet(text: '解析结果和历史记录仍然保存在本设备，不上传服务器'),
-          _Bullet(text: '本功能仅用于辅助情绪调节和音乐推荐，不提供医疗诊断'),
-          _Bullet(text: '你可以随时在"解析设置"中切换为仅使用本地解析'),
+          const SizedBox(height: 12),
+          const _Bullet(text: '开启 AI 解析后，你输入的心境文本会发送到 AI 服务用于情绪解析'),
+          const _Bullet(text: '解析结果和历史记录仍然保存在本设备，不上传服务器'),
+          const _Bullet(text: '本功能仅用于辅助情绪调节和音乐推荐，不提供医疗诊断'),
+          const _Bullet(text: '你可以随时在"解析设置"中切换为仅使用本地解析'),
+          const SizedBox(height: 12),
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton(
+              onPressed: () => Navigator.of(
+                context,
+              ).push(MaterialPageRoute(builder: (_) => const PrivacyScreen())),
+              child: const Text('查看隐私政策', style: TextStyle(fontSize: 12)),
+            ),
+          ),
         ],
       ),
     );

@@ -1,11 +1,11 @@
 {
-    "name": "xinxian_healing_music",
-    "short_name": "xinxian_healing_music",
+    "name": "心弦 XinXian",
+    "short_name": "心弦",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#F7FAFC",
+    "theme_color": "#6BAED6",
+    "description": "AI 心境解析与音乐陪伴工具",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [
