@@ -78,9 +78,16 @@ const SYSTEM_PROMPT = [
   '- valence：情绪效价，-1.0（极消极）到 1.0（极积极）',
   '- arousal：唤醒度，0.0（极平静）到 1.0（极激越）',
   '- intensity：情绪强度，0.0 到 1.0',
-  '- targetState：期望调节目标，只能是以下之一：relax / sleep / focus / company / regulate',
+  '- targetState：期望调节目标，只能是以下五个之一：sleep / regulate / soothe / focus / energize。不允许输出 relax / company 等旧值',
   '- dominantNeed：主导需求（中文短句，不允许为 null），如"快速入眠""情绪降温""缓解焦虑"',
   '- summary：一句话情绪摘要（中文，15-30 字），用第二人称，如"你正承受较大压力，思绪难以停歇"',
+  '',
+  'targetState 归一规则（必须严格遵守）：',
+  '- "睡不着 / 想睡觉 / 入眠困难 / 失眠" → sleep',
+  '- "压力大 / 焦虑 / 情绪波动 / 需要稳定下来 / 紧绷" → regulate',
+  '- "想放松一下 / 有点累 / 想舒缓 / 低落 / 难过 / 想被安慰" → soothe',
+  '- "想学习 / 想专注 / 工作效率 / 集中注意力" → focus',
+  '- "没精神 / 想提振 / 刚睡醒很困 / 提不起劲" → energize',
   '',
   '判断规则（必须严格遵守）：',
   '1. 必须根据用户原文的实际内容判断，不要默认"平衡"。',
@@ -92,7 +99,7 @@ const SYSTEM_PROMPT = [
   '   - targetState 优先 sleep（含"睡不着/失眠"）或 regulate（含"压力/焦虑/紧绷"）',
   '   - dominantNeed 不能为 null，应如"快速入眠""缓解焦虑""情绪降温"',
   '   - summary 必须呼应原文，不能用"状态相对平稳"等中性表述',
-  '3. 只有原文确实平淡、无情绪倾向时，才输出：valence=0.2, arousal=0.4, targetState=relax, tags=["平衡"], summary="状态相对平稳"',
+  '3. 只有原文确实平淡、无情绪倾向时，才输出：valence=0.2, arousal=0.4, targetState=soothe, tags=["平衡"], summary="状态相对平稳"',
   '4. 不使用医学术语，用"辅助放松""情绪调节""睡前舒缓""正念陪伴"等温和表述',
   '5. 不做医疗诊断，不判断疾病',
   '6. summary 用温和、共情的语气',
@@ -132,7 +139,10 @@ function hasChinese(str) {
 }
 
 // ─── 输出校验 + 规范化（严格版，从 Netlify 版原样搬迁）──────────
-var VALID_TARGET_STATES = ['relax', 'sleep', 'focus', 'company', 'regulate'];
+// P1 小质量修复：targetState 标准枚举统一为五类
+// sleep / regulate / soothe / focus / energize
+// 历史旧值 relax / company 在 normalizeMood 中归一为 soothe
+var VALID_TARGET_STATES = ['sleep', 'regulate', 'soothe', 'focus', 'energize'];
 
 function normalizeMood(raw) {
   if (!raw || typeof raw !== 'object') return null;
@@ -155,9 +165,19 @@ function normalizeMood(raw) {
   var arousal = clamp(raw.arousal, 0.0, 1.0, 0.4);
   var intensity = clamp(raw.intensity, 0.0, 1.0, 0.3);
 
-  // ── targetState 枚举校验 ──
+  // ── targetState 枚举校验 + 旧值归一 ──
+  // LLM 偶发仍返回 relax / company 旧值时，归一为 soothe（语义最接近"正念陪伴"），
+  // 不触发 fallback，保留 tags / summary 等其他字段。
+  // 其他非法值才 fallback 到 soothe（与 prompt 平淡输入默认一致）。
   var ts = typeof raw.targetState === 'string' ? raw.targetState : '';
-  var targetState = VALID_TARGET_STATES.indexOf(ts) !== -1 ? ts : 'relax';
+  var targetState;
+  if (ts === 'relax' || ts === 'company') {
+    targetState = 'soothe';
+  } else if (VALID_TARGET_STATES.indexOf(ts) !== -1) {
+    targetState = ts;
+  } else {
+    targetState = 'soothe';
+  }
 
   // ── dominantNeed：允许 null，但如果有值必须不乱码 ──
   var dominantNeed = null;

@@ -130,6 +130,92 @@ curl https://xinxian-music.xyz/api/health
 - `wrangler.toml` 模型配置
 - 未引入新依赖
 
+### P1-Web-v1.0 小质量修复：targetState 枚举统一
+
+线上测试 `/api/analyze-mood` 时发现 LLM 偶发返回 `targetState: "relax"` 旧值，但项目音乐匹配主线只使用五类：`sleep / regulate / soothe / focus / energize`。本次修复在后端将枚举统一到五类，不改 API 结构、不改前端、不改音乐匹配主逻辑。
+
+**改动目的**：
+
+1. 强化 System Prompt：明确 `targetState` 只能是五个之一，禁止 `relax` / `company` 旧值，并增加归一规则说明
+2. `normalizeMood` 增加旧值归一：LLM 偶发返回 `relax` / `company` 时映射为 `soothe`，不触发 fallback，保留其他字段
+
+**涉及模块**：
+
+- [functions/api/analyze-mood.js](file:///d:/xinxian_healing_music/functions/api/analyze-mood.js)
+  - `SYSTEM_PROMPT`：枚举改为 `sleep / regulate / soothe / focus / energize`，新增"targetState 归一规则"段落，平淡输入默认 `soothe`
+  - `normalizeMood`：`VALID_TARGET_STATES` 改为五类；`relax` / `company` 归一为 `soothe`；其他非法值 fallback 为 `soothe`
+
+**targetState 归一规则（写入 prompt）**：
+
+| 用户输入特征 | targetState |
+|---|---|
+| 睡不着 / 想睡觉 / 入眠困难 / 失眠 | `sleep` |
+| 压力大 / 焦虑 / 情绪波动 / 需要稳定下来 / 紧绷 | `regulate` |
+| 想放松一下 / 有点累 / 想舒缓 / 低落 / 难过 / 想被安慰 | `soothe` |
+| 想学习 / 想专注 / 工作效率 / 集中注意力 | `focus` |
+| 没精神 / 想提振 / 刚睡醒很困 / 提不起劲 | `energize` |
+
+**旧值归一逻辑**：
+
+- LLM 返回 `relax` → 归一为 `soothe`（语义最接近"正念陪伴 / 想放松"）
+- LLM 返回 `company` → 归一为 `soothe`（旧 `company` 语义已并入 `soothe`）
+- LLM 返回其他非法值 → fallback 为 `soothe`（与 prompt 平淡输入默认一致）
+- 归一不触发 fallback，保留 `tags` / `summary` / `valence` 等其他字段
+
+**验证结果**：
+
+- `node --check functions/api/analyze-mood.js`：通过
+- `flutter analyze`：No issues found! (ran in 3.2s)
+- `flutter test`：196 passed + 5 skipped（无回归）
+- `flutter build web --release`：√ Built `build\web` (27.0s)
+
+**当前状态（未改动）**：
+
+- Flutter 前端页面（`TargetStateResolver` / `EmotionToMusicPlanMapper` 已在 M6.1 支持五类）
+- D1 schema
+- `functions/api/submit-feedback.js`
+- `wrangler.toml` 模型配置
+- 音频资源
+- 音乐匹配主逻辑（`AudioAssetCatalog` 已按五类 targetState 匹配）
+- 不改变 API 响应 JSON 结构
+
+### P1-Web-v1.0 限流规则配置记录（Cloudflare Dashboard）
+
+> **说明**：本节记录 Cloudflare Dashboard 中已配置的 Rate Limiting Rule。规则在 Cloudflare 边缘节点生效，不修改本项目代码。当前状态：**analyze-mood 规则已配置并 Active**；submit-feedback 规则因 Free 计划限流规则数量上限（1/1）未配置，列为后续可选。
+
+**目的**：降低 `/api/analyze-mood` 被滥用导致 LLM 额度消耗的风险。
+
+**配置入口**：Cloudflare Dashboard → 选择域名 `xinxian-music.xyz` → Security → WAF → Rate limiting rules → Create rule
+
+**规则 1：/api/analyze-mood（已配置）**
+
+| 项 | 值 |
+|---|---|
+| Rule name | `xinxian-analyze-mood-limit` |
+| 匹配条件 | `http.host` equals `xinxian-music.xyz` AND `http.request.uri.path` equals `/api/analyze-mood` AND `http.request.method` equals `POST` |
+| 阈值 | 同一 IP 1 分钟 10 次 |
+| 当前 Action | **Block**（Free 计划当前使用，超过阈值直接拦截请求） |
+| 状态 | Active |
+| 后续可选 | 若套餐升级支持 Managed Challenge，可切换为 Managed Challenge（真人可通过验证码，误伤可恢复） |
+
+当前使用 Block 的说明：Free 计划限流规则 Action 选项有限，当前选择 Block 直接拦截超阈值请求。Block 对脚本滥用有明确阻断效果；误伤真人用户时需等待统计窗口（1 分钟）过期后自动恢复。心弦前端已有 LLM 失败 fallback 到 mock 分析的逻辑，被 Block 时用户仍可正常使用（降级为本地解析模式）。
+
+**规则 2：/api/submit-feedback（未配置，后续可选）**
+
+| 项 | 值 |
+|---|---|
+| 状态 | 未配置 |
+| 原因 | Cloudflare Free 计划限流规则数量上限为 1 条（当前已用 1/1 配置 analyze-mood） |
+| 后续可选配置 | Rule name: `xinxian-submit-feedback-limit`；匹配条件同规则 1 但路径改为 `/api/submit-feedback`；阈值：同一 IP 1 分钟 30 次；Action: Block 或 Managed Challenge |
+
+30 次而非 10 次的原因：反馈是本地保存 + 异步上传，撤销删除 + 重新反馈可能触发多次，30 次/分钟对正常用户绰绰有余。如套餐升级解锁更多规则数量，可补配置此规则。
+
+**/api/health 限流建议**：不需要限流。该端点不访问 D1 / LLM / env，几乎零成本，用于运维监控和状态页探活，限流会导致监控误报。
+
+**配置测试**：配置后等待 ~1 分钟传播，用 PowerShell 连续发送 11 次 analyze-mood 请求，前 10 次返回 200 + JSON，第 11 次应返回 403（Block 动作直接拦截）。等待 1 分钟后应自动恢复。
+
+**前端兼容性**：心弦前端已有 LLM 失败 fallback 到 mock 分析的逻辑，被限流时用户仍可正常使用（降级为本地解析模式）。
+
 ## 一、项目背景
 
 当下 18-30 岁青年群体普遍面临备考压力、职场焦虑、睡眠困扰、情绪低落、精神内耗等心理亚健康问题。传统心理咨询存在时间、经济和心理门槛，而通用歌单、白噪音 App、脑波音频产品大多采用固定内容推荐，难以匹配用户当下具体而细腻的情绪状态。
@@ -440,7 +526,7 @@ M7.0 之前，用户反馈仅保存在本地浏览器，无法用于跨设备聚
 | **M8.1** | 消融对比实验分组记录（保守 MVP）：`HashExperimentAssigner` 按 sessionId FNV-1a hash 稳定分流到 custom / generic / control 三组（默认 1:1:1），编译期常量 `ENABLE_EXPERIMENT` 控制启用（默认 false 零体验影响），M8.1 仅记录分组标签不改推荐逻辑，音频旁路留到 M8.2 | ✅ 已完成 |
 | **M8.2**（下一阶段） | 消融对比实验音频旁路：在 `StockAudioGenerator` 按 `experimentVariant` 分流，generic 固定 `soothe_01.mp3`、control 固定 `sleep_01.mp3`，真正改变推荐结果；可选补 `completionRatio` D1 字段 | 🔜 下一阶段 |
 | **M9**             | AI 音乐生成模型接入：将 `AudioGenerationPort` 从本地预置音频替换为真实 AI 音乐生成模型（如 MusicGen / Suno API），按 `generationPrompt` 实时生成个性化音频                                              | ⏳ 计划中   |
-| **P1-Web-v1.0**（待办） | Cloudflare Dashboard 限流规则：在 Cloudflare Dashboard 为 `/api/analyze-mood` 与 `/api/submit-feedback` 配置速率限制规则（如每 IP 每分钟 10 次），避免公网滥用。CORS 白名单已在第四批完成 | ⏳ 待办     |
+| **P1-Web-v1.0**（部分完成） | Cloudflare Dashboard 限流规则：`/api/analyze-mood` 已配置（Block，10 次/分钟，Active）；`/api/submit-feedback` 未配置（Free 计划规则上限 1/1，后续可选）。详见下方专门章节 | 🔶 部分完成 |
 | **P1-Web-v1.0**（待办） | PWA 缓存策略：补齐 Service Worker 缓存策略，提升二次访问加载速度                                                                                                                                     | ⏳ 待办     |
 
 ## 九、项目价值
