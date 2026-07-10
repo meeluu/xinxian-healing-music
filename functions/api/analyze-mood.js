@@ -23,20 +23,40 @@
 // - LLM 调用从 openai SDK 改为原生 fetch（消除 Workers 兼容风险）
 // - 移除内存限流（Workers 跨请求无状态；改用 Cloudflare Dashboard 速率限制规则）
 
+// ─── CORS 白名单 ─────────────────────────────────────────────
+// 仅允许心弦自有域名与本地开发地址，避免被任意站点滥用。
+function allowedOrigin(origin) {
+  if (typeof origin !== 'string' || origin.length === 0) {
+    // curl / PowerShell 等无 Origin 的客户端：回退到正式域名，
+    // 方便命令行测试（不阻塞请求，但浏览器跨域读仍受 CORS 限制）
+    return 'https://xinxian-music.xyz';
+  }
+  if (origin === 'https://xinxian-music.xyz') return origin;
+  if (origin === 'https://www.xinxian-music.xyz') return origin;
+  if (origin === 'https://xinxian-healing-music.pages.dev') return origin;
+  if (/^https:\/\/[a-z0-9-]+\.xinxian-healing-music\.pages\.dev$/.test(origin)) return origin;
+  if (/^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(origin)) return origin;
+  return null;
+}
+
 // ─── 统一响应 helper（确保所有响应都带 charset=utf-8）──────────
-function jsonResponse(payload, statusCode = 200) {
+function jsonResponse(payload, statusCode, origin) {
+  const headers = {
+    'Content-Type': 'application/json; charset=utf-8',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type',
+  };
+  const allowed = allowedOrigin(origin);
+  if (allowed) {
+    headers['Access-Control-Allow-Origin'] = allowed;
+  }
   return new Response(JSON.stringify(payload), {
-    status: statusCode,
-    headers: {
-      'Content-Type': 'application/json; charset=utf-8',
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type',
-    },
+    status: statusCode || 200,
+    headers: headers,
   });
 }
 
-function fallback(reason, extra) {
+function fallback(reason, extra, origin) {
   const payload = {
     ok: false,
     source: 'fallback',
@@ -46,7 +66,7 @@ function fallback(reason, extra) {
   if (extra && typeof extra === 'object') {
     Object.keys(extra).forEach(function (k) { payload[k] = extra[k]; });
   }
-  return jsonResponse(payload);
+  return jsonResponse(payload, 200, origin);
 }
 
 // ─── System Prompt（强化版，从 Netlify 版原样搬迁）──────────────
@@ -227,24 +247,25 @@ async function callLlm(config, userText) {
 // 整个 handler 体用 try/catch 兜底，任何未捕获异常都返回 fallback，绝不 502。
 export async function onRequestPost(context) {
   const { request, env } = context;
+  const origin = request.headers.get('Origin');
   try {
     // 解析 body
     let body;
     try {
       body = await request.json();
     } catch (_) {
-      return fallback('json_parse_failed');
+      return fallback('json_parse_failed', null, origin);
     }
 
     // 输入校验
     const validation = validateInput(body);
     if (!validation.ok) {
-      return fallback(validation.reason);
+      return fallback(validation.reason, null, origin);
     }
 
     // LLM 功能开关：未设置或非 'false' 时开启，显式 'false' 时关闭
     if (env.ENABLE_LLM === 'false') {
-      return fallback('llm_disabled');
+      return fallback('llm_disabled', null, origin);
     }
 
     // 构建 LLM 配置
@@ -253,7 +274,7 @@ export async function onRequestPost(context) {
     // API Key 检查
     if (!config.apiKey) {
       console.error('[analyze-mood] OPENAI_API_KEY 未配置');
-      return fallback('no_api_key');
+      return fallback('no_api_key', null, origin);
     }
 
     // 调用 LLM
@@ -262,29 +283,32 @@ export async function onRequestPost(context) {
       const mood = normalizeMood(rawMood);
       if (!mood) {
         console.error('[analyze-mood] LLM 返回数据无法规范化（tags/summary 缺失或乱码）');
-        return fallback('llm_output_invalid');
+        return fallback('llm_output_invalid', null, origin);
       }
-      return jsonResponse({ ok: true, source: 'llm', mood: mood });
+      return jsonResponse({ ok: true, source: 'llm', mood: mood }, 200, origin);
     } catch (err) {
       const reason = isTimeoutError(err) ? 'llm_timeout' : 'llm_error';
       console.error('[analyze-mood] LLM 调用失败 (' + reason + '):', err && err.message);
-      return fallback(reason);
+      return fallback(reason, null, origin);
     }
   } catch (topErr) {
     // 最后防线：任何未预期的异常都返回 fallback，绝不 502
     console.error('[analyze-mood] handler 顶层异常:', topErr && topErr.message);
-    return fallback('llm_error');
+    return fallback('llm_error', null, origin);
   }
 }
 
 // ─── CORS 预检 ────────────────────────────────────────────────
-export async function onRequestOptions() {
-  return new Response(null, {
-    status: 204,
-    headers: {
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type',
-    },
-  });
+export async function onRequestOptions(context) {
+  const { request } = context;
+  const origin = request.headers.get('Origin');
+  const headers = {
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type',
+  };
+  const allowed = allowedOrigin(origin);
+  if (allowed) {
+    headers['Access-Control-Allow-Origin'] = allowed;
+  }
+  return new Response(null, { status: 204, headers: headers });
 }

@@ -15,22 +15,63 @@
 // - 不做鉴权（匿名），M7.0 不加频控（额度充足，后续可加）
 //
 // 依赖：D1 binding `xinxian_feedback`（在 wrangler.toml 配置）
+//
+// P1-Web-v1.0 第四批新增：
+// - D1 写入超时保护（5000ms，超时返回 fallback，不抛未捕获异常）
+// - CORS 白名单（仅允许心弦自有域名 + 本地开发）
+
+// ─── CORS 白名单 ─────────────────────────────────────────────
+// 仅允许心弦自有域名与本地开发地址，避免被任意站点滥用。
+function allowedOrigin(origin) {
+  if (typeof origin !== 'string' || origin.length === 0) {
+    // curl / PowerShell 等无 Origin 的客户端：回退到正式域名，
+    // 方便命令行测试（不阻塞请求，但浏览器跨域读仍受 CORS 限制）
+    return 'https://xinxian-music.xyz';
+  }
+  if (origin === 'https://xinxian-music.xyz') return origin;
+  if (origin === 'https://www.xinxian-music.xyz') return origin;
+  if (origin === 'https://xinxian-healing-music.pages.dev') return origin;
+  if (/^https:\/\/[a-z0-9-]+\.xinxian-healing-music\.pages\.dev$/.test(origin)) return origin;
+  if (/^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(origin)) return origin;
+  return null;
+}
 
 // ─── 统一响应 helper（与 analyze-mood.js 一致）──────────────
-function jsonResponse(payload, statusCode = 200) {
+function jsonResponse(payload, statusCode, origin) {
+  const headers = {
+    'Content-Type': 'application/json; charset=utf-8',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type',
+  };
+  const allowed = allowedOrigin(origin);
+  if (allowed) {
+    headers['Access-Control-Allow-Origin'] = allowed;
+  }
   return new Response(JSON.stringify(payload), {
-    status: statusCode,
-    headers: {
-      'Content-Type': 'application/json; charset=utf-8',
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type',
-    },
+    status: statusCode || 200,
+    headers: headers,
   });
 }
 
-function fallback(reason) {
-  return jsonResponse({ ok: false, received: false, reason: reason });
+function fallback(reason, origin) {
+  return jsonResponse({ ok: false, received: false, reason: reason }, 200, origin);
+}
+
+// ─── D1 写入超时保护 ─────────────────────────────────────────
+// 用 Promise.race 让 D1 操作在 5000ms 内必须完成，否则视为失败。
+// 超时只是 Promise 层面的竞争，D1 实际操作可能仍在后台执行
+//（Workers 有自己的执行时限，5 秒超时基本不会触发，仅作兜底保护）。
+var D1_TIMEOUT_MS = 5000;
+
+function withTimeout(promise, ms, timeoutReason) {
+  return Promise.race([
+    promise,
+    new Promise(function (_, reject) {
+      setTimeout(function () {
+        reject(new Error(timeoutReason));
+      }, ms);
+    }),
+  ]);
 }
 
 // ─── 字段白名单 + 类型规范化 ──────────────────────────────────
@@ -104,38 +145,38 @@ async function insertFeedback(db, p) {
 
   var stmt = db.prepare(
     'INSERT INTO feedback (' +
-      'sessionId, listeningSessionId, createdAt, ' +
-      'experimentVariant, analyzerMode, ' +
-      'targetState, emotionTags, valence, arousal, intensity, ' +
-      'musicTitle, audioAssetId, audioAssetTitle, bpm, brainwaveTarget, noiseLayer, ' +
-      'relaxationScore, emotionMatchScore, calmnessScore, willingToContinue, ' +
-      'freeTextFeedback, clientVersion, userAgent, source, schemaVersion' +
+    'sessionId, listeningSessionId, createdAt, ' +
+    'experimentVariant, analyzerMode, ' +
+    'targetState, emotionTags, valence, arousal, intensity, ' +
+    'musicTitle, audioAssetId, audioAssetTitle, bpm, brainwaveTarget, noiseLayer, ' +
+    'relaxationScore, emotionMatchScore, calmnessScore, willingToContinue, ' +
+    'freeTextFeedback, clientVersion, userAgent, source, schemaVersion' +
     ') VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25) ' +
     'ON CONFLICT(listeningSessionId) DO UPDATE SET ' +
-      'sessionId = excluded.sessionId, ' +
-      'createdAt = excluded.createdAt, ' +
-      'experimentVariant = excluded.experimentVariant, ' +
-      'analyzerMode = excluded.analyzerMode, ' +
-      'targetState = excluded.targetState, ' +
-      'emotionTags = excluded.emotionTags, ' +
-      'valence = excluded.valence, ' +
-      'arousal = excluded.arousal, ' +
-      'intensity = excluded.intensity, ' +
-      'musicTitle = excluded.musicTitle, ' +
-      'audioAssetId = excluded.audioAssetId, ' +
-      'audioAssetTitle = excluded.audioAssetTitle, ' +
-      'bpm = excluded.bpm, ' +
-      'brainwaveTarget = excluded.brainwaveTarget, ' +
-      'noiseLayer = excluded.noiseLayer, ' +
-      'relaxationScore = excluded.relaxationScore, ' +
-      'emotionMatchScore = excluded.emotionMatchScore, ' +
-      'calmnessScore = excluded.calmnessScore, ' +
-      'willingToContinue = excluded.willingToContinue, ' +
-      'freeTextFeedback = excluded.freeTextFeedback, ' +
-      'clientVersion = excluded.clientVersion, ' +
-      'userAgent = excluded.userAgent, ' +
-      'source = excluded.source, ' +
-      'schemaVersion = excluded.schemaVersion'
+    'sessionId = excluded.sessionId, ' +
+    'createdAt = excluded.createdAt, ' +
+    'experimentVariant = excluded.experimentVariant, ' +
+    'analyzerMode = excluded.analyzerMode, ' +
+    'targetState = excluded.targetState, ' +
+    'emotionTags = excluded.emotionTags, ' +
+    'valence = excluded.valence, ' +
+    'arousal = excluded.arousal, ' +
+    'intensity = excluded.intensity, ' +
+    'musicTitle = excluded.musicTitle, ' +
+    'audioAssetId = excluded.audioAssetId, ' +
+    'audioAssetTitle = excluded.audioAssetTitle, ' +
+    'bpm = excluded.bpm, ' +
+    'brainwaveTarget = excluded.brainwaveTarget, ' +
+    'noiseLayer = excluded.noiseLayer, ' +
+    'relaxationScore = excluded.relaxationScore, ' +
+    'emotionMatchScore = excluded.emotionMatchScore, ' +
+    'calmnessScore = excluded.calmnessScore, ' +
+    'willingToContinue = excluded.willingToContinue, ' +
+    'freeTextFeedback = excluded.freeTextFeedback, ' +
+    'clientVersion = excluded.clientVersion, ' +
+    'userAgent = excluded.userAgent, ' +
+    'source = excluded.source, ' +
+    'schemaVersion = excluded.schemaVersion'
   );
 
   await stmt.bind(
@@ -170,12 +211,13 @@ async function insertFeedback(db, p) {
 // ─── Cloudflare Pages Function 入口 ───────────────────────────
 export async function onRequestPost(context) {
   const { request, env } = context;
+  const origin = request.headers.get('Origin');
   try {
     // D1 binding 检查
     var db = env.xinxian_feedback;
     if (!db) {
       console.error('[submit-feedback] D1 binding xinxian_feedback 未配置');
-      return fallback('db_not_configured');
+      return fallback('db_not_configured', origin);
     }
 
     // 解析 body
@@ -183,46 +225,52 @@ export async function onRequestPost(context) {
     try {
       body = await request.json();
     } catch (_) {
-      return fallback('json_parse_failed');
+      return fallback('json_parse_failed', origin);
     }
 
     // 字段白名单 + 类型规范化
     var payload = sanitize(body);
     if (!payload) {
-      return fallback('invalid_payload');
+      return fallback('invalid_payload', origin);
     }
 
     // 必填字段校验
     if (!payload.listeningSessionId || !payload.createdAt || !payload.source) {
-      return fallback('missing_required_fields');
+      return fallback('missing_required_fields', origin);
     }
 
     // 长度限制
     payload = clampLengths(payload);
 
-    // 写入 D1
+    // 写入 D1（带 5000ms 超时保护）
     try {
-      await insertFeedback(db, payload);
-      return jsonResponse({ ok: true, received: true });
+      await withTimeout(insertFeedback(db, payload), D1_TIMEOUT_MS, 'db_timeout');
+      return jsonResponse({ ok: true, received: true }, 200, origin);
     } catch (dbErr) {
-      console.error('[submit-feedback] D1 INSERT 失败:', dbErr && dbErr.message);
-      return fallback('db_insert_failed');
+      // 超时或 D1 异常：返回 fallback，不暴露内部细节
+      // 不打印 freeTextFeedback 原文，只打印错误名
+      var reason = (dbErr && dbErr.message === 'db_timeout') ? 'db_timeout' : 'db_insert_failed';
+      console.error('[submit-feedback] D1 写入失败 (' + reason + '):', dbErr && dbErr.message);
+      return fallback(reason, origin);
     }
   } catch (topErr) {
     // 最后防线：任何未预期异常都返回 fallback，绝不 502
     console.error('[submit-feedback] handler 顶层异常:', topErr && topErr.message);
-    return fallback('unknown_error');
+    return fallback('unknown_error', origin);
   }
 }
 
 // ─── CORS 预检 ────────────────────────────────────────────────
-export async function onRequestOptions() {
-  return new Response(null, {
-    status: 204,
-    headers: {
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type',
-    },
-  });
+export async function onRequestOptions(context) {
+  const { request } = context;
+  const origin = request.headers.get('Origin');
+  const headers = {
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type',
+  };
+  const allowed = allowedOrigin(origin);
+  if (allowed) {
+    headers['Access-Control-Allow-Origin'] = allowed;
+  }
+  return new Response(null, { status: 204, headers: headers });
 }

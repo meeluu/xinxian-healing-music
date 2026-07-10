@@ -71,6 +71,65 @@
 - 播放器核心逻辑（本批未改）
 - 未引入新依赖
 
+### P1-Web-v1.0 第四批产品化修复
+
+第四批产品化修复聚焦 Cloudflare Pages Functions 的稳定性、安全边界与可运维性，新增健康检查端点、D1 写入超时保护与 CORS 白名单。不改 API 协议、D1 schema、前端调用方式与 Flutter 页面逻辑。
+
+**改动目的**：
+
+1. 新增 `/api/health` 健康检查端点，用于快速判断 Functions 是否正常部署，便于运维监控
+2. `submit-feedback` 对 D1 写入增加 5000ms 显式超时保护，超时返回 fallback 不抛未捕获异常
+3. 收紧 CORS 边界：将 `Access-Control-Allow-Origin` 从无脑 `*` 改为白名单逻辑（正式域名 + Cloudflare 预览域名 + 本地开发），保留 curl / PowerShell 命令行测试可用性
+
+**涉及模块**：
+
+- **新增健康检查**：[functions/api/health.js](file:///d:/xinxian_healing_music/functions/api/health.js) — `GET /api/health` 返回 `{ ok, service, version, timestamp }`，不访问 D1 / LLM / env，支持 OPTIONS 预检
+- **D1 超时保护**：[functions/api/submit-feedback.js](file:///d:/xinxian_healing_music/functions/api/submit-feedback.js) — 新增 `withTimeout(promise, ms, reason)` helper，用 `Promise.race` 让 D1 INSERT 在 5000ms 内必须完成
+- **CORS 白名单**：[functions/api/analyze-mood.js](file:///d:/xinxian_healing_music/functions/api/analyze-mood.js) + [submit-feedback.js](file:///d:/xinxian_healing_music/functions/api/submit-feedback.js) + [health.js](file:///d:/xinxian_healing_music/functions/api/health.js) — 三个文件统一引入 `allowedOrigin(origin)` 函数
+
+**CORS 允许来源**：
+
+| 来源 | 说明 |
+|---|---|
+| `https://xinxian-music.xyz` | 正式域名 |
+| `https://www.xinxian-music.xyz` | 正式域名 www 子域 |
+| `https://xinxian-healing-music.pages.dev` | Cloudflare Pages 主预览域名 |
+| `https://*.xinxian-healing-music.pages.dev` | Cloudflare Pages 分支 / 部署预览域名 |
+| `http://localhost:*` / `http://127.0.0.1:*` | 本地开发 |
+| 无 Origin（curl / PowerShell） | 回退到正式域名，不阻塞命令行测试 |
+
+**D1 超时保护实现**：
+
+用 `Promise.race` 让 D1 INSERT 与 5000ms 定时器竞争。超时只触发 Promise 层面的 reject，D1 实际操作可能仍在后台执行（Workers 有自己的执行时限，5 秒超时基本不会触发，仅作兜底）。超时后返回 `{ ok: false, received: false, reason: 'db_timeout' }`，不抛未捕获异常，不影响前端本地保存。
+
+**测试命令**：
+
+```bash
+# 健康检查（GET，无 body）
+curl https://xinxian-music.xyz/api/health
+
+# 预期返回
+# { "ok": true, "service": "xinxian-functions", "version": "v1", "timestamp": "2026-..." }
+```
+
+**验证结果**：
+
+- `node --check functions/api/health.js`：通过
+- `node --check functions/api/submit-feedback.js`：通过
+- `node --check functions/api/analyze-mood.js`：通过
+- `flutter analyze`：No issues found! (ran in 3.3s)
+- `flutter test`：196 passed + 5 skipped（与第三批一致，无回归）
+- `flutter build web --release`：√ Built `build\web` (27.6s)
+
+**当前状态（未改动）**：
+
+- `schema/feedback.sql` / D1 schema（零迁移）
+- 前端 API 调用方式（`HttpCloudFeedbackUploader` 6 秒超时不变，本次只改 Pages Function 端）
+- Flutter 页面逻辑
+- LLM prompt
+- `wrangler.toml` 模型配置
+- 未引入新依赖
+
 ## 一、项目背景
 
 当下 18-30 岁青年群体普遍面临备考压力、职场焦虑、睡眠困扰、情绪低落、精神内耗等心理亚健康问题。传统心理咨询存在时间、经济和心理门槛，而通用歌单、白噪音 App、脑波音频产品大多采用固定内容推荐，难以匹配用户当下具体而细腻的情绪状态。
@@ -381,9 +440,7 @@ M7.0 之前，用户反馈仅保存在本地浏览器，无法用于跨设备聚
 | **M8.1** | 消融对比实验分组记录（保守 MVP）：`HashExperimentAssigner` 按 sessionId FNV-1a hash 稳定分流到 custom / generic / control 三组（默认 1:1:1），编译期常量 `ENABLE_EXPERIMENT` 控制启用（默认 false 零体验影响），M8.1 仅记录分组标签不改推荐逻辑，音频旁路留到 M8.2 | ✅ 已完成 |
 | **M8.2**（下一阶段） | 消融对比实验音频旁路：在 `StockAudioGenerator` 按 `experimentVariant` 分流，generic 固定 `soothe_01.mp3`、control 固定 `sleep_01.mp3`，真正改变推荐结果；可选补 `completionRatio` D1 字段 | 🔜 下一阶段 |
 | **M9**             | AI 音乐生成模型接入：将 `AudioGenerationPort` 从本地预置音频替换为真实 AI 音乐生成模型（如 MusicGen / Suno API），按 `generationPrompt` 实时生成个性化音频                                              | ⏳ 计划中   |
-| **P1-Web-v1.0**（待办） | API CORS / 限流：补充 `/api/analyze-mood` 与 `/api/submit-feedback` 的 CORS 白名单与速率限制策略，避免公网滥用                                                                                       | ⏳ 待办     |
-| **P1-Web-v1.0**（待办） | submit-feedback 超时保护：`HttpCloudFeedbackUploader` 已有 6 秒超时，但 Pages Function 端缺少显式超时控制                                                                                              | ⏳ 待办     |
-| **P1-Web-v1.0**（待办） | `/api/health` 健康检查：新增轻量健康检查端点，便于 Cloudflare 监控与运维                                                                                                                              | ⏳ 待办     |
+| **P1-Web-v1.0**（待办） | Cloudflare Dashboard 限流规则：在 Cloudflare Dashboard 为 `/api/analyze-mood` 与 `/api/submit-feedback` 配置速率限制规则（如每 IP 每分钟 10 次），避免公网滥用。CORS 白名单已在第四批完成 | ⏳ 待办     |
 | **P1-Web-v1.0**（待办） | PWA 缓存策略：补齐 Service Worker 缓存策略，提升二次访问加载速度                                                                                                                                     | ⏳ 待办     |
 
 ## 九、项目价值
