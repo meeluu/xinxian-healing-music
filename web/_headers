@@ -7,10 +7,14 @@
 # - CanvasKit：长缓存（7 天），跟随 Flutter 版本
 # - API：绝不缓存
 #
-# 修正记录（第一次线上验证后）：
+# 修正记录：
+# 第一次线上验证后：
 # - /assets/music/*.mp3 → /assets/music/*（避免扩展名通配不匹配）
 # - 移除 /assets/* 通用规则（避免覆盖音频规则）
 # - 非 music 的 assets（字体/shaders）使用 Cloudflare 默认缓存
+# 第二次线上验证后：
+# - 音频缓存和 API 缓存已验证通过
+# - /flutter_service_worker.js 仍返回 max-age=14400，新增 /flutter_service_worker.* 通配规则兜底
 #
 # 未启用离线 PWA，未手写 service worker，保留 Flutter 默认 SW 机制。
 
@@ -28,6 +32,8 @@
 /flutter.js
   Cache-Control: no-cache, must-revalidate
 /flutter_service_worker.js
+  Cache-Control: no-cache, must-revalidate
+/flutter_service_worker.*
   Cache-Control: no-cache, must-revalidate
 
 # ─── manifest.json：短缓存（1 小时） ───

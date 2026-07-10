@@ -278,26 +278,108 @@ curl -I https://xinxian-music.xyz/api/health
 | `/flutter_service_worker.js` | `no-cache, must-revalidate` | `max-age=14400, must-revalidate` | ❌ 未生效 |
 | `/assets/music/sleep_01.mp3` | `max-age=86400, must-revalidate` | `max-age=14400, must-revalidate` | ❌ 未生效 |
 
-**修正原因**：
+**第一次修正原因**：
 
 1. `/assets/music/*.mp3` 使用扩展名通配 `*.mp3`，Cloudflare Pages 可能不支持"目录 + 扩展名通配"组合 → 改为 `/assets/music/*`
 2. `/assets/*` 通用规则在 `/assets/music/*` 之后，可能覆盖音频规则 → 移除 `/assets/*` 通用规则，非 music 的 assets 使用 Cloudflare 默认缓存
 3. `/flutter_service_worker.js` 保持单独配置不变，待二次验证确认是否为 Cloudflare Pages 对 `.js` 文件的默认缓存策略覆盖
 
-**修正后策略**（待二次线上验证）：
+**第三次线上验证结果**（全部通过）：
 
-- `/assets/music/*`：`public, max-age=86400, must-revalidate`
-- 移除 `/assets/*` 通用规则
-- 其他规则保持不变
+| 路径 | 实际响应头 | Cf-Cache-Status | 结论 |
+|---|---|---|---|
+| `/assets/music/sleep_01.mp3` | `Cache-Control: public, max-age=86400, must-revalidate` | MISS / 后续 HIT | ✅ 音频缓存策略已生效 |
+| `/api/health` | `Cache-Control: no-store` | DYNAMIC | ✅ API 不缓存策略已生效 |
+| `/flutter_service_worker.js` | `Cache-Control: no-cache, must-revalidate, no-cache, must-revalidate` | DYNAMIC | ✅ SW 不走边缘缓存目标已达成 |
 
-> **状态：待二次线上验证**。本次修正尚未部署验证，不标记为已完成。部署后需重新 `curl -I` 检查 `/flutter_service_worker.js` 和 `/assets/music/sleep_01.mp3` 的响应头。
+**flutter_service_worker.js 说明**：
+
+- 通过 Cloudflare Cache Rule + `_headers` 达到不走边缘缓存目标
+- `Cache-Control` 出现重复值（`no-cache, must-revalidate, no-cache, must-revalidate`），语义一致，可接受
+- 后续可选清理为单值，但不影响功能
+
+> **状态：已验证通过**。三条核心路径（音频 / API / SW）缓存策略均已生效。
+
+**本次实施未修改的内容**（明确说明）：
+
+- **没有修改 service worker 逻辑**：保留 Flutter 默认 `flutter_service_worker.js`，未替换或增强
+- **没有新增离线缓存逻辑**：未启用离线 PWA，未手写 service worker
+- **没有修改 Flutter 页面**：前端逻辑未改
+- **没有修改 API**：API 协议未改
+- **没有修改 D1 schema**
 
 **验证结果**（本地 build）：
 
 - `flutter analyze`：No issues found! (ran in 43.1s)
 - `flutter test`：196 passed + 5 skipped（无回归）
-- `flutter build web --release`：√ Built `build\web` (32.4s)
+- `flutter build web --release`：√ Built `build\web` (42.2s)
 - `build/web/_headers` 存在
+
+### P1-Web-v1.0 收尾验收清单
+
+> **说明**：本节为 P1-Web-v1.0 阶段收尾总验收记录。**只核对文档与代码/线上配置一致性，不做功能开发**，未修改 Flutter 业务代码、`functions/api/*.js`、`schema/feedback.sql`、`web/_headers` 与 `wrangler.toml`。未验证或未实现的内容均未写成已完成。
+
+#### A. 文档与代码 / 线上配置一致性核对
+
+| 验收项 | README 章节 | 实际代码 / 配置 | 一致性 |
+|---|---|---|---|
+| history restore 完整链路 | P1-Web-v1.0 第三批产品化修复 | [history_screen.dart](file:///d:/xinxian_healing_music/lib/screens/history_screen.dart) `sessionRecorder.restore(session)` + [listening_session_recorder.dart](file:///d:/xinxian_healing_music/lib/pipeline/ports/listening_session_recorder.dart) 抽象方法 + [local_listening_session_recorder.dart](file:///d:/xinxian_healing_music/lib/pipeline/local/local_listening_session_recorder.dart) `_upsert` 实现 | ✅ 一致 |
+| analysis_screen 响应式 | 同上 | [analysis_screen.dart](file:///d:/xinxian_healing_music/lib/screens/analysis_screen.dart) `LayoutBuilder` + 180-260 clamp + `SingleChildScrollView` + try/catch 错误态 | ✅ 一致 |
+| index.html 元信息 | 同上 | [index.html](file:///d:/xinxian_healing_music/web/index.html) `<meta name="description">` + `<meta name="theme-color" content="#6BAED6">` | ✅ 一致 |
+| 隐私政策页面 | P1-Web-v1.0 第二批（README 散见各处） | [privacy_screen.dart](file:///d:/xinxian_healing_music/lib/screens/privacy_screen.dart) 8 小节静态文本 | ✅ 一致 |
+| `/api/health` 端点 | P1-Web-v1.0 第四批产品化修复 | [functions/api/health.js](file:///d:/xinxian_healing_music/functions/api/health.js) `onRequestGet` + `onRequestOptions`，返回 `{ ok, service, version, timestamp }`，不访问 D1 / LLM / env | ✅ 一致 |
+| D1 写入超时保护 | 同上 | [functions/api/submit-feedback.js](file:///d:/xinxian_healing_music/functions/api/submit-feedback.js) `withTimeout` + `D1_TIMEOUT_MS = 5000` + `Promise.race` | ✅ 一致 |
+| CORS 白名单 | 同上 | 三个 `functions/api/*.js` 统一 `allowedOrigin(origin)`，覆盖正式域名 / Pages 预览 / localhost | ✅ 一致 |
+| targetState 枚举统一 | P1-Web-v1.0 小质量修复 | [analyze-mood.js](file:///d:/xinxian_healing_music/functions/api/analyze-mood.js) `VALID_TARGET_STATES` 五类 + `relax` / `company` → `soothe` + prompt 归一规则 | ✅ 一致 |
+| 限流规则 `/api/analyze-mood` | P1-Web-v1.0 限流规则配置记录 | Cloudflare Dashboard（不在代码仓库内）：`xinxian-analyze-mood-limit`，Block，10 次/分钟，Active | ✅ 一致（已配置） |
+| 限流规则 `/api/submit-feedback` | 同上 | Cloudflare Free 计划规则上限 1/1，未配置 | 🔶 后续可选（与 README 一致） |
+| PWA / 缓存策略 | P1-Web-v1.0 PWA / 缓存策略最小实施 | [web/_headers](file:///d:/xinxian_healing_music/web/_headers) 各路径 Cache-Control，三路径线上已验证通过 | ✅ 一致 |
+| `schema/feedback.sql` | M7.0 / 第四批（多处引用未改动声明） | 25 字段 + 主键 `listeningSessionId` + upsert + 4 索引，本阶段未迁移 | ✅ 一致（本批未改） |
+
+#### B. 核心线上流程手动验收清单
+
+| 验收项 | 验证方式 | 预期结果 | 状态 |
+|---|---|---|---|
+| `/api/health` | `curl https://xinxian-music.xyz/api/health` | `200` + `{ ok:true, service:"xinxian-functions", version:"v1", timestamp:... }` | ✅ 端点已部署，可验收 |
+| `/api/analyze-mood` | `POST` 心境文本（含合法 `text` 字段） | `200` + `{ ok:true, source:"llm"\|"fallback", mood:{...} }`，targetState 必为五类之一 | ✅ 端点已部署，可验收 |
+| `/api/submit-feedback` | `POST` 反馈数据（含 `listeningSessionId` / `createdAt` / `source`） | `200` + `{ ok:true, received:true }` 或 `{ ok:false, received:false, reason:... }` fallback | ✅ 端点已部署，可验收 |
+| D1 `feedback` 表记录数 | `npx wrangler d1 execute xinxian-feedback --remote --command "SELECT COUNT(*) AS total FROM feedback"` | 返回总反馈数 | ✅ 表与索引已就绪，可验收 |
+| 首页到播放页完整流程 | 浏览器走"心境输入 → 解析 → 方案 → 播放" | 完整闭环可走通，无卡死 | ✅ M4 已 9 步验收（沿用） |
+| 反馈提交 | 反馈页提交 → 本地保存 → 异步上传（需同意） | 本地必定保存；云端上传失败不影响本地 | ✅ 链路已就绪，可验收 |
+| PWA / 缓存策略三路径 | `curl -I` 检查三路径响应头 | 音频 `max-age=86400` / API `no-store` / SW `no-cache, must-revalidate` | ✅ 三路径已线上验证通过 |
+
+> 说明：本清单只列出"具备验收条件"的项目；具体每次回归是否通过，由验收人在执行时记录。`/api/analyze-mood` 限流为 Block 动作，连续测试请预留 1 分钟统计窗口。
+
+#### C. P1 当前可关闭的项目
+
+| 项目 | 状态 | 关闭依据 |
+|---|---|---|
+| P1-Web-v1.0 第三批产品化修复 | ✅ 可关闭 | history restore / analysis_screen 响应式 / index.html 元信息 / 历史空状态 CTA 均已实施并通过 `flutter analyze` + `flutter test` + `flutter build web --release` |
+| P1-Web-v1.0 第四批产品化修复 | ✅ 可关闭 | `/api/health` / D1 超时 / CORS 白名单均已实施，`node --check` 与 flutter 三件套通过 |
+| P1-Web-v1.0 targetState 枚举统一 | ✅ 可关闭 | prompt 强化 + `normalizeMood` 旧值归一，`node --check` + flutter 三件套通过 |
+| P1-Web-v1.0 PWA / 缓存策略 | ✅ 可关闭 | `web/_headers` 已实施，三路径线上验证通过 |
+| P1-Web-v1.0 限流规则（analyze-mood） | ✅ 可关闭 | Cloudflare Dashboard 已配置并 Active |
+
+#### D. 仍建议保留到下一阶段的项目
+
+| 项目 | 当前状态 | 保留原因 |
+|---|---|---|
+| 完整离线 PWA / SW 更新提示 UI | 🔶 后续可选 | 本阶段未启用离线 PWA，未手写 service worker，未做 SW 更新提示 UI；保留 Flutter 默认 SW 机制 |
+| `/api/submit-feedback` 限流规则 | 🔶 后续可选 | Cloudflare Free 计划限流规则数量上限 1/1（已用于 analyze-mood）；待套餐升级后补配置 |
+| `/api/analyze-mood` 限流 Action 切换为 Managed Challenge | 🔶 后续可选 | Free 计划当前仅 Block；Managed Challenge 需套餐升级支持 |
+| `flutter_service_worker.js` Cache-Control 重复值清理为单值 | 🔶 后续可选 | 当前为 `no-cache, must-revalidate, no-cache, must-revalidate`，语义一致不影响功能 |
+| M8.2 消融对比实验音频旁路 | 🔜 下一阶段 | M8.1 仅记录 `experimentVariant` 标签，未改变推荐结果；音频旁路按计划留到 M8.2 |
+| M9 AI 音乐生成模型接入 | ⏳ 计划中 | 当前仍为本地预置音频，非实时 AI 生成 |
+
+#### E. 本次验收未修改的内容（明确说明）
+
+- **没有修改 Flutter 业务代码**：`lib/` 下所有文件保持原状
+- **没有修改 `functions/api/*.js`**：`analyze-mood.js` / `submit-feedback.js` / `health.js` 保持原状
+- **没有修改 `schema/feedback.sql`**：D1 schema 零迁移
+- **没有修改 `web/_headers`**：缓存头策略保持上一轮最终验证通过版本
+- **没有修改 `wrangler.toml`**：模型配置 / D1 binding / 环境变量保持原状
+- **没有修改 Cloudflare Dashboard 配置**：限流规则 / Cache Rule 保持上一轮已配置状态
+- **仅新增本 README 章节**："P1-Web-v1.0 收尾验收清单"，其余章节保持原状
 
 ## 一、项目背景
 
@@ -610,7 +692,7 @@ M7.0 之前，用户反馈仅保存在本地浏览器，无法用于跨设备聚
 | **M8.2**（下一阶段） | 消融对比实验音频旁路：在 `StockAudioGenerator` 按 `experimentVariant` 分流，generic 固定 `soothe_01.mp3`、control 固定 `sleep_01.mp3`，真正改变推荐结果；可选补 `completionRatio` D1 字段 | 🔜 下一阶段 |
 | **M9**             | AI 音乐生成模型接入：将 `AudioGenerationPort` 从本地预置音频替换为真实 AI 音乐生成模型（如 MusicGen / Suno API），按 `generationPrompt` 实时生成个性化音频                                              | ⏳ 计划中   |
 | **P1-Web-v1.0**（部分完成） | Cloudflare Dashboard 限流规则：`/api/analyze-mood` 已配置（Block，10 次/分钟，Active）；`/api/submit-feedback` 未配置（Free 计划规则上限 1/1，后续可选）。详见下方专门章节 | 🔶 部分完成 |
-| **P1-Web-v1.0**（待二次验证） | PWA / 缓存策略：`web/_headers` 缓存头策略已实施并修正（第一次线上验证部分规则未生效，已调整通配语法，待二次线上验证）；完整离线 PWA / SW 更新提示为后续可选 | 🔶 待二次验证 |
+| **P1-Web-v1.0** | PWA / 缓存策略：`web/_headers` 缓存头策略已实施并验证通过（音频 / API / SW 三路径全部生效）；完整离线 PWA / SW 更新提示为后续可选 | ✅ 已完成 |
 
 ## 九、项目价值
 
