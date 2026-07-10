@@ -30,10 +30,10 @@ class AppVersion {
   /// - `M{n}-preview`：预览部署
   /// - `M{n}-stable`：正式发布
   /// - `P{N}-ui-{n}`：P 阶段第 n 批 UI / 体验优化
-  static const String buildLabel = 'P2-ui-2-fix1';
+  static const String buildLabel = 'P2-ui-3-fix2';
 
   /// 构建日期（YYYY-MM-DD），手动维护。
-  static const String buildDate = '2026-07-10';
+  static const String buildDate = '2026-07-11';
 
   /// 部署目标平台。
   static const String deployTarget = 'Cloudflare Pages';

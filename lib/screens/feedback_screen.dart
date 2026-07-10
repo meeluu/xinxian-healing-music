@@ -3,7 +3,6 @@ import 'package:xinxian_healing_music/config/app_version.dart';
 import 'package:xinxian_healing_music/models/cloud_feedback_payload.dart';
 import 'package:xinxian_healing_music/models/feedback_record.dart';
 import 'package:xinxian_healing_music/models/music_plan.dart';
-import 'package:xinxian_healing_music/pipeline/consent/cloud_feedback_consent_service.dart';
 import 'package:xinxian_healing_music/pipeline/consent/cloud_text_consent_service.dart';
 import 'package:xinxian_healing_music/pipeline/services.dart';
 import 'package:xinxian_healing_music/screens/home_screen.dart';
@@ -11,9 +10,8 @@ import 'package:xinxian_healing_music/screens/history_screen.dart';
 import 'package:xinxian_healing_music/theme/app_colors.dart';
 import 'package:xinxian_healing_music/utils/user_agent_helper.dart';
 import 'package:xinxian_healing_music/widgets/centered_page.dart';
-import 'package:xinxian_healing_music/widgets/cloud_feedback_consent_dialog.dart';
 
-/// 反馈表单页：评分 + 紧绷度前后 + 文字反馈 → 柔和淡入感谢页 → 回首页。
+/// 反馈表单页：评分 + 状态评分前后 + 文字反馈 → 柔和淡入感谢页 → 回首页。
 class FeedbackScreen extends StatefulWidget {
   final HealingMusicPlan plan;
   const FeedbackScreen({super.key, required this.plan});
@@ -31,6 +29,8 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
   // M7：文字反馈上传勾选框，仅在用户已同意云端采集时显示。
   // 勾选后本次提交的文字反馈会上传到云端（受 cloudTextConsentService 控制）。
   bool _shareTextFeedback = false;
+  // P2-Web-v1.0 第三批：状态评分 slider 和文字反馈默认折叠，降低首次填写成本。
+  bool _showMore = false;
 
   @override
   void initState() {
@@ -46,12 +46,15 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
     super.dispose();
   }
 
-  String _tensionLabel(double v) {
-    if (v < 0.2) return '很放松';
-    if (v < 0.45) return '较放松';
-    if (v < 0.65) return '一般';
-    if (v < 0.85) return '较紧绷';
-    return '很紧绷';
+  /// P2-Web-v1.0 第三批 fix1：slider 语义统一为"状态评分"。
+  /// 左边 = 状态不好，右边 = 状态好。底层字段 before/after 保持不变。
+  String _stateLabel(double v) {
+    if (v <= 0.0) return '不太好';
+    if (v < 0.25) return '不太好';
+    if (v < 0.5) return '有点低落';
+    if (v < 0.75) return '还可以';
+    if (v < 1.0) return '挺好';
+    return '很好';
   }
 
   @override
@@ -89,7 +92,7 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
         ),
         const SizedBox(height: 24),
 
-        // 评分
+        // 评分（默认突出显示）
         const Text(
           '整体体验评分',
           style: TextStyle(
@@ -114,93 +117,153 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
               ),
           ],
         ),
+        const SizedBox(height: 20),
+
+        // P2-Web-v1.0 第三批：状态评分 slider + 文字反馈折叠到"想多说一点？"
+        // 默认折叠，降低首次填写成本；展开后显示两个 slider 和文本框。
+        InkWell(
+          onTap: () => setState(() => _showMore = !_showMore),
+          borderRadius: BorderRadius.circular(10),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  '想多说一点？',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: AppColors.primaryDeep,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(width: 4),
+                AnimatedRotation(
+                  turns: _showMore ? 0.25 : 0,
+                  duration: const Duration(milliseconds: 200),
+                  child: const Icon(
+                    Icons.chevron_right_rounded,
+                    size: 18,
+                    color: AppColors.primaryDeep,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        AnimatedCrossFade(
+          duration: const Duration(milliseconds: 300),
+          crossFadeState: _showMore
+              ? CrossFadeState.showSecond
+              : CrossFadeState.showFirst,
+          firstChild: const SizedBox.shrink(),
+          secondChild: Padding(
+            padding: const EdgeInsets.only(top: 16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // 状态评分前后（P2-Web-v1.0 第三批 fix1：紧绷度 → 状态评分）
+                const Text(
+                  '感受一下你的状态变化',
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                const Text(
+                  '左边是不太好，右边是很好',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                _TensionSlider(
+                  label: '体验前',
+                  value: _before,
+                  activeColor: const Color(0xFFE7A86A),
+                  onChanged: (v) => setState(() => _before = v),
+                  textLabel: _stateLabel(_before),
+                ),
+                const SizedBox(height: 12),
+                _TensionSlider(
+                  label: '体验后',
+                  value: _after,
+                  activeColor: AppColors.teal,
+                  onChanged: (v) => setState(() => _after = v),
+                  textLabel: _stateLabel(_after),
+                ),
+                const SizedBox(height: 24),
+
+                // 文字反馈
+                const Text(
+                  '想说点什么（可选）',
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: _note,
+                  minLines: 3,
+                  maxLines: 6,
+                  style: const TextStyle(
+                    fontSize: 15,
+                    color: AppColors.textPrimary,
+                    height: 1.5,
+                  ),
+                  decoration: InputDecoration(
+                    hintText: '这段旋律让你想到了什么？身体有什么感受？',
+                    hintStyle: const TextStyle(color: AppColors.textMuted),
+                    filled: true,
+                    fillColor: AppColors.cardBg,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(14),
+                      borderSide: const BorderSide(color: AppColors.cardBorder),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(14),
+                      borderSide: const BorderSide(color: AppColors.cardBorder),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(14),
+                      borderSide: const BorderSide(
+                        color: AppColors.primary,
+                        width: 1.4,
+                      ),
+                    ),
+                    contentPadding: const EdgeInsets.all(14),
+                  ),
+                ),
+                // M7：文字反馈上传勾选框，仅在已同意云端采集时显示。
+                if (_canShareTextFeedback) ...[
+                  const SizedBox(height: 8),
+                  _ShareTextCheckbox(
+                    value: _shareTextFeedback,
+                    onChanged: (v) =>
+                        setState(() => _shareTextFeedback = v ?? false),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
         const SizedBox(height: 24),
 
-        // 紧绷度前后
-        const Text(
-          '感受一下你的紧绷度变化',
-          style: TextStyle(
-            fontSize: 15,
-            fontWeight: FontWeight.w600,
-            color: AppColors.textPrimary,
-          ),
-        ),
-        const SizedBox(height: 4),
-        const Text(
-          '拖动两条滑块，记录体验前后的状态',
-          style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
-        ),
-        const SizedBox(height: 16),
-        _TensionSlider(
-          label: '体验前',
-          value: _before,
-          activeColor: const Color(0xFFE7A86A),
-          onChanged: (v) => setState(() => _before = v),
-          textLabel: _tensionLabel(_before),
-        ),
-        const SizedBox(height: 12),
-        _TensionSlider(
-          label: '体验后',
-          value: _after,
-          activeColor: AppColors.teal,
-          onChanged: (v) => setState(() => _after = v),
-          textLabel: _tensionLabel(_after),
-        ),
-        const SizedBox(height: 24),
-
-        // 文字反馈
-        const Text(
-          '想说点什么（可选）',
-          style: TextStyle(
-            fontSize: 15,
-            fontWeight: FontWeight.w600,
-            color: AppColors.textPrimary,
-          ),
-        ),
-        const SizedBox(height: 8),
-        TextField(
-          controller: _note,
-          minLines: 3,
-          maxLines: 6,
-          style: const TextStyle(
-            fontSize: 15,
-            color: AppColors.textPrimary,
-            height: 1.5,
-          ),
-          decoration: InputDecoration(
-            hintText: '这段旋律让你想到了什么？身体有什么感受？',
-            hintStyle: const TextStyle(color: AppColors.textMuted),
-            filled: true,
-            fillColor: AppColors.cardBg,
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(14),
-              borderSide: const BorderSide(color: AppColors.cardBorder),
+        // rating==0 时在提交按钮附近显示清楚提示
+        if (_rating == 0)
+          const Padding(
+            padding: EdgeInsets.only(bottom: 8),
+            child: Text(
+              '请先选择一个评分',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 12, color: AppColors.apricotDeep),
             ),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(14),
-              borderSide: const BorderSide(color: AppColors.cardBorder),
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(14),
-              borderSide: const BorderSide(
-                color: AppColors.primary,
-                width: 1.4,
-              ),
-            ),
-            contentPadding: const EdgeInsets.all(14),
           ),
-        ),
-        // M7：文字反馈上传勾选框，仅在已同意云端采集时显示。
-        // 默认不上传文字反馈，用户需主动勾选；勾选状态会持久化到 cloudTextConsentService。
-        if (_canShareTextFeedback) ...[
-          const SizedBox(height: 8),
-          _ShareTextCheckbox(
-            value: _shareTextFeedback,
-            onChanged: (v) => setState(() => _shareTextFeedback = v ?? false),
-          ),
-        ],
-        const SizedBox(height: 28),
-
         FilledButton.icon(
           onPressed: _rating == 0 ? null : _submitFeedback,
           icon: const Icon(Icons.send_rounded, size: 20),
@@ -242,26 +305,15 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
     return consent != null && consent.isAccepted && textConsent != null;
   }
 
-  /// 提交反馈：本地保存 → 首次弹出云端同意弹窗 → fire-and-forget 云端上传。
-  Future<void> _submitFeedback() async {
-    // 首次提交：若云端采集同意状态为 unknown，弹出同意弹窗请用户选择。
-    // 用户拒绝或弹窗装配失败时，仅保存本地，不上传云端。
-    final consent = cloudFeedbackConsentService;
-    if (consent != null && consent.needsPrompt && mounted) {
-      final accepted = await CloudFeedbackConsentDialog.show(
-        context,
-        barrierDismissible: false,
-      );
-      if (!mounted) return;
-      if (accepted == true) {
-        await consent.setStatus(CloudFeedbackConsentStatus.accepted);
-      } else {
-        // accepted == false（用户点"仅保存在本设备"）
-        await consent.setStatus(CloudFeedbackConsentStatus.declined);
-      }
-      setState(() {});
-    }
+  /// 是否已同意云端反馈采集（用于感谢页提示文案）。
+  bool get _cloudAccepted => cloudFeedbackConsentService?.isAccepted ?? false;
 
+  /// 提交反馈：本地保存 → fire-and-forget 云端上传（仅已同意时）。
+  ///
+  /// P2-Web-v1.0 第三批：不再在提交瞬间强制弹出云端采集同意弹窗。
+  /// 未同意（unknown / declined）时默认只保存本地反馈，不打断用户。
+  /// 用户可在设置中主动开启云端反馈采集，开启后此处自动走云端上传。
+  Future<void> _submitFeedback() async {
     final noteText = _note.text.trim().isEmpty ? null : _note.text.trim();
     final record = FeedbackRecord(
       sessionId: widget.plan.sessionId,
@@ -289,6 +341,7 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
     // 3. fire-and-forget 云端上传
     // 不 await：上传失败/超时不影响 UI 流程；上传器内部已 catch 所有异常。
     // 若用户未填文字或未勾选上传文字，uploader 会根据 textConsent 状态剥离 freeTextFeedback。
+    // 仅当用户已在设置中同意云端采集时才会上传，否则 _fireCloudUpload 内部跳过。
     _fireCloudUpload(record);
 
     if (!mounted) return;
@@ -361,6 +414,19 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
             height: 1.6,
           ),
         ),
+        // P2-Web-v1.0 第三批：未同意云端采集时提示本地保存 + 设置入口引导。
+        if (!_cloudAccepted) ...[
+          const SizedBox(height: 12),
+          const Text(
+            '已保存在本地。你也可以在设置中开启云端反馈，帮助我们改进推荐。',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 12,
+              color: AppColors.textMuted,
+              height: 1.5,
+            ),
+          ),
+        ],
         const SizedBox(height: 40),
         FilledButton(
           onPressed: () {

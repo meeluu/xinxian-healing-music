@@ -47,7 +47,7 @@ ORDER BY count DESC;
 -- 用途：评估不同音频素材的用户反馈差异，为后续音频优化提供依据
 -- 字段说明：
 --   relaxationScore  1-5（从 rating 映射，5 = 最放松）
---   calmnessScore    0-100（从 (1-tensionAfter)*100 映射，100 = 最平静）
+--   calmnessScore    0-100（从 tensionAfter*100 映射，100 = 状态最好）
 -- ════════════════════════════════════════════════════════════════
 SELECT
   COALESCE(audioAssetId, '(null)') AS audio_asset_id,

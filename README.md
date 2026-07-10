@@ -599,6 +599,177 @@ curl -I https://xinxian-music.xyz/api/health
 - 🔶 反馈提交时云端采集同意弹窗时机优化
 - 🔶 首屏底部入口折叠
 
+### P2-Web-v1.0 第三批体验优化
+
+> **说明**：本批聚焦反馈页降成本 + 播放完成反馈 CTA。目标：提高真实用户愿意提交反馈的概率。**只优化反馈页和播放完成后的引导，不改 D1 schema、不改 submit-feedback API 字段、不改 pipeline、不改音频匹配逻辑**。
+
+**改动目的**：
+
+1. 播放完成后自然引导用户记录感受，而不是只在页面底部放一个静态入口
+2. 反馈页默认只突出评分 + 提交，降低首次填写成本
+3. 未同意云端采集时不再在提交瞬间强制弹窗打断用户，默认只保存本地
+
+**涉及模块**：
+
+- **播放页**：[player_screen.dart](file:///d:/xinxian_healing_music/lib/screens/player_screen.dart)
+  - 新增 `_completed` 状态字段，`playerStateStream` 监听中检测 `ProcessingState.completed`
+  - 播放完成后在原"点击中央按钮开始播放"位置替换为温和 CTA：
+    - 主文案：`听完这段了吗？记录一下感受`
+    - 按钮：`写反馈`（OutlinedButton → 进入现有 FeedbackScreen）
+  - 重播（seek(0) + play）时重置 `_completed = false`，收回 CTA
+  - 不改变现有底部"完成体验，去反馈"入口，只增强完成后的自然引导
+  - 移动端按钮高度固定（minimumSize 140×40），不挤压播放控制区
+- **反馈页**：[feedback_screen.dart](file:///d:/xinxian_healing_music/lib/screens/feedback_screen.dart)
+  - 新增 `_showMore` 状态（默认折叠）
+  - 默认只突出显示：星级评分 + 提交按钮
+  - 状态评分 before/after slider 和文字反馈折叠到"想多说一点？"展开区（fix1 起语义从"紧绷度"改为"状态评分"，底层字段 `tensionBefore`/`tensionAfter` 保持兼容）
+    - 折叠标题：`想多说一点？`（带 AnimatedRotation 箭头指示）
+    - 展开后显示两个 slider + 文本框 + 文字反馈上传勾选框（条件显示）
+  - rating 为 0 时提交按钮附近显示提示：`请先选择一个评分`
+  - 保持现有字段和默认值：before/after 默认 0.5，rating 必须大于 0 才能提交，note 可选
+  - 移除提交瞬间的 `CloudFeedbackConsentDialog.show` 强制弹窗
+    - 未同意（unknown / declined）时默认只保存本地反馈，不打断用户
+    - 已同意时保持现有云端上传逻辑（`_fireCloudUpload` 内部检查 `consent.isAccepted`）
+  - 感谢页新增提示：未同意云端采集时显示`已保存在本地。你也可以在设置中开启云端反馈，帮助我们改进推荐。`
+  - 移除不再使用的 `cloud_feedback_consent_dialog.dart` 和 `cloud_feedback_consent_service.dart` import
+- **版本号**：[app_version.dart](file:///d:/xinxian_healing_music/lib/config/app_version.dart) `buildLabel` → `P2-ui-3`
+
+**反馈页展示结构**：
+
+| 区域 | 默认状态 | 展开后 |
+|---|---|---|
+| 方案名 | 始终显示 | — |
+| 整体体验评分（5 星） | 始终显示 | — |
+| 想多说一点？ | 折叠（点击展开） | 箭头旋转 90° |
+| 状态评分前后 slider ×2 | 折叠 | 显示 |
+| 文字反馈文本框 | 折叠 | 显示 |
+| 文字反馈上传勾选框 | 折叠（仅已同意云端采集时） | 显示 |
+| rating==0 提示 | 评分未选时显示`请先选择一个评分` | — |
+| 提交按钮 | 始终显示（rating==0 时禁用） | — |
+
+**未同意云端采集时的提交行为**：
+
+| 步骤 | 行为 |
+|---|---|
+| 点击提交 | 不弹 CloudFeedbackConsentDialog |
+| 本地保存 | 正常保存（核心路径） |
+| 云端上传 | `_fireCloudUpload` 内部检查 `consent.isAccepted` 为 false，跳过上传 |
+| 感谢页 | 显示`已保存在本地。你也可以在设置中开启云端反馈，帮助我们改进推荐。` |
+| 设置入口 | 保持不变，用户可在设置中主动开启云端反馈采集 |
+
+**文案合规性**：未使用"治疗焦虑 / 治疗失眠 / 治愈"等医疗化表达，使用"感受 / 放松程度 / 情绪调节 / 音乐陪伴 / 睡前舒缓"等表达。
+
+**验证结果**：
+
+- `flutter analyze`：No issues found!
+- `flutter test`：全部通过（现有测试不涉及 FeedbackScreen UI 或 consent 弹窗，无回归）
+- `flutter build web --release`：√ Built `build\web`
+
+**当前状态（未改动）**：
+
+- D1 schema / `submit-feedback` API 字段 / pipeline 核心数据流 / 音频匹配逻辑（零改动）
+- `FeedbackRecord` 数据模型（未新增/删除字段）
+- `web/_headers` / `wrangler.toml` / `functions/api/*.js`
+- `CloudFeedbackConsentDialog` widget 本身未删除（设置页等其他入口仍可使用）
+- 未引入新依赖
+
+**后续可选项（本批未做，保留到下一批）**：
+
+- 🔶 完整离线 PWA / SW 更新提示 UI（沿用 P1 后续可选）
+- 🔶 移动端 App 准备（Android/iOS 打包与发布流程）
+- 🔶 用户系统（账号 / 跨设备同步）
+- 🔶 反馈数据可视化（Dashboard）
+- 🔶 首屏底部入口折叠
+
+#### P2-Web-v1.0 第三批 fix1：slider 语义统一为状态评分
+
+> **说明**：第三批上线后发现反馈页 slider 语义不直观——"紧绷度"slider 体验前拉到右边 = 很紧绷、体验后拉到左边 = 很放松，左右方向不统一。本次修复改为统一的"状态变化"语义：左边 = 状态不好，右边 = 状态好，体验前和体验后两条 slider 方向一致。
+
+**改动目的**：
+
+1. 让 slider 方向符合直觉（右边 = 好），降低用户理解成本
+2. 统一体验前后的 slider 方向，避免用户需要反向思考
+
+**涉及模块**：
+
+- **反馈页**：[feedback_screen.dart](file:///d:/xinxian_healing_music/lib/screens/feedback_screen.dart)
+  - 模块标题：`感受一下你的紧绷度变化` → `感受一下你的状态变化`
+  - 副标题：`拖动两条滑块，记录体验前后的状态` → `左边是不太好，右边是很好`
+  - slider 标签：保持 `体验前` / `体验后`
+  - 动态文案 `_tensionLabel` → `_stateLabel`：
+    - 0.0–0.25：`不太好`
+    - 0.25–0.5：`有点低落`
+    - 0.5–0.75：`还可以`
+    - 0.75–1.0：`挺好`
+    - 1.0：`很好`
+- **版本号**：[app_version.dart](file:///d:/xinxian_healing_music/lib/config/app_version.dart) `buildLabel` → `P2-ui-3-fix1`
+
+**字段兼容性**：
+
+| 项目 | 说明 |
+|---|---|
+| `FeedbackRecord.tensionBefore` | 字段名保持不变，值范围 0.0–1.0 不变 |
+| `FeedbackRecord.tensionAfter` | 字段名保持不变，值范围 0.0–1.0 不变 |
+| 默认值 | before/after 默认仍为 0.5 |
+| D1 schema | 未改动 |
+| `submit-feedback` API payload | 未改动（字段名和结构不变） |
+| 语义变化 | 旧：值越大 = 越紧绷；新：值越大 = 状态越好 |
+| `calmnessScore` 派生 | fix1 时未改动公式（`(1-tensionAfter)×100`），fix2 已修正为 `tensionAfter×100`（值越大 = 状态越好） |
+
+**验证结果**：
+
+- `flutter analyze`：No issues found!
+- `flutter test`：全部通过（无回归）
+- `flutter build web --release`：√ Built `build\web`
+
+#### P2-Web-v1.0 第三批 fix2：calmnessScore 派生公式同步状态评分语义
+
+> **说明**：fix1 将 slider UI 改为"值越大 = 状态越好"后，云端 payload 的 `calmnessScore` 派生公式仍为旧语义 `(1-tensionAfter)×100`，导致用户拉到"很好"时云端 `calmnessScore` 反而变低。本批修正该公式，使派生语义与 UI 一致。
+
+**改动目的**：
+
+1. 让 `calmnessScore` 随 `after` 增大而增大（状态好 → 平静度高）
+2. 统一 before/after/派生字段的语义方向
+
+**涉及模块**：
+
+- **云端 payload**：[cloud_feedback_payload.dart](file:///d:/xinxian_healing_music/lib/models/cloud_feedback_payload.dart)
+  - `calmnessScore` 公式：`(1-tensionAfter)×100` → `tensionAfter×100`（clamp 0..100）
+  - 文档注释同步更新
+- **SQL 查询脚本**：[feedback-queries.sql](file:///d:/xinxian_healing_music/scripts/feedback-queries.sql)
+  - 字段说明注释：`(1-tensionAfter)*100, 100 = 最平静` → `tensionAfter*100, 100 = 状态最好`
+- **测试**：[cloud_feedback_payload_test.dart](file:///d:/xinxian_healing_music/test/cloud_feedback_payload_test.dart)
+  - 更新基础映射测试预期值：`tensionAfter=0.3` → `calmnessScore=30`（原 70）
+  - 更新边界值测试：`tensionAfter=0` → `calmnessScore=0`，`tensionAfter=1` → `calmnessScore=100`（方向反转）
+  - 新增测试：`before=0.2, after=0.8` → `calmnessScore=80`，`improvement = after - before > 0`
+- **版本号**：[app_version.dart](file:///d:/xinxian_healing_music/lib/config/app_version.dart) `buildLabel` → `P2-ui-3-fix2`，`buildDate` → `2026-07-11`
+
+**新公式**：
+
+| 字段 | 旧公式 | 新公式 | 说明 |
+|---|---|---|---|
+| `calmnessScore` | `((1 - tensionAfter) × 100).round()` | `(tensionAfter × 100).round()` | 值越大 = 状态越好，clamp 0..100 |
+
+**improvement 语义**：
+
+当前 payload 中不存在 `improvement` / `delta` 字段（D1 schema 无此列，API 不接收此字段）。如需计算改善量，可在数据分析阶段用 `after - before` 导出（正值 = 体验后状态改善）。本批未新增该字段，保持 D1 schema 和 API payload 不变。
+
+**字段兼容性**：
+
+| 项目 | 说明 |
+|---|---|
+| `FeedbackRecord.tensionBefore` | 字段名不变，值范围 0.0–1.0 不变 |
+| `FeedbackRecord.tensionAfter` | 字段名不变，值范围 0.0–1.0 不变 |
+| D1 schema | 未改动（`calmnessScore INTEGER` 列不变） |
+| `submit-feedback` API payload | 未改动（字段名和结构不变，只是 `calmnessScore` 的值语义随公式修正而同步） |
+| 派生语义 | 底层字段名保持兼容，派生语义已同步为状态评分：值越大状态越好 |
+
+**验证结果**：
+
+- `flutter analyze`：No issues found!
+- `flutter test`：全部通过（含新增 calmnessScore 语义测试）
+- `flutter build web --release`：√ Built `build\web`
+
 ## 一、项目背景
 
 当下 18-30 岁青年群体普遍面临备考压力、职场焦虑、睡眠困扰、情绪低落、精神内耗等心理亚健康问题。传统心理咨询存在时间、经济和心理门槛，而通用歌单、白噪音 App、脑波音频产品大多采用固定内容推荐，难以匹配用户当下具体而细腻的情绪状态。
@@ -687,7 +858,7 @@ curl -I https://xinxian-music.xyz/api/health
   - fire-and-forget 上传：6 秒超时，所有异常内部 catch，上传失败不影响本地反馈保存和用户体验
   - 首页新增"云端采集"入口，可随时切换开关；反馈页首次提交时弹出同意弹窗
   - 历史记录页顶部提示条：云端采集已开启时显示采集范围说明
-  - 字段映射：`relaxationScore` ← rating（1-5），`calmnessScore` ← (1-tensionAfter)×100（0-100），`audioAssetId` 从 assetPath 提取文件名脱敏
+  - 字段映射：`relaxationScore` ← rating（1-5），`calmnessScore` ← tensionAfter×100（0-100，fix2 起值越大 = 状态越好），`audioAssetId` 从 assetPath 提取文件名脱敏
 - **M8：反馈数据分析与导出**（`scripts/feedback-queries.sql` + Cloudflare D1 Console）
   - 新增 `scripts/feedback-queries.sql`，包含 8 条常用 D1 查询：总反馈数 / targetState 分布 / audioAssetId 平均评分 / 最近 20 条反馈 / 每日反馈数量 / freeTextFeedback 非空数量 / 实验分组统计 / 文字反馈原文查看（隐私敏感）
   - 采用"Wrangler SQL + Cloudflare D1 Console"轻量方案，暂不做公开管理后台
@@ -849,7 +1020,7 @@ M7.0 之前，用户反馈仅保存在本地浏览器，无法用于跨设备聚
 
 **字段映射**（`CloudFeedbackPayload.fromFeedback`）：
 - `relaxationScore` ← `record.rating`（1-5）
-- `calmnessScore` ← `((1 - record.tensionAfter) × 100).round()`（0-100）
+- `calmnessScore` ← `(record.tensionAfter × 100).round()`（0-100，fix2 起值越大 = 状态越好）
 - `audioAssetId` ← 从 `plan.audio.assetPath` 提取文件名脱敏（如 `assets/music/sleep_01.mp3` → `sleep_01.mp3`）
 - `emotionTags` ← `plan.mood.tags`
 - `freeTextFeedback` ← `record.note`（仅在 `CloudTextConsentService.isAccepted` 时上传，否则 uploader 内部剥离）
@@ -891,7 +1062,7 @@ M7.0 之前，用户反馈仅保存在本地浏览器，无法用于跨设备聚
 
 - **AI 音乐生成模型尚未接入**：当前使用本地预置音频素材（`sleep_01.mp3` / `regulate_01.mp3` / `soothe_01.mp3` / `focus_01.mp3` / `energize_01.mp3` 共 5 类），由 `AudioAssetCatalog` 按 targetState 自动匹配，不同情绪对应不同音频；但仍为预置素材，**非实时 AI 生成音频**（M5 的 `generationPrompt` 仅生成文本提示词，为后续真实生成模型预留数据通道）
 - **DSP 后处理尚未接入**：AudioPostProcessorPort 当前为 Passthrough 直通，未实现白噪音 / 粉红噪音 / EQ / 淡入淡出等真实 DSP
-- **云端数据库已部分接入（M7.0）**：匿名结构化反馈数据（体验评分 / 紧张度 / 情绪参数等）可上传至 Cloudflare D1，但完整 ListeningSession（含心境原文）仍仅保存在本地，未上传至云端
+- **云端数据库已部分接入（M7.0）**：匿名结构化反馈数据（体验评分 / 状态评分 / 情绪参数等）可上传至 Cloudflare D1，但完整 ListeningSession（含心境原文）仍仅保存在本地，未上传至云端
 - **历史记录目前是浏览器本地存储**：基于 shared_preferences（Web 端为 localStorage），按 origin 隔离，清除浏览器数据后丢失
 - **情绪解析已有 LLM 真实接入（M4）**：DeepSeek API 返回完整 `MoodProfile`
 - **音乐参数映射已有 LLM 画像驱动（M5）**：`EmotionToMusicPlanMapper` 让 LLM 返回的 `tags` / `valence` / `arousal` / `intensity` / `targetState` / `dominantNeed` 真正参与 BPM、脑波、乐器、噪音层、和声、generationPrompt 生成（不再使用最近邻模板匹配）
@@ -914,6 +1085,9 @@ M7.0 之前，用户反馈仅保存在本地浏览器，无法用于跨设备聚
 | **P2-Web-v1.0**（第一批） | 体验优化第一批：首页 LLM 同意弹窗延迟到首次点击"生成方案"时触发；播放页 / 解析页去技术化文案；`app_version.dart` 同步到 `P2-Web-v1.0 / v0.9.0 / P2-ui-1`。反馈页降成本 / 方案页参数折叠 / 播放完成 CTA 等留到下一批 | ✅ 已完成 |
 | **P2-Web-v1.0**（第二批） | 体验优化第二批：方案页技术参数默认折叠到"查看音乐参数" + 新增"为什么推荐这段音乐"卡片（按 targetState 生成推荐理由）；播放页去掉 5 个技术参数 chip 改为音乐目标简短文案；`buildLabel` 同步到 `P2-ui-2`。反馈页降成本 / 播放完成 CTA / 移动端 App 准备等留到下一批 | ✅ 已完成 |
 | **P2-Web-v1.0**（第二批 fix1） | 推荐理由场景化：新增 `lib/utils/recommendation_reason.dart` 共享 helper，优先按用户输入 / summary / tags / dominantNeed 场景关键词生成文案，未命中 fallback 到 targetState 模板；方案页与播放页共用 helper；`buildLabel` 同步到 `P2-ui-2-fix1` | ✅ 已完成 |
+| **P2-Web-v1.0**（第三批） | 反馈页降成本 + 播放完成反馈 CTA：播放完成后显示"听完这段了吗？记录一下感受"+ "写反馈"温和 CTA；反馈页默认只显示评分 + 提交，状态评分 slider 和文字反馈折叠到"想多说一点？"；未同意云端采集时默认只保存本地不强制弹窗；`buildLabel` 同步到 `P2-ui-3` | ✅ 已完成 |
+| **P2-Web-v1.0**（第三批 fix1） | slider 语义统一为状态评分：模块标题"紧绷度变化"→"状态变化"，副标题改为"左边是不太好，右边是很好"，动态文案改为不太好/有点低落/还可以/挺好/很好；底层字段 `tensionBefore`/`tensionAfter` 保持兼容；`buildLabel` 同步到 `P2-ui-3-fix1` | ✅ 已完成 |
+| **P2-Web-v1.0**（第三批 fix2） | calmnessScore 派生公式同步状态评分语义：`(1-tensionAfter)×100` → `tensionAfter×100`（值越大 = 状态越好）；更新测试预期值 + 新增 before=0.2/after=0.8 语义验证；`buildLabel` 同步到 `P2-ui-3-fix2` | ✅ 已完成 |
 
 ## 九、项目价值
 
@@ -1090,7 +1264,7 @@ Web 与 Android 的构建链路相互独立：Android 的 Gradle 配置不参与
 
 M7.0 新增可选的云端匿名反馈采集能力，**默认关闭**，需用户主动同意后才会启用：
 
-- **不上传心境原文**：用户输入的 `moodText` 心境文本不会上传到云端，仅上传结构化参数（情绪标签 / valence / arousal / intensity / targetState / 体验评分 / 紧张度等）
+- **不上传心境原文**：用户输入的 `moodText` 心境文本不会上传到云端，仅上传结构化参数（情绪标签 / valence / arousal / intensity / targetState / 体验评分 / 状态评分等）
 - **文字反馈独立同意**：`freeTextFeedback`（用户手写的文字反馈）默认不上传，需用户在反馈页单独勾选"同时上传本次文字反馈"才上传，且勾选状态独立于云端采集总开关持久化
 - **两层同意机制**：`CloudFeedbackConsentService`（云端采集总开关）+ `CloudTextConsentService`（文字反馈独立开关，默认 declined），两者均可在首页"云端采集"入口随时切换
 - **fire-and-forget**：云端上传失败不影响本地反馈保存和用户体验，不重试、不报错

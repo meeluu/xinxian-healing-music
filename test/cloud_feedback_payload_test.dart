@@ -46,8 +46,9 @@ void main() {
       // 评分映射
       expect(payload.relaxationScore, 4);
 
-      // calmnessScore = (1 - tensionAfter) * 100 = (1 - 0.3) * 100 = 70
-      expect(payload.calmnessScore, 70);
+      // calmnessScore = tensionAfter * 100 = 0.3 * 100 = 30
+      // P2-Web-v1.0 第三批 fix2：值越大 = 状态越好（与 UI slider 方向一致）
+      expect(payload.calmnessScore, 30);
 
       // 文字反馈原样传递（剥离由 uploader 处理）
       expect(payload.freeTextFeedback, '听完很放松');
@@ -80,10 +81,10 @@ void main() {
       expect(payload.schemaVersion, 1);
     });
 
-    test('calmnessScore 边界值：tensionAfter=0 → 100，tensionAfter=1 → 0', () async {
+    test('calmnessScore 边界值：tensionAfter=0 → 0，tensionAfter=1 → 100', () async {
       final plan = await mockPipeline.run('test');
 
-      // tensionAfter = 0.0 → calmnessScore = 100
+      // tensionAfter = 0.0 → calmnessScore = 0（状态不好）
       final r1 = FeedbackRecord(
         sessionId: plan.sessionId,
         rating: 5,
@@ -96,9 +97,9 @@ void main() {
         plan: plan,
         clientVersion: 'v0.7.0',
       );
-      expect(p1.calmnessScore, 100);
+      expect(p1.calmnessScore, 0);
 
-      // tensionAfter = 1.0 → calmnessScore = 0
+      // tensionAfter = 1.0 → calmnessScore = 100（状态很好）
       final r2 = FeedbackRecord(
         sessionId: plan.sessionId,
         rating: 1,
@@ -111,7 +112,7 @@ void main() {
         plan: plan,
         clientVersion: 'v0.7.0',
       );
-      expect(p2.calmnessScore, 0);
+      expect(p2.calmnessScore, 100);
 
       // tensionAfter = 0.5 → calmnessScore = 50
       final r3 = FeedbackRecord(
@@ -128,6 +129,39 @@ void main() {
       );
       expect(p3.calmnessScore, 50);
     });
+
+    test(
+      'calmnessScore 状态评分语义：before=0.2 after=0.8 → calmnessScore=80',
+      () async {
+        // P2-Web-v1.0 第三批 fix2：验证值越大 = 状态越好
+        final plan = await mockPipeline.run('test');
+        final record = FeedbackRecord(
+          sessionId: plan.sessionId,
+          rating: 4,
+          tensionBefore: 0.2,
+          tensionAfter: 0.8,
+          note: '体验后状态明显改善',
+          completed: false,
+          createdAt: DateTime.now(),
+        );
+        final payload = CloudFeedbackPayload.fromFeedback(
+          record: record,
+          plan: plan,
+          clientVersion: 'v0.9.0',
+        );
+
+        // after=0.8 → calmnessScore = 80（状态好 → 平静度高）
+        expect(payload.calmnessScore, 80);
+
+        // before/after 字段名和值保持兼容（未改名）
+        expect(record.tensionBefore, 0.2);
+        expect(record.tensionAfter, 0.8);
+
+        // after - before = 0.6 > 0，表示体验后状态改善
+        final improvement = record.tensionAfter - record.tensionBefore;
+        expect(improvement, greaterThan(0));
+      },
+    );
 
     test('audioAssetId 脱敏：从 assetPath 提取文件名', () async {
       final plan = await mockPipeline.run('test');

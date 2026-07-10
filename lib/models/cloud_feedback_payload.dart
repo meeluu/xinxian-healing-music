@@ -66,7 +66,8 @@ class CloudFeedbackPayload {
   /// 情绪匹配度（M7.0 留空，M7.1 扩展 UI 后填充）。
   final int? emotionMatchScore;
 
-  /// 平静度评分（M7.0 从 1-tensionAfter 映射，0-100）。
+  /// 平静度评分（P2-Web-v1.0 第三批 fix2 起 从 tensionAfter 直接映射，0-100）。
+  /// 语义：值越大 = 状态越好（与 UI slider 方向一致）。
   final int? calmnessScore;
 
   /// 继续使用意愿（M7.0 留空，M7.1 扩展 UI 后填充）。
@@ -119,7 +120,7 @@ class CloudFeedbackPayload {
   ///
   /// 字段映射策略：
   /// - `relaxationScore` ← `record.rating`（1-5）
-  /// - `calmnessScore` ← `((1 - record.tensionAfter) * 100).round()`（0-100）
+  /// - `calmnessScore` ← `(record.tensionAfter * 100).round()`（0-100，值越大 = 状态越好）
   /// - `emotionMatchScore` / `willingToContinue` ← null（M7.0 不收集）
   /// - `audioAssetId` ← 从 `plan.audio.assetPath` 提取文件名（脱敏）
   /// - `freeTextFeedback` ← `record.note`（uploader 会根据独立同意决定是否剥离）
@@ -145,11 +146,15 @@ class CloudFeedbackPayload {
       audioAssetId: _sanitizeAudioAssetId(plan.audio.assetPath),
       audioAssetTitle: plan.audio.title.isEmpty ? null : plan.audio.title,
       bpm: plan.features.bpm,
-      brainwaveTarget: plan.features.brainwave.isEmpty ? null : plan.features.brainwave,
-      noiseLayer: plan.features.noiseLayer.isEmpty ? null : plan.features.noiseLayer,
+      brainwaveTarget: plan.features.brainwave.isEmpty
+          ? null
+          : plan.features.brainwave,
+      noiseLayer: plan.features.noiseLayer.isEmpty
+          ? null
+          : plan.features.noiseLayer,
       relaxationScore: record.rating,
       emotionMatchScore: null,
-      calmnessScore: ((1.0 - record.tensionAfter).clamp(0.0, 1.0) * 100).round(),
+      calmnessScore: (record.tensionAfter.clamp(0.0, 1.0) * 100).round(),
       willingToContinue: null,
       freeTextFeedback: record.note,
       clientVersion: clientVersion,
@@ -161,32 +166,32 @@ class CloudFeedbackPayload {
 
   /// 序列化为请求体 JSON（上传到 /api/submit-feedback）。
   Map<String, dynamic> toJson() => {
-        'sessionId': sessionId,
-        'listeningSessionId': listeningSessionId,
-        'createdAt': createdAt,
-        if (experimentVariant != null) 'experimentVariant': experimentVariant,
-        if (analyzerMode != null) 'analyzerMode': analyzerMode,
-        if (targetState != null) 'targetState': targetState,
-        'emotionTags': emotionTags,
-        if (valence != null) 'valence': valence,
-        if (arousal != null) 'arousal': arousal,
-        if (intensity != null) 'intensity': intensity,
-        if (musicTitle != null) 'musicTitle': musicTitle,
-        if (audioAssetId != null) 'audioAssetId': audioAssetId,
-        if (audioAssetTitle != null) 'audioAssetTitle': audioAssetTitle,
-        if (bpm != null) 'bpm': bpm,
-        if (brainwaveTarget != null) 'brainwaveTarget': brainwaveTarget,
-        if (noiseLayer != null) 'noiseLayer': noiseLayer,
-        if (relaxationScore != null) 'relaxationScore': relaxationScore,
-        if (emotionMatchScore != null) 'emotionMatchScore': emotionMatchScore,
-        if (calmnessScore != null) 'calmnessScore': calmnessScore,
-        if (willingToContinue != null) 'willingToContinue': willingToContinue,
-        if (freeTextFeedback != null) 'freeTextFeedback': freeTextFeedback,
-        if (clientVersion != null) 'clientVersion': clientVersion,
-        if (userAgent != null) 'userAgent': userAgent,
-        'source': source,
-        'schemaVersion': schemaVersion,
-      };
+    'sessionId': sessionId,
+    'listeningSessionId': listeningSessionId,
+    'createdAt': createdAt,
+    if (experimentVariant != null) 'experimentVariant': experimentVariant,
+    if (analyzerMode != null) 'analyzerMode': analyzerMode,
+    if (targetState != null) 'targetState': targetState,
+    'emotionTags': emotionTags,
+    if (valence != null) 'valence': valence,
+    if (arousal != null) 'arousal': arousal,
+    if (intensity != null) 'intensity': intensity,
+    if (musicTitle != null) 'musicTitle': musicTitle,
+    if (audioAssetId != null) 'audioAssetId': audioAssetId,
+    if (audioAssetTitle != null) 'audioAssetTitle': audioAssetTitle,
+    if (bpm != null) 'bpm': bpm,
+    if (brainwaveTarget != null) 'brainwaveTarget': brainwaveTarget,
+    if (noiseLayer != null) 'noiseLayer': noiseLayer,
+    if (relaxationScore != null) 'relaxationScore': relaxationScore,
+    if (emotionMatchScore != null) 'emotionMatchScore': emotionMatchScore,
+    if (calmnessScore != null) 'calmnessScore': calmnessScore,
+    if (willingToContinue != null) 'willingToContinue': willingToContinue,
+    if (freeTextFeedback != null) 'freeTextFeedback': freeTextFeedback,
+    if (clientVersion != null) 'clientVersion': clientVersion,
+    if (userAgent != null) 'userAgent': userAgent,
+    'source': source,
+    'schemaVersion': schemaVersion,
+  };
 
   /// 从 assetPath 提取脱敏文件名。
   ///
@@ -197,7 +202,9 @@ class CloudFeedbackPayload {
     if (assetPath.isEmpty) return null;
     final normalized = assetPath.replaceAll('\\', '/');
     final lastSlash = normalized.lastIndexOf('/');
-    final fileName = lastSlash >= 0 ? normalized.substring(lastSlash + 1) : normalized;
+    final fileName = lastSlash >= 0
+        ? normalized.substring(lastSlash + 1)
+        : normalized;
     return fileName.isEmpty ? null : fileName;
   }
 }

@@ -30,6 +30,9 @@ class _PlayerScreenState extends State<PlayerScreen>
   StreamSubscription<PlayerState>? _stateSub;
   bool _loading = true;
   bool _error = false;
+  // P2-Web-v1.0 第三批：播放完成后展示反馈 CTA，引导用户记录感受。
+  // 重播（seek(0) + play）时重置为 false。
+  bool _completed = false;
 
   @override
   void initState() {
@@ -40,11 +43,16 @@ class _PlayerScreenState extends State<PlayerScreen>
       duration: const Duration(milliseconds: 2600),
     );
     // 播放状态驱动可视化：播放时起伏，暂停/完成时停止
+    // P2-Web-v1.0 第三批：同时跟踪 completed 状态以联动反馈 CTA。
     _stateSub = _player.playerStateStream.listen((state) {
       if (state.playing) {
         if (!_visualizer.isAnimating) _visualizer.repeat(reverse: true);
       } else {
         if (_visualizer.isAnimating) _visualizer.stop();
+      }
+      final completed = state.processingState == ProcessingState.completed;
+      if (completed != _completed) {
+        setState(() => _completed = completed);
       }
     });
     // 延迟到首帧绘制后再加载音频：
@@ -92,6 +100,8 @@ class _PlayerScreenState extends State<PlayerScreen>
       if (state.processingState == ProcessingState.completed) {
         await _player.seek(Duration.zero);
         await _player.play();
+        // 重播时收回 CTA，回到播放中状态
+        if (_completed) setState(() => _completed = false);
       } else if (state.playing) {
         await _player.pause();
       } else {
@@ -208,6 +218,45 @@ class _PlayerScreenState extends State<PlayerScreen>
                   label: const Text('重试加载'),
                   style: OutlinedButton.styleFrom(
                     minimumSize: const Size(160, 40),
+                    foregroundColor: AppColors.primaryDeep,
+                    side: BorderSide(
+                      color: AppColors.primary.withValues(alpha: 0.4),
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                ),
+              ],
+            )
+          else if (_completed)
+            // P2-Web-v1.0 第三批：播放完成后的温和反馈 CTA。
+            // 不打断现有 replay 按钮，只在原"点击中央按钮开始播放"位置
+            // 自然引导用户记录感受。移动端按钮高度固定避免挤压播放控制区。
+            Column(
+              children: [
+                const Text(
+                  '听完这段了吗？记录一下感受',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                OutlinedButton.icon(
+                  onPressed: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => FeedbackScreen(plan: plan),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.edit_note_rounded, size: 18),
+                  label: const Text('写反馈'),
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size(140, 40),
                     foregroundColor: AppColors.primaryDeep,
                     side: BorderSide(
                       color: AppColors.primary.withValues(alpha: 0.4),
