@@ -1,0 +1,48 @@
+# ─── Cloudflare Pages 缓存头策略（P1-Web-v1.0 最小实施）───
+#
+# 设计原则：
+# - index.html / Flutter 核心脚本：no-cache，确保总能拿到最新版本
+# - flutter_service_worker.js：no-cache，避免 SW 死锁
+# - mp3 音频：中长缓存（1 天）+ must-revalidate
+# - CanvasKit：长缓存（7 天），跟随 Flutter 版本
+# - API：绝不缓存
+#
+# 修正记录（第一次线上验证后）：
+# - /assets/music/*.mp3 → /assets/music/*（避免扩展名通配不匹配）
+# - 移除 /assets/* 通用规则（避免覆盖音频规则）
+# - 非 music 的 assets（字体/shaders）使用 Cloudflare 默认缓存
+#
+# 未启用离线 PWA，未手写 service worker，保留 Flutter 默认 SW 机制。
+
+# ─── 根路径 + index.html：绝不强缓存 ───
+/
+  Cache-Control: no-cache, must-revalidate
+/index.html
+  Cache-Control: no-cache, must-revalidate
+
+# ─── Flutter 核心脚本：no-cache，跟随 SW 内部 hash 校验 ───
+/main.dart.js
+  Cache-Control: no-cache, must-revalidate
+/flutter_bootstrap.js
+  Cache-Control: no-cache, must-revalidate
+/flutter.js
+  Cache-Control: no-cache, must-revalidate
+/flutter_service_worker.js
+  Cache-Control: no-cache, must-revalidate
+
+# ─── manifest.json：短缓存（1 小时） ───
+/manifest.json
+  Cache-Control: max-age=3600, public
+
+# ─── CanvasKit 渲染引擎：长缓存（7 天） ───
+/canvaskit/*
+  Cache-Control: max-age=604800, public
+
+# ─── 音频文件：中长缓存（1 天）+ must-revalidate ───
+# 使用 /assets/music/* 而非 /assets/music/*.mp3，确保通配匹配可靠
+/assets/music/*
+  Cache-Control: public, max-age=86400, must-revalidate
+
+# ─── API 路径：绝不缓存 ───
+/api/*
+  Cache-Control: no-store

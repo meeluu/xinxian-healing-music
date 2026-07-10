@@ -216,6 +216,89 @@ curl https://xinxian-music.xyz/api/health
 
 **前端兼容性**：心弦前端已有 LLM 失败 fallback 到 mock 分析的逻辑，被限流时用户仍可正常使用（降级为本地解析模式）。
 
+### P1-Web-v1.0 PWA / 缓存策略最小实施
+
+> **说明**：本节记录 PWA / 缓存策略的最小实施方案。**只新增 `web/_headers` 缓存头策略，没有启用离线 PWA，没有手写 service worker**。保留 Flutter 默认 SW 机制，通过 Cloudflare Pages `_headers` 控制各路径缓存行为。
+
+**实施背景**：之前出现过浏览器缓存 / Service Worker 导致线上页面不是最新的问题。根因是 `_headers` 缺失导致缓存策略不可控。本次通过显式 Cache-Control 头解决，不引入离线逻辑。
+
+**新增文件**：[web/_headers](file:///d:/xinxian_healing_music/web/_headers)
+
+**各路径 Cache-Control 策略**：
+
+| 路径 | Cache-Control | 理由 |
+|---|---|---|
+| `/` 和 `/index.html` | `no-cache, must-revalidate` | 必须总能拿到最新 `main.dart.js` 引用 |
+| `/main.dart.js` | `no-cache, must-revalidate` | 代码核心，跟随 SW 内部 hash 校验 |
+| `/flutter_bootstrap.js` | `no-cache, must-revalidate` | 引导脚本，变更频繁 |
+| `/flutter.js` | `no-cache, must-revalidate` | Flutter 核心脚本 |
+| `/flutter_service_worker.js` | `no-cache, must-revalidate` | SW 自身必须能更新，避免死锁 |
+| `/manifest.json` | `max-age=3600, public` | 短缓存（1 小时） |
+| `/assets/music/*` | `public, max-age=86400, must-revalidate` | 中长缓存（1 天）+ revalidate，体积大少变更 |
+| `/canvaskit/*` | `max-age=604800, public` | 长缓存（7 天），跟随 Flutter 版本 |
+| 其他 assets（字体/shaders） | Cloudflare 默认缓存 | 移除 `/assets/*` 通用规则，避免覆盖音频规则 |
+| `/api/*` | `no-store` | API 绝不缓存 |
+
+**明确未做的事项**：
+
+- **没有启用离线 PWA**：心弦核心功能依赖 `/api/analyze-mood`（LLM 调用），无网络时只能 fallback 到 mock 分析，离线 PWA 价值有限
+- **没有手写 service worker**：保留 Flutter 默认 `flutter_service_worker.js`，未替换或增强
+- **没有修改 Flutter 页面**：前端逻辑未改
+- **没有修改 API**：API 协议未改
+- **没有修改 D1 schema**
+
+**build 验证**：
+
+- `flutter build web --release` 后 `build/web/_headers` 存在（Flutter build 自动复制 `web/_headers` 到 `build/web/`）
+- 部署到 Cloudflare Pages 后，`_headers` 会自动生效
+
+**部署后验证方式**：
+
+```powershell
+# 检查各路径响应头
+curl -I https://xinxian-music.xyz/index.html
+# 预期：cache-control: no-cache, must-revalidate
+
+curl -I https://xinxian-music.xyz/flutter_service_worker.js
+# 预期：cache-control: no-cache, must-revalidate
+
+curl -I https://xinxian-music.xyz/assets/music/sleep_01.mp3
+# 预期：cache-control: max-age=86400, public, must-revalidate
+
+curl -I https://xinxian-music.xyz/api/health
+# 预期：cache-control: no-store
+```
+
+**第一次线上验证结果**（部分规则未达预期）：
+
+| 路径 | 预期 | 实际 | 状态 |
+|---|---|---|---|
+| `/api/health` | `no-store` | `no-store` | ✅ 生效 |
+| `/index.html` | `no-cache, must-revalidate` | 基本正常 | ✅ 生效 |
+| `/flutter_service_worker.js` | `no-cache, must-revalidate` | `max-age=14400, must-revalidate` | ❌ 未生效 |
+| `/assets/music/sleep_01.mp3` | `max-age=86400, must-revalidate` | `max-age=14400, must-revalidate` | ❌ 未生效 |
+
+**修正原因**：
+
+1. `/assets/music/*.mp3` 使用扩展名通配 `*.mp3`，Cloudflare Pages 可能不支持"目录 + 扩展名通配"组合 → 改为 `/assets/music/*`
+2. `/assets/*` 通用规则在 `/assets/music/*` 之后，可能覆盖音频规则 → 移除 `/assets/*` 通用规则，非 music 的 assets 使用 Cloudflare 默认缓存
+3. `/flutter_service_worker.js` 保持单独配置不变，待二次验证确认是否为 Cloudflare Pages 对 `.js` 文件的默认缓存策略覆盖
+
+**修正后策略**（待二次线上验证）：
+
+- `/assets/music/*`：`public, max-age=86400, must-revalidate`
+- 移除 `/assets/*` 通用规则
+- 其他规则保持不变
+
+> **状态：待二次线上验证**。本次修正尚未部署验证，不标记为已完成。部署后需重新 `curl -I` 检查 `/flutter_service_worker.js` 和 `/assets/music/sleep_01.mp3` 的响应头。
+
+**验证结果**（本地 build）：
+
+- `flutter analyze`：No issues found! (ran in 43.1s)
+- `flutter test`：196 passed + 5 skipped（无回归）
+- `flutter build web --release`：√ Built `build\web` (32.4s)
+- `build/web/_headers` 存在
+
 ## 一、项目背景
 
 当下 18-30 岁青年群体普遍面临备考压力、职场焦虑、睡眠困扰、情绪低落、精神内耗等心理亚健康问题。传统心理咨询存在时间、经济和心理门槛，而通用歌单、白噪音 App、脑波音频产品大多采用固定内容推荐，难以匹配用户当下具体而细腻的情绪状态。
@@ -527,7 +610,7 @@ M7.0 之前，用户反馈仅保存在本地浏览器，无法用于跨设备聚
 | **M8.2**（下一阶段） | 消融对比实验音频旁路：在 `StockAudioGenerator` 按 `experimentVariant` 分流，generic 固定 `soothe_01.mp3`、control 固定 `sleep_01.mp3`，真正改变推荐结果；可选补 `completionRatio` D1 字段 | 🔜 下一阶段 |
 | **M9**             | AI 音乐生成模型接入：将 `AudioGenerationPort` 从本地预置音频替换为真实 AI 音乐生成模型（如 MusicGen / Suno API），按 `generationPrompt` 实时生成个性化音频                                              | ⏳ 计划中   |
 | **P1-Web-v1.0**（部分完成） | Cloudflare Dashboard 限流规则：`/api/analyze-mood` 已配置（Block，10 次/分钟，Active）；`/api/submit-feedback` 未配置（Free 计划规则上限 1/1，后续可选）。详见下方专门章节 | 🔶 部分完成 |
-| **P1-Web-v1.0**（待办） | PWA 缓存策略：补齐 Service Worker 缓存策略，提升二次访问加载速度                                                                                                                                     | ⏳ 待办     |
+| **P1-Web-v1.0**（待二次验证） | PWA / 缓存策略：`web/_headers` 缓存头策略已实施并修正（第一次线上验证部分规则未生效，已调整通配语法，待二次线上验证）；完整离线 PWA / SW 更新提示为后续可选 | 🔶 待二次验证 |
 
 ## 九、项目价值
 
