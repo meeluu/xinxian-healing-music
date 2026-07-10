@@ -46,15 +46,16 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
     super.dispose();
   }
 
-  /// P2-Web-v1.0 第三批 fix1：slider 语义统一为"状态评分"。
-  /// 左边 = 状态不好，右边 = 状态好。底层字段 before/after 保持不变。
+  /// P2-Web-v1.0 第三批 slider 语义统一为"状态评分"。
+  /// 左边 = 状态较差，右边 = 状态很好。底层字段 before/after 保持不变。
+  /// fix3：文案从口语化改为更中性的表述。
   String _stateLabel(double v) {
-    if (v <= 0.0) return '不太好';
-    if (v < 0.25) return '不太好';
-    if (v < 0.5) return '有点低落';
-    if (v < 0.75) return '还可以';
-    if (v < 1.0) return '挺好';
-    return '很好';
+    if (v <= 0.0) return '状态较差';
+    if (v < 0.25) return '状态较差';
+    if (v < 0.5) return '状态偏低';
+    if (v < 0.75) return '状态平稳';
+    if (v < 1.0) return '状态较好';
+    return '状态很好';
   }
 
   @override
@@ -173,7 +174,7 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
                 ),
                 const SizedBox(height: 4),
                 const Text(
-                  '左边是不太好，右边是很好',
+                  '左侧表示状态较差，右侧表示状态较好',
                   style: TextStyle(
                     fontSize: 12,
                     color: AppColors.textSecondary,

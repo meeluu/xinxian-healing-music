@@ -770,6 +770,44 @@ curl -I https://xinxian-music.xyz/api/health
 - `flutter test`：全部通过（含新增 calmnessScore 语义测试）
 - `flutter build web --release`：√ Built `build\web`
 
+#### P2-Web-v1.0 第三批 fix3：状态评分文案中性化
+
+> **说明**：fix1 的 slider 动态文案"不太好 / 有点低落 / 还可以 / 挺好 / 很好"略口语化，本批改为更中性的表述。**仅改用户可见文案，不改数据结构、不改云端 payload、不改 D1 schema、不改 submit-feedback API。**
+
+**改动目的**：
+
+1. 让文案更中性、更专业，适合不同场景的用户
+2. 保持 slider 语义不变（左 = 状态较差，右 = 状态很好）
+
+**涉及模块**：
+
+- **反馈页**：[feedback_screen.dart](file:///d:/xinxian_healing_music/lib/screens/feedback_screen.dart)
+  - slider 动态文案 `_stateLabel` 调整：
+    | 分档 | 旧文案（fix1） | 新文案（fix3） |
+    |---|---|---|
+    | 0.0–0.25 | 不太好 | 状态较差 |
+    | 0.25–0.50 | 有点低落 | 状态偏低 |
+    | 0.50–0.75 | 还可以 | 状态平稳 |
+    | 0.75–1.00 | 挺好 | 状态较好 |
+    | 1.0 | 很好 | 状态很好 |
+  - 副标题：`左边是不太好，右边是很好` → `左侧表示状态较差，右侧表示状态较好`
+- **版本号**：[app_version.dart](file:///d:/xinxian_healing_music/lib/config/app_version.dart) `buildLabel` → `P2-ui-3-fix3`
+
+**数据语义保持不变**：
+
+| 项目 | 说明 |
+|---|---|
+| `before` / `after` 字段 | 名称、值范围（0.0–1.0）、默认值（0.5）不变 |
+| `calmnessScore` 公式 | `tensionAfter × 100`（fix2 已修正，本批不变） |
+| D1 schema | 未改动 |
+| `submit-feedback` API payload | 未改动 |
+
+**验证结果**：
+
+- `flutter analyze`：No issues found!
+- `flutter test`：全部通过（无回归）
+- `flutter build web --release`：√ Built `build\web`
+
 ## 一、项目背景
 
 当下 18-30 岁青年群体普遍面临备考压力、职场焦虑、睡眠困扰、情绪低落、精神内耗等心理亚健康问题。传统心理咨询存在时间、经济和心理门槛，而通用歌单、白噪音 App、脑波音频产品大多采用固定内容推荐，难以匹配用户当下具体而细腻的情绪状态。
@@ -1088,6 +1126,7 @@ M7.0 之前，用户反馈仅保存在本地浏览器，无法用于跨设备聚
 | **P2-Web-v1.0**（第三批） | 反馈页降成本 + 播放完成反馈 CTA：播放完成后显示"听完这段了吗？记录一下感受"+ "写反馈"温和 CTA；反馈页默认只显示评分 + 提交，状态评分 slider 和文字反馈折叠到"想多说一点？"；未同意云端采集时默认只保存本地不强制弹窗；`buildLabel` 同步到 `P2-ui-3` | ✅ 已完成 |
 | **P2-Web-v1.0**（第三批 fix1） | slider 语义统一为状态评分：模块标题"紧绷度变化"→"状态变化"，副标题改为"左边是不太好，右边是很好"，动态文案改为不太好/有点低落/还可以/挺好/很好；底层字段 `tensionBefore`/`tensionAfter` 保持兼容；`buildLabel` 同步到 `P2-ui-3-fix1` | ✅ 已完成 |
 | **P2-Web-v1.0**（第三批 fix2） | calmnessScore 派生公式同步状态评分语义：`(1-tensionAfter)×100` → `tensionAfter×100`（值越大 = 状态越好）；更新测试预期值 + 新增 before=0.2/after=0.8 语义验证；`buildLabel` 同步到 `P2-ui-3-fix2` | ✅ 已完成 |
+| **P2-Web-v1.0**（第三批 fix3） | 状态评分文案中性化：slider 动态文案从"不太好/有点低落/还可以/挺好/很好"改为"状态较差/状态偏低/状态平稳/状态较好/状态很好"，副标题改为"左侧表示状态较差，右侧表示状态较好"；数据语义和 calmnessScore 公式不变；`buildLabel` 同步到 `P2-ui-3-fix3` | ✅ 已完成 |
 
 ## 九、项目价值
 
