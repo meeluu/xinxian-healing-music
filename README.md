@@ -808,6 +808,107 @@ curl -I https://xinxian-music.xyz/api/health
 - `flutter test`：全部通过（无回归）
 - `flutter build web --release`：√ Built `build\web`
 
+#### P2-Web-v1.0 第四批：首页入口整理 + 设置入口收纳
+
+> **说明**：让首页更清爽、更像正式产品。首屏重点保留"输入心境 → 生成音乐方案"主路径，把低频入口收进统一设置弹窗。**不改 API、D1 schema、pipeline、音频匹配逻辑。**
+
+**改动目的**：
+
+1. 首页底部从 4 个入口（历史记录 / 解析设置 / 云端采集 / 隐私政策）精简为 2 个（查看历史记录 / 设置）+ 版本号文本
+2. 设置弹窗统一收纳：AI 解析设置 / 云端反馈采集 / 隐私政策 / 关于心弦
+3. 复用原有逻辑，不新增隐私/AI/云端反馈代码路径
+
+**涉及模块**：
+
+- **首页**：[home_screen.dart](file:///d:/xinxian_healing_music/lib/screens/home_screen.dart)
+  - 底部 Wrap 从 4 个 TextButton 精简为 2 个：`查看历史记录` + `设置`
+  - 新增 `_showSettingsDialog()` 方法：使用 `ResponsiveDialogContainer` 弹出设置弹窗
+  - 新增 `_SettingsTile` widget：图标 + 标题 + 副标题 + 右侧箭头，点击触发回调
+  - 移除已废弃的 `_showAboutDialog` 死代码（`_AboutDialog` 保留，从设置弹窗触发）
+- **版本号**：[app_version.dart](file:///d:/xinxian_healing_music/lib/config/app_version.dart) `buildLabel` → `P2-ui-4`
+
+**设置弹窗收纳内容**：
+
+| 列表项 | 图标 | 副标题 | 点击行为 |
+|---|---|---|---|
+| AI 解析设置 | `tune_rounded` | `解析设置 · AI` / `解析设置 · 本地` | 复用 `_showConsentDialog(firstTime: false)` |
+| 云端反馈采集 | `cloud_outlined` | `云端采集 · 已开启` / `云端采集 · 已关闭` | 复用 `_showCloudFeedbackConsentDialog()` |
+| 隐私政策 | `privacy_tip_outlined` | — | 复用 `PrivacyScreen` 路由跳转 |
+| 关于心弦 | `info_outline_rounded` | `v0.9.0` | 复用 `_AboutDialog` 弹窗 |
+
+**复用说明**：
+
+- 不删除现有隐私政策页面（`PrivacyScreen`）
+- 不删除现有 AI 解析偏好逻辑（`LlmConsentDialog` + `LlmConsentService`）
+- 不删除现有云端反馈采集设置逻辑（`CloudFeedbackConsentDialog` + `CloudFeedbackConsentService`）
+- 只是改变入口组织方式，原有功能完全保留
+
+**移动端适配**：
+
+- 设置弹窗使用 `ResponsiveDialogContainer`，移动端宽度 = `screenWidth - 32`，桌面端 `maxWidth 520`
+- 最大高度 = `screenHeight × 0.85`，内容区可滚动
+- 底部"关闭"按钮固定不滚动
+
+**验证结果**：
+
+- `flutter analyze`：No issues found!
+- `flutter test`：197 passed + 5 skipped（全部通过，无回归）
+- `flutter build web --release`：√ Built `build\web`
+
+**后续可选项**（未实现）：
+
+- 完整离线 PWA / SW 更新提示 UI
+- 移动端 App 准备
+- 用户系统
+- 反馈数据可视化
+- AI 音乐生成（P4）
+
+#### P2-Web-v1.0 第四批 fix1：设置弹窗只显示遮罩不显示内容
+
+> **说明**：第四批上线后发现回归 bug——点击首页"设置"后只出现黑色遮罩，设置弹窗内容不可见，页面无法继续操作。本 fix 只修设置弹窗显示问题，不改 API / D1 schema / pipeline / 音频匹配逻辑。
+
+**根因**：
+
+`_showSettingsDialog` 的 footer 使用 `DialogButtonBar(children: [FilledButton(...)])`，只有一个子按钮时 `DialogButtonBar` 走单 child 分支返回 `Row(MainAxisAlignment.end, children: children)`。`Row` 主轴方向不约束子 widget 宽度（约束为 `0<=w<=Infinity`），`FilledButton` 的 `minimumSize: Size.fromHeight(44)` 触发 Flutter `ButtonStyleButton` 内部 `_InputPadding` 计算出 `BoxConstraints(w=Infinity, 44.0<=h<=Infinity)`，命中 `BoxConstraints forces an infinite width` 断言，弹窗布局中断，只剩 `showDialog` 的 barrier。
+
+> 对比：`LlmConsentDialog` / `CloudFeedbackConsentDialog` 的 footer 有两个按钮，走 `DialogButtonBar` 的 `Expanded(child: children[i])` 分支，`Expanded` 给按钮明确的主轴约束，不会触发此异常。
+
+**涉及模块**：
+
+- [home_screen.dart](file:///d:/xinxian_healing_music/lib/screens/home_screen.dart)
+  - `_showSettingsDialog`：footer 从 `DialogButtonBar(children:[FilledButton])` 改为 `Align(alignment: centerRight, child: FilledButton)`，由 `Align` 提供有限宽度约束
+  - `_AboutDialog`：footer 同样改为 `Align`（存在相同 bug，一并修复）
+  - 4 个 `_SettingsTile` 的 `onTap`：`Navigator.pop()` 后改为 `Future.microtask(() => ...)` 打开目标弹窗/页面，避免在 dialog builder 调用栈内叠加新 dialog 触发布局异常
+- [app_version.dart](file:///d:/xinxian_healing_music/lib/config/app_version.dart) `buildLabel` → `P2-ui-4-fix1`
+
+**子入口点击避免 dialog 叠加**：
+
+| 列表项 | 点击行为 |
+|---|---|
+| AI 解析设置 | `Navigator.pop()` → `Future.microtask(() => _showConsentDialog(firstTime: false))` |
+| 云端反馈采集 | `Navigator.pop()` → `Future.microtask(_showCloudFeedbackConsentDialog)` |
+| 隐私政策 | `Navigator.pop()` → `Future.microtask(() => Navigator.push(PrivacyScreen))` |
+| 关于心弦 | `Navigator.pop()` → `Future.microtask(() => showDialog(_AboutDialog))` |
+
+`Future.microtask` 确保设置弹窗的关闭动画/状态清理完成后再打开目标弹窗，避免两个 dialog 同时存在于 overlay 中触发约束冲突。
+
+**验证结果**：
+
+- `flutter analyze`：No issues found!
+- `flutter test`：197 passed + 5 skipped（全部通过，无回归）
+- `flutter build web --release`：√ Built `build\web`
+
+**手动验收清单**（待线上验证）：
+
+1. 点击首页"设置"，弹窗内容可见
+2. 桌面宽度下弹窗尺寸正常
+3. 手机宽度下弹窗不溢出
+4. 点击 AI 解析设置可正常打开
+5. 点击云端反馈采集可正常打开
+6. 点击隐私政策可正常进入
+7. 点击关于心弦可正常显示版本信息
+8. 关闭弹窗后首页可继续操作
+
 ## 一、项目背景
 
 当下 18-30 岁青年群体普遍面临备考压力、职场焦虑、睡眠困扰、情绪低落、精神内耗等心理亚健康问题。传统心理咨询存在时间、经济和心理门槛，而通用歌单、白噪音 App、脑波音频产品大多采用固定内容推荐，难以匹配用户当下具体而细腻的情绪状态。
@@ -1127,6 +1228,8 @@ M7.0 之前，用户反馈仅保存在本地浏览器，无法用于跨设备聚
 | **P2-Web-v1.0**（第三批 fix1） | slider 语义统一为状态评分：模块标题"紧绷度变化"→"状态变化"，副标题改为"左边是不太好，右边是很好"，动态文案改为不太好/有点低落/还可以/挺好/很好；底层字段 `tensionBefore`/`tensionAfter` 保持兼容；`buildLabel` 同步到 `P2-ui-3-fix1` | ✅ 已完成 |
 | **P2-Web-v1.0**（第三批 fix2） | calmnessScore 派生公式同步状态评分语义：`(1-tensionAfter)×100` → `tensionAfter×100`（值越大 = 状态越好）；更新测试预期值 + 新增 before=0.2/after=0.8 语义验证；`buildLabel` 同步到 `P2-ui-3-fix2` | ✅ 已完成 |
 | **P2-Web-v1.0**（第三批 fix3） | 状态评分文案中性化：slider 动态文案从"不太好/有点低落/还可以/挺好/很好"改为"状态较差/状态偏低/状态平稳/状态较好/状态很好"，副标题改为"左侧表示状态较差，右侧表示状态较好"；数据语义和 calmnessScore 公式不变；`buildLabel` 同步到 `P2-ui-3-fix3` | ✅ 已完成 |
+| **P2-Web-v1.0**（第四批） | 首页入口整理 + 设置入口收纳：底部从 4 个入口精简为"查看历史记录 + 设置"+ 版本号；新增统一设置弹窗（`ResponsiveDialogContainer` + `_SettingsTile`），收纳 AI 解析设置 / 云端反馈采集 / 隐私政策 / 关于心弦；复用原有逻辑，不删除任何现有功能；`buildLabel` 同步到 `P2-ui-4` | ✅ 已完成 |
+| **P2-Web-v1.0**（第四批 fix1） | 修复设置弹窗只显示遮罩不显示内容：单 child `DialogButtonBar` + `FilledButton(minimumSize: Size.fromHeight(44))` 触发 `BoxConstraints forces an infinite width` 异常；footer 改为 `Align(centerRight, child: FilledButton)`；子入口点击改为 `Future.microtask` 避免 dialog 叠加；`buildLabel` 同步到 `P2-ui-4-fix1` | ✅ 已完成 |
 
 ## 九、项目价值
 

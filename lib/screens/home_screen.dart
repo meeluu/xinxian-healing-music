@@ -278,8 +278,9 @@ class _HomeScreenState extends State<HomeScreen> {
             style: const TextStyle(fontSize: 11, color: AppColors.textMuted),
           ),
           const SizedBox(height: 8),
-          // 历史记录 + 解析设置 + 云端采集 并排入口
-          // M7：新增"云端采集"入口，允许用户随时切换云端匿名反馈采集开关。
+          // P2-Web-v1.0 第四批：首页底部只保留"查看历史记录"和"设置"两个入口。
+          // 解析设置 / 云端采集 / 隐私政策 / 关于心弦 统一收纳进设置弹窗，
+          // 让首屏聚焦"输入心境 → 生成音乐方案"主路径。
           Wrap(
             alignment: WrapAlignment.center,
             spacing: 8,
@@ -313,62 +314,14 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
               TextButton.icon(
-                onPressed: () => _showConsentDialog(firstTime: false),
+                onPressed: _showSettingsDialog,
                 icon: const Icon(
-                  Icons.tune_rounded,
-                  size: 16,
-                  color: AppColors.textSecondary,
-                ),
-                label: Text(
-                  _settingsLabel,
-                  style: const TextStyle(
-                    fontSize: 13,
-                    color: AppColors.textSecondary,
-                  ),
-                ),
-                style: TextButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 6,
-                  ),
-                  minimumSize: const Size(0, 36),
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                ),
-              ),
-              TextButton.icon(
-                onPressed: _showCloudFeedbackConsentDialog,
-                icon: const Icon(
-                  Icons.cloud_outlined,
-                  size: 16,
-                  color: AppColors.textSecondary,
-                ),
-                label: Text(
-                  _cloudFeedbackLabel,
-                  style: const TextStyle(
-                    fontSize: 13,
-                    color: AppColors.textSecondary,
-                  ),
-                ),
-                style: TextButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 6,
-                  ),
-                  minimumSize: const Size(0, 36),
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                ),
-              ),
-              TextButton.icon(
-                onPressed: () => Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => const PrivacyScreen()),
-                ),
-                icon: const Icon(
-                  Icons.privacy_tip_outlined,
+                  Icons.settings_outlined,
                   size: 16,
                   color: AppColors.textSecondary,
                 ),
                 label: const Text(
-                  '隐私政策',
+                  '设置',
                   style: TextStyle(
                     fontSize: 13,
                     color: AppColors.textSecondary,
@@ -387,10 +340,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           const SizedBox(height: 12),
           // 版本号小字：纯 Text，不可点击。
-          // M6.1 修复：移除 TextButton 包裹，避免 Material hover 状态参与
-          // mouse tracking。TextButton 的 Material hover 在 Flutter Web debug
-          // 下可能与 mouse_tracker 交互触发断言。改为纯 Text 不参与 hit test，
-          // 彻底规避。About 弹窗入口暂停，后续可在 AppBar info 图标恢复。
+          // P2-Web-v1.0 第四批：版本号入口移至"设置 → 关于心弦"。
           Text(
             AppVersion.shortLine,
             textAlign: TextAlign.center,
@@ -406,19 +356,100 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  /// "关于"对话框：展示完整版本信息 + 运行时状态。
+  /// P2-Web-v1.0 第四批：统一设置弹窗。
+  /// 收纳 AI 解析设置 / 云端反馈采集 / 隐私政策 / 关于心弦 四个入口，
+  /// 复用原有逻辑，不新增隐私/AI/云端反馈代码路径。
   ///
-  /// 运行时状态从全局 [sharedPrefsReady] / [webLocalStorageFallback] /
-  /// [moodAnalyzerGateway] / [llmConsentService] 读取，反映 bootstrap 装配结果，
-  /// 方便线上排查"为什么历史记录丢了 / 为什么没有 AI 解析"等问题。
-  /// "关于"对话框入口（M6.1 暂停：版本号改为纯 Text 后不再触发）。
-  /// 保留代码以便后续在 AppBar info 图标恢复入口。
-  // ignore: unused_element
-  void _showAboutDialog() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      showDialog<void>(context: context, builder: (_) => const _AboutDialog());
-    });
+  /// P2-Web-v1.0 第四批 fix1 修复：
+  /// - footer 不再用 `DialogButtonBar(children:[FilledButton])`（单 child 时
+  ///   `Row` 主轴无限宽，`FilledButton` 的 `minimumSize: Size.fromHeight(44)`
+  ///   触发 `BoxConstraints forces an infinite width` 异常，导致弹窗内容不可见），
+  ///   改为 `Align(alignment: centerRight, child: FilledButton)`，由 `Align` 提供有限约束。
+  /// - 子入口点击改为 `Navigator.pop()` 后用 `Future.microtask` 打开目标弹窗/页面，
+  ///   避免在 dialog builder 调用栈内叠加新 dialog 触发布局异常。
+  Future<void> _showSettingsDialog() async {
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => ResponsiveDialogContainer(
+        title: const Row(
+          children: [
+            Icon(Icons.settings_outlined, color: AppColors.primary, size: 22),
+            SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                '设置',
+                style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
+        footer: Align(
+          alignment: Alignment.centerRight,
+          child: FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            style: FilledButton.styleFrom(
+              minimumSize: const Size.fromHeight(44),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            child: const Text('关闭'),
+          ),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _SettingsTile(
+              icon: Icons.tune_rounded,
+              title: 'AI 解析设置',
+              subtitle: _settingsLabel,
+              onTap: () {
+                Navigator.of(dialogContext).pop();
+                Future.microtask(() => _showConsentDialog(firstTime: false));
+              },
+            ),
+            _SettingsTile(
+              icon: Icons.cloud_outlined,
+              title: '云端反馈采集',
+              subtitle: _cloudFeedbackLabel,
+              onTap: () {
+                Navigator.of(dialogContext).pop();
+                Future.microtask(_showCloudFeedbackConsentDialog);
+              },
+            ),
+            _SettingsTile(
+              icon: Icons.privacy_tip_outlined,
+              title: '隐私政策',
+              onTap: () {
+                Navigator.of(dialogContext).pop();
+                Future.microtask(() {
+                  if (!mounted) return;
+                  Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const PrivacyScreen()),
+                  );
+                });
+              },
+            ),
+            _SettingsTile(
+              icon: Icons.info_outline_rounded,
+              title: '关于心弦',
+              subtitle: AppVersion.versionName,
+              onTap: () {
+                Navigator.of(dialogContext).pop();
+                Future.microtask(() {
+                  if (!mounted) return;
+                  showDialog<void>(
+                    context: context,
+                    builder: (_) => const _AboutDialog(),
+                  );
+                });
+              },
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 
@@ -442,19 +473,18 @@ class _AboutDialog extends StatelessWidget {
           ),
         ],
       ),
-      footer: DialogButtonBar(
-        children: [
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(),
-            style: FilledButton.styleFrom(
-              minimumSize: const Size.fromHeight(44),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
+      footer: Align(
+        alignment: Alignment.centerRight,
+        child: FilledButton(
+          onPressed: () => Navigator.of(context).pop(),
+          style: FilledButton.styleFrom(
+            minimumSize: const Size.fromHeight(44),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
             ),
-            child: const Text('关闭'),
           ),
-        ],
+          child: const Text('关闭'),
+        ),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -541,6 +571,71 @@ class _AboutInfoRow extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// 设置弹窗中的列表项：图标 + 标题 + 副标题 + 右侧箭头，点击触发回调。
+class _SettingsTile extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String? subtitle;
+  final VoidCallback onTap;
+
+  const _SettingsTile({
+    required this.icon,
+    required this.title,
+    this.subtitle,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 12),
+          child: Row(
+            children: [
+              Icon(icon, size: 20, color: AppColors.primary),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
+                    if (subtitle != null) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        subtitle!,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              const Icon(
+                Icons.chevron_right_rounded,
+                size: 20,
+                color: AppColors.textMuted,
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
