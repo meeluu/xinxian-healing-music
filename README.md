@@ -5,7 +5,7 @@
 心弦是一款基于 Flutter Web 的情绪陪伴 Demo。用户输入当下心境后，系统通过 LLM 生成情绪画像与音乐参数，并播放匹配的本地音频素材，形成「自然语言 → AI 情绪解析 → 音乐方案 → 音频体验 → 用户反馈」的完整闭环。
 
 - **正式体验地址**：[https://xinxian-music.xyz](https://xinxian-music.xyz)
-- **当前版本**：`v0.9.0 · P2-stable · Cloudflare Pages`
+- **当前版本**：`v1.0.0 · P3-data-1-fix1 · Cloudflare Pages`
 - **定位**：辅助情绪调节、睡前舒缓、正念陪伴、温和充能的轻量化工具，**不提供医疗诊断或治疗**，不替代专业心理咨询与医疗建议（详见[第十二章 免责声明](#十二免责声明)）
 
 ---
@@ -18,6 +18,7 @@
 4. [技术架构](#四技术架构)
 5. [已完成里程碑](#五已完成里程碑)
 6. [P2-Web-v1.0 收尾成果](#六p2-web-v10-收尾成果)
+6.5. [P3-Web-v1.0 第一批：反馈数据查询脚本 + 基础统计](#六点五p3-web-v10-第一批反馈数据查询脚本--基础统计)
 7. [数据与隐私](#七数据与隐私)
 8. [环境变量与部署](#八环境变量与部署)
 9. [本地开发与验证](#九本地开发与验证)
@@ -68,10 +69,11 @@
 
 ### 2.1 当前阶段
 
-- **阶段**：`P2-Web-v1.0 已完成 / P2-stable`
-- **版本号**：`v0.9.0 · P2-stable · Cloudflare Pages`（首页底部显示 `心弦 v0.9.0 · P2-stable · Cloudflare Pages`）
+- **阶段**：`P3-Web-v1.0 进行中 / P3-data-1-fix1`
+- **版本号**：`v1.0.0 · P3-data-1-fix1 · Cloudflare Pages`（首页底部显示 `心弦 v1.0.0 · P3-data-1-fix1 · Cloudflare Pages`）
 - **构建日期**：2026-07-11
 - **部署目标**：Cloudflare Pages
+- **上一阶段**：P2-Web-v1.0 已完成（`P2-stable`，2026-07-11 收尾验收通过）
 
 ### 2.2 当前部署架构
 
@@ -89,7 +91,8 @@
 - `TargetStateResolver` 8 级优先级规则引擎处理自然语言意图冲突（如「备考压力大睡不着」→ sleep）
 - 5 类 targetState（`sleep` / `regulate` / `soothe` / `focus` / `energize`）分别匹配本地预置音频
 - 匿名云端反馈采集（Cloudflare D1）+ 两层同意机制（云端采集总开关 + 文字反馈独立开关）
-- 反馈数据分析与导出（`scripts/feedback-queries.sql` + Wrangler SQL + Cloudflare D1 Console）
+- 反馈数据分析与导出（`scripts/feedback-queries.sql` 12 条基础查询 + 附录 B 消融实验 6 条 + Wrangler SQL + Cloudflare D1 Console）
+- PowerShell 辅助查询脚本（`scripts/query-feedback.ps1`，支持 `-Recent` / `-ByTargetState` / `-ByAudio` / `-LowRating` / `-HighRating` / `-Notes` / `-Daily` / `-TextRatio` 参数，P3 第一批新增）
 - 消融对比实验分组记录能力（`HashExperimentAssigner`，默认关闭，编译期常量控制）
 - 历史记录本地持久化（shared_preferences + Web localStorage fallback，最多 100 条，支持查看 / 删除 / 清空 / 撤销删除）
 - 隐私同意弹窗 + 解析设置入口（用户可随时切换 AI 解析 / 本地解析）
@@ -306,6 +309,8 @@ sessionId 在 `HealingPipeline.run(text)` 入口生成，依次写入 MoodInput 
 | **M8.1** | 消融对比实验设计与分组记录（保守 MVP）：`HashExperimentAssigner` 按 sessionId FNV-1a hash 稳定分流；编译期常量 `ENABLE_EXPERIMENT` 控制（默认 false，零体验影响）；仅记录 `experimentVariant` 标签，不改推荐结果 | ✅ 已完成 |
 | **P1-Web-v1.0** | Web 产品化修复：history restore 完整链路 / analysis_screen 响应式 / index.html 元信息 / `/api/health` 健康检查 / D1 写入超时保护 / CORS 白名单 / targetState 枚举统一 / PWA 缓存策略 / Cloudflare 限流规则（analyze-mood 已配置 Active） | ✅ 已完成 |
 | **P2-Web-v1.0** | Web 体验优化（4 批 + 4 fix）：首次弹窗时机优化 / 方案页去技术化 / 推荐理由场景化 / 反馈页降成本 / 状态评分语义修正 / 首页设置入口整理；版本号同步到 `P2-stable` | ✅ 已完成 / 可关闭 |
+| **P3-Web-v1.0 第一批** | 反馈数据查询脚本 + 基础统计：`scripts/feedback-queries.sql` 新增查询 9-12（总体平均评分 / targetState 聚合 / 低评分列表 / 高评分列表）；新增 `scripts/query-feedback.ps1` PowerShell 辅助脚本（8 个参数）；不改 D1 schema / API / 前端 UI | 🔜 进行中 |
+| **P3-Web-v1.0 第一批 fix1** | 修复 `query-feedback.ps1` PowerShell 5.1 ParserError：所有 SQL 改用 here-string `@" ... "@` 避免单引号 / `<=` / `>=` 被解析坏；文件转存为 UTF-8 with BOM 解决中文乱码导致的 here-string 标记失效 | ✅ 已完成 |
 
 ---
 
@@ -389,6 +394,144 @@ P2 阶段（第一批 ~ 第四批 fix1）9 个子项全部 ✅ 代码与 README 
 | 第四批 | 首页底部精简为「查看历史记录 + 设置」+ 版本号；设置弹窗收纳四项 | `P2-ui-4` |
 | 第四批 fix1 | 设置弹窗 footer 改为 `Align`；子入口点击用 `Future.microtask` + `mounted` | `P2-ui-4-fix1` |
 | 收尾验收 | P2 全部 9 子项核对通过；版本号同步到 `P2-stable` | `P2-stable` |
+
+---
+
+## 六点五、P3-Web-v1.0 第一批：反馈数据查询脚本 + 基础统计
+
+P3 第一批聚焦反馈数据查询能力建设，让项目能从 Cloudflare D1 `feedback` 表中快速查看反馈数据质量和基础运营指标。**只改脚本和 SQL，不改前端 UI、不改 D1 schema、不改 `submit-feedback` API、不修改远程 D1 数据**。
+
+### 6.5.1 D1 schema 与字段确认
+
+读取 `schema/feedback.sql` / `scripts/feedback-queries.sql` / [cloud_feedback_payload.dart](file:///d:/xinxian_healing_music/lib/models/cloud_feedback_payload.dart) 确认：
+
+| 字段 | 类型 | 语义 | 来源 |
+|---|---|---|---|
+| `relaxationScore` | INTEGER | 1-5（5 = 最放松） | 从 `FeedbackRecord.rating` 映射 |
+| `calmnessScore` | INTEGER | 0-100（100 = 状态最好） | 从 `tensionAfter × 100` 派生（P2 fix2 起语义统一为"值越大状态越好"） |
+| `targetState` | TEXT | sleep / regulate / soothe / focus / energize | 五类 |
+| `audioAssetId` | TEXT | 脱敏文件名（如 `sleep_01.mp3`） | 不含路径前缀 |
+| `freeTextFeedback` | TEXT | 用户文字反馈 | 仅在用户单独勾选同意时上传，可为 NULL |
+
+**⚠️ improvement 指标限制**：D1 schema **未存储** `tensionBefore` / `tensionAfter` 原始值，只有派生的 `calmnessScore`（= `tensionAfter × 100`）。因此当前**不能直接计算 improvement = after - before**，只能用 `calmnessScore`（体验后状态）作为近似指标，或后续 P3 扩展补齐 `tensionBefore` D1 字段 / 新增 `improvement` 派生字段。
+
+### 6.5.2 新增 / 整理的 SQL 查询
+
+在 [scripts/feedback-queries.sql](file:///d:/xinxian_healing_music/scripts/feedback-queries.sql) 中保留 M8 原有查询 1-8 + 附录 B（B1-B6），**新增查询 9-12**：
+
+| 查询 | 用途 | 状态 |
+|---|---|---|
+| 查询 1 | 总反馈数 | M8 已有 |
+| 查询 2 | targetState 分布（数量 + 百分比） | M8 已有 |
+| 查询 3 | audioAssetId 平均评分对比 | M8 已有 |
+| 查询 4 | 最近 20 条反馈 | M8 已有 |
+| 查询 5 | 每日反馈数量趋势 | M8 已有 |
+| 查询 6 | 文字反馈占比 | M8 已有 |
+| 查询 7 | 实验分组统计 | M8 已有 |
+| 查询 8 [隐私敏感] | 文字反馈原文查看 | M8 已有 |
+| **查询 9** | **总体平均评分（relaxationScore + calmnessScore + 区间）** | **P3 新增** |
+| **查询 10** | **按 targetState 分组：数量 + 平均评分 + 平均 calmnessScore + 区间** | **P3 新增** |
+| **查询 11** | **低评分反馈列表（relaxationScore ≤ 2）** | **P3 新增** |
+| **查询 12** | **高评分反馈列表（relaxationScore ≥ 4）** | **P3 新增** |
+| 附录 B1-B6 | 消融实验分组分析 | M8.1 已有 |
+
+同时更新文件头部注释，新增字段语义说明、improvement 指标限制说明、PowerShell 脚本用法引用，并在文件末尾新增"P3 指标分析能力说明"段落（✅ 当前可分析指标 13 项 + ❌ 当前还缺的指标 4 项）。
+
+### 6.5.3 PowerShell 辅助脚本
+
+新增 [scripts/query-feedback.ps1](file:///d:/xinxian_healing_music/scripts/query-feedback.ps1)，封装 `wrangler d1 execute` 命令：
+
+```powershell
+# 基础统计（默认）：总反馈数 + 平均评分 + targetState 分布 + 文字反馈占比
+.\scripts\query-feedback.ps1
+
+# 查看最近 20 条反馈
+.\scripts\query-feedback.ps1 -Recent
+
+# 按 targetState 聚合（数量 + 平均评分 + 平均 calmnessScore）
+.\scripts\query-feedback.ps1 -ByTargetState
+
+# 按 audioAssetId 聚合（数量 + 平均评分）
+.\scripts\query-feedback.ps1 -ByAudio
+
+# 低评分反馈列表（relaxationScore <= 2）
+.\scripts\query-feedback.ps1 -LowRating
+
+# 高评分反馈列表（relaxationScore >= 4）
+.\scripts\query-feedback.ps1 -HighRating
+
+# 文字反馈原文 [隐私敏感]
+.\scripts\query-feedback.ps1 -Notes
+
+# 每日反馈数量趋势
+.\scripts\query-feedback.ps1 -Daily
+
+# 文字反馈占比
+.\scripts\query-feedback.ps1 -TextRatio
+
+# 查询本地 D1 副本（调试用，默认 --remote）
+.\scripts\query-feedback.ps1 -Recent -Local
+```
+
+**前置条件**：已安装 Node.js + npx；已登录 wrangler（`npx wrangler login`）或配置了 `CLOUDFLARE_API_TOKEN`；D1 数据库 `xinxian-feedback` 已建表。
+
+**安全说明**：脚本只读查询，不写入任何敏感信息，不修改远程 D1 数据。`-Notes` 参数查询文字反馈原文，标注为隐私敏感，仅供项目组内部分析。
+
+### 6.5.4 当前可分析的反馈指标
+
+✅ **当前可分析**（13 项）：
+
+1. 总反馈数
+2. targetState 分布（数量 + 百分比）
+3. audioAssetId 平均评分对比
+4. 最近 20 条反馈趋势
+5. 每日反馈数量趋势
+6. 文字反馈占比
+7. 实验分组统计（custom / generic / control）
+8. 文字反馈原文查看 [隐私敏感]
+9. 总体平均评分（relaxationScore + calmnessScore + 区间）
+10. 按 targetState 分组的反馈质量对比
+11. 低评分反馈列表（relaxationScore ≤ 2）
+12. 高评分反馈列表（relaxationScore ≥ 4）
+13. 消融实验分组分析 B1-B6
+
+❌ **当前还缺的指标**（需扩展 D1 schema 或派生字段）：
+
+- **improvement（体验前后状态改善量 = after - before）**：D1 schema 未存储 `tensionBefore` / `tensionAfter` 原始值，只有派生的 `calmnessScore`（= `tensionAfter × 100`）。当前只能用 `calmnessScore` 作为"体验后状态"近似指标，无法计算"改善量"。后续 P3 扩展可补齐 `tensionBefore` D1 字段，或新增 `improvement` 派生字段
+- **completionRatio（聆听完成率）**：D1 schema 无此字段，需 M8.2 / P3 后续扩展补齐
+- **emotionMatchScore / willingToContinue**：D1 schema 已有字段，但前端当前未收集（M7.0 留空），数据均为 NULL
+- **用户身份 / 跨设备聚合**：心弦为匿名 Demo，无用户系统，无法按用户聚合
+
+### 6.5.5 验证结果
+
+本批只改 SQL / PowerShell 脚本 / 版本号 / README，未改 Flutter 业务逻辑代码，但按规范仍运行验证命令：
+
+- `flutter analyze`：No issues found! (ran in 39.6s)
+- `flutter test`：197 passed + 5 skipped（All tests passed!）
+
+PowerShell 脚本语法静态检查：脚本使用标准 `param()` + `switch` 参数 + `function` 定义，符合 PowerShell 5.1+ 语法；未执行远程 D1 查询（避免影响线上数据）。
+
+### 6.5.6 fix1：修复 query-feedback.ps1 PowerShell 5.1 ParserError
+
+**现象**：运行 `.\scripts\query-feedback.ps1` 时 PowerShell 5.1 报 ParserError：
+
+- `参数列表中缺少参量`
+- `表达式或语句中包含意外的标记`
+- `"<"运算符是为将来使用而保留`
+- 错误位置集中在 `$sql = "SELECT COALESCE(targetState, '(null)')..."`、`relaxationScore <= 2` 等 SQL 字符串附近
+
+**根因**（两层问题）：
+
+1. **字符串解析问题**：原 SQL 使用双引号字符串 `"..."`，其中包含单引号 `'(null)'`、`<=` / `>=` 运算符和中文 Title，被 PowerShell 解析器误判
+2. **文件编码问题**：Write 工具保存为 UTF-8 无 BOM，PowerShell 5.1（Windows PowerShell）默认按 ANSI/GBK 解码，中文字符 UTF-8 多字节序列被错误解析，破坏 here-string `@" ... "@` 标记，导致 `FROM` 等关键字被当作 PowerShell 关键字
+
+**修复**：
+
+1. 所有 SQL 字符串改用 PowerShell here-string `@" ... "@`，避免单引号 / `<=` / `>=` 被解析坏
+2. 在 `Invoke-D1Query` 函数中新增 `$compactSql = ($Sql -replace '\s+', ' ').Trim()`，将 here-string 中的换行和多余空白压缩为单空格，避免 wrangler `--command` 参数解析异常
+3. 文件转存为 **UTF-8 with BOM**（`EF BB BF`），解决 PowerShell 5.1 中文乱码问题
+
+**验证**：使用 `[System.Management.Automation.Language.Parser]::ParseFile()` 静态语法检查通过，无 parser 错误（token count: 456）；BOM 字节验证 `EF BB BF` 通过。
 
 ---
 
@@ -634,7 +777,7 @@ Web 与 Android 的构建链路相互独立：Android 的 Gradle 配置不参与
 
 | 阶段 | 计划内容 | 状态 |
 |---|---|---|
-| **P3-Web-v1.0**（下一阶段） | 数据与反馈运营：基于 D1 已采集数据深化反馈分析（calmnessScore 分布 / targetState 命中 / 音频匹配效果）；补齐 improvement 派生指标（after-before，正值代表状态改善，P3 补齐 D1 端派生）；M8.2 消融对比实验音频旁路落地（generic 固定 `soothe_01.mp3`、control 固定 `sleep_01.mp3`，真正改变推荐结果）；反馈数据可视化轻量方案；可选补 `completionRatio` D1 字段 | 🔜 下一阶段 |
+| **P3-Web-v1.0**（进行中） | 数据与反馈运营：第一批已完成反馈数据查询脚本 + 基础统计（查询 9-12 + PowerShell 脚本）；后续批次基于 D1 已采集数据深化反馈分析（calmnessScore 分布 / targetState 命中 / 音频匹配效果）；补齐 improvement 派生指标（after-before，正值代表状态改善，P3 补齐 D1 端派生）；M8.2 消融对比实验音频旁路落地（generic 固定 `soothe_01.mp3`、control 固定 `sleep_01.mp3`，真正改变推荐结果）；反馈数据可视化轻量方案；可选补 `completionRatio` D1 字段 | 🔜 进行中（第一批完成） |
 | **P4-AI-Music-v1.0**（必做） | 真正 AI 音乐生成接入（**产品核心升级，非可选项**）：将 `AudioGenerationPort` 从本地预置音频替换为真实 AI 音乐生成模型（如 MusicGen / Suno API），按 `generationPrompt` 实时生成个性化音频；DSP 后处理（白噪音 / 粉红噪音 / EQ / 淡入淡出）接入；异步生成任务；音频存储；fallback 到预置音频；成本与安全控制 | ⏳ 计划中 |
 | **P5-Mobile-v1.0** | 移动端 App 准备：解决 Android 构建上游插件与 Gradle 9 兼容性问题；Android/iOS 原生打包与发布流程 | ⏳ 计划中 |
 | **P6** | 用户系统与跨设备：可选登录 / 跨端历史同步 | ⏳ 计划中 |
@@ -697,7 +840,14 @@ Web 与 Android 的构建链路相互独立：Android 的 Gradle 配置不参与
 | 2026-07-11 | v0.9.0 / P2-ui-4-fix1 | P2 第四批 fix1 | 修复设置弹窗只显示遮罩不显示内容（`DialogButtonBar` 单 child 无限宽断言）；子入口点击用 `Future.microtask` |
 | 2026-07-11 | v0.9.0 / P2-stable | P2 收尾验收 | P2 全部 9 子项核对通过；核心用户路径 14 项手动验收清单完整；数据语义 6 项核对通过；版本号同步到 `P2-stable` |
 
-### 13.4 项目结构
+### 13.4 P3-Web-v1.0（数据与反馈运营）
+
+| 日期 | 版本 | 阶段 | 摘要 |
+|---|---|---|---|
+| 2026-07-11 | v1.0.0 / P3-data-1 | P3 第一批 | 反馈数据查询脚本 + 基础统计：`scripts/feedback-queries.sql` 新增查询 9-12（总体平均评分 / targetState 聚合 / 低评分列表 / 高评分列表）；新增 `scripts/query-feedback.ps1` PowerShell 辅助脚本（8 个参数）；确认 improvement 指标限制（D1 未存 tensionBefore）；不改 D1 schema / API / 前端 UI |
+| 2026-07-11 | v1.0.0 / P3-data-1-fix1 | P3 第一批 fix1 | 修复 `query-feedback.ps1` PowerShell 5.1 ParserError：所有 SQL 改用 here-string `@" ... "@`；新增 `$compactSql` 压缩空白；文件转存为 UTF-8 with BOM 解决中文乱码；只改脚本 / 版本号 / README |
+
+### 13.5 项目结构
 
 ```
 lib/
@@ -748,7 +898,8 @@ schema/
 └── feedback.sql                   # D1 建表 DDL（feedback 表 25 字段 + 4 索引）
 
 scripts/
-└── feedback-queries.sql           # 常用 D1 查询脚本（8 条查询 + 附录 B 消融实验查询）
+└── feedback-queries.sql           # 常用 D1 查询脚本（12 条查询 + 附录 B 消融实验查询，P3 扩展至 12 条）
+    query-feedback.ps1             # PowerShell 辅助查询脚本（P3 新增，8 个参数封装 wrangler 命令）
 
 web/
 ├── index.html                     # Flutter Web 入口模板

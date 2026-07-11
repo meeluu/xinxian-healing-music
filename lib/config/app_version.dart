@@ -17,11 +17,11 @@ class AppVersion {
   /// 应用名称。
   static const String appName = '心弦';
 
-  /// 当前里程碑阶段（M1 / M2 / ... / M8.1 / P1-Web-v1.0 / P2-Web-v1.0）。
-  static const String milestone = 'P2-Web-v1.0';
+  /// 当前里程碑阶段（M1 / M2 / ... / M8.1 / P1-Web-v1.0 / P2-Web-v1.0 / P3-Web-v1.0）。
+  static const String milestone = 'P3-Web-v1.0';
 
-  /// 语义化版本号（与里程碑对应：M4 → v0.4.x，M5 → v0.5.x，M6 → v0.6.x，M7 → v0.7.x，M8 → v0.8.x，P2 → v0.9.x）。
-  static const String versionName = 'v0.9.0';
+  /// 语义化版本号（与里程碑对应：M4 → v0.4.x，M5 → v0.5.x，M6 → v0.6.x，M7 → v0.7.x，M8 → v0.8.x，P2 → v0.9.x，P3 → v1.0.x）。
+  static const String versionName = 'v1.0.0';
 
   /// 构建标签，用于区分开发 / 预览 / 正式版本。
   ///
@@ -30,8 +30,9 @@ class AppVersion {
   /// - `M{n}-preview`：预览部署
   /// - `M{n}-stable`：正式发布
   /// - `P{N}-ui-{n}`：P 阶段第 n 批 UI / 体验优化
+  /// - `P{N}-data-{n}`：P 阶段第 n 批数据 / 脚本扩展
   /// - `P{N}-stable`：P 阶段收尾验收通过，正式发布
-  static const String buildLabel = 'P2-stable';
+  static const String buildLabel = 'P3-data-1-fix1';
 
   /// 构建日期（YYYY-MM-DD），手动维护。
   static const String buildDate = '2026-07-11';
