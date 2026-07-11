@@ -1,4 +1,4 @@
--- 心弦 · 反馈数据分析常用 SQL 查询（M8 建立，P3-Web-v1.0 第一批扩展）
+-- 心弦 · 反馈数据分析常用 SQL 查询（M8 建立，P3-Web-v1.0 第一批 + 第二批扩展）
 --
 -- 用法：
 --   1. 单条查询：复制 SQL 内容执行
@@ -414,3 +414,183 @@ ORDER BY relaxationScore DESC,
 --     D1 schema 已有字段，但前端当前未收集（M7.0 留空），数据均为 NULL。
 --   - 用户身份 / 跨设备聚合：
 --     心弦为匿名 Demo，无用户系统，无法按用户聚合。
+-- ════════════════════════════════════════════════════════════════
+-- P3-Web-v1.0 第二批：测试数据标记与查询隔离
+--
+-- 背景：
+--   当前 D1 feedback 表中的反馈大多是开发者测试时随便填写的数据，
+--   不是真实用户反馈，不能用于推荐质量判断。
+--   本批不改 D1 schema，不删除远程数据，只在查询层建立测试数据识别与过滤。
+--
+-- 测试数据识别规则（保守策略，满足任一即视为测试数据）：
+--   1. clientVersion LIKE 'v0.%'
+--      —— 历史开发版本（v0.x.x 为 M4-M8 阶段开发版本，v1.0.0 起为 P3 正式版）
+--   2. sessionId LIKE '%test%' OR listeningSessionId LIKE '%test%'
+--      —— sessionId 含 test 字样
+--   3. freeTextFeedback LIKE '%test%' OR freeTextFeedback LIKE '%测试%' OR freeTextFeedback LIKE '%随便%'
+--      —— 文字反馈含明显测试词
+--
+--   注意：
+--   - 不会把低评分自动视为测试数据（低评分可能是真实用户不满）
+--   - 不会把 mock analyzerMode 自动视为测试数据（mock 是用户未同意 AI 解析时的正常 fallback）
+--   - 规则保守，可能漏判部分测试数据，但不会误判真实用户数据
+--
+--   ⚠️ 当前 D1 中的反馈大多为开发者测试时填写，不能作为真实用户结论。
+--   后续正式分析应使用 -ExcludeTest 或下方的"排除测试数据"查询。
+-- ════════════════════════════════════════════════════════════════
+-- 查询 13：测试数据占比总览（全部数据，不过滤）
+-- 用途：了解当前 D1 中测试数据与真实用户数据的比例
+-- ════════════════════════════════════════════════════════════════
+SELECT COUNT(*) AS total,
+  SUM(
+    CASE
+      WHEN clientVersion LIKE 'v0.%'
+      OR sessionId LIKE '%test%'
+      OR listeningSessionId LIKE '%test%'
+      OR (
+        freeTextFeedback IS NOT NULL
+        AND (
+          freeTextFeedback LIKE '%test%'
+          OR freeTextFeedback LIKE '%测试%'
+          OR freeTextFeedback LIKE '%随便%'
+        )
+      ) THEN 1
+      ELSE 0
+    END
+  ) AS test_data,
+  SUM(
+    CASE
+      WHEN NOT (
+        clientVersion LIKE 'v0.%'
+        OR sessionId LIKE '%test%'
+        OR listeningSessionId LIKE '%test%'
+        OR (
+          freeTextFeedback IS NOT NULL
+          AND (
+            freeTextFeedback LIKE '%test%'
+            OR freeTextFeedback LIKE '%测试%'
+            OR freeTextFeedback LIKE '%随便%'
+          )
+        )
+      ) THEN 1
+      ELSE 0
+    END
+  ) AS real_data,
+  ROUND(
+    SUM(
+      CASE
+        WHEN clientVersion LIKE 'v0.%'
+        OR sessionId LIKE '%test%'
+        OR listeningSessionId LIKE '%test%'
+        OR (
+          freeTextFeedback IS NOT NULL
+          AND (
+            freeTextFeedback LIKE '%test%'
+            OR freeTextFeedback LIKE '%测试%'
+            OR freeTextFeedback LIKE '%随便%'
+          )
+        ) THEN 1
+        ELSE 0
+      END
+    ) * 100.0 / COUNT(*),
+    1
+  ) AS test_percentage
+FROM feedback;
+-- ════════════════════════════════════════════════════════════════
+-- 查询 14：排除测试数据后的基础统计（真实用户反馈）
+-- 用途：正式分析时使用，衡量真实用户的反馈质量
+-- 对应 PowerShell：.\scripts\query-feedback.ps1 -ExcludeTest
+-- ════════════════════════════════════════════════════════════════
+SELECT COUNT(*) AS total_real_feedback,
+  ROUND(AVG(relaxationScore), 2) AS avg_relaxation_score,
+  ROUND(AVG(calmnessScore), 2) AS avg_calmness_score,
+  MIN(relaxationScore) AS min_relaxation,
+  MAX(relaxationScore) AS max_relaxation
+FROM feedback
+WHERE relaxationScore IS NOT NULL
+  AND NOT (
+    clientVersion LIKE 'v0.%'
+    OR sessionId LIKE '%test%'
+    OR listeningSessionId LIKE '%test%'
+    OR (
+      freeTextFeedback IS NOT NULL
+      AND (
+        freeTextFeedback LIKE '%test%'
+        OR freeTextFeedback LIKE '%测试%'
+        OR freeTextFeedback LIKE '%随便%'
+      )
+    )
+  );
+-- ════════════════════════════════════════════════════════════════
+-- 查询 15：仅测试数据的基础统计（反向排查用）
+-- 用途：确认测试数据识别规则是否合理，排查是否有真实数据被误判
+-- 对应 PowerShell：.\scripts\query-feedback.ps1 -OnlyTest
+-- ════════════════════════════════════════════════════════════════
+SELECT COUNT(*) AS total_test_feedback,
+  ROUND(AVG(relaxationScore), 2) AS avg_relaxation_score,
+  ROUND(AVG(calmnessScore), 2) AS avg_calmness_score,
+  MIN(relaxationScore) AS min_relaxation,
+  MAX(relaxationScore) AS max_relaxation
+FROM feedback
+WHERE relaxationScore IS NOT NULL
+  AND (
+    clientVersion LIKE 'v0.%'
+    OR sessionId LIKE '%test%'
+    OR listeningSessionId LIKE '%test%'
+    OR (
+      freeTextFeedback IS NOT NULL
+      AND (
+        freeTextFeedback LIKE '%test%'
+        OR freeTextFeedback LIKE '%测试%'
+        OR freeTextFeedback LIKE '%随便%'
+      )
+    )
+  );
+-- ════════════════════════════════════════════════════════════════
+-- 查询 16：测试数据明细（用于排查误判）
+-- 用途：查看被识别为测试数据的具体记录，确认规则是否合理
+-- ════════════════════════════════════════════════════════════════
+SELECT substr(createdAt, 1, 19) AS created_at,
+  listeningSessionId,
+  targetState,
+  relaxationScore,
+  calmnessScore,
+  clientVersion,
+  CASE
+    WHEN clientVersion LIKE 'v0.%' THEN 'v0.x'
+    WHEN sessionId LIKE '%test%'
+    OR listeningSessionId LIKE '%test%' THEN 'sid-test'
+    WHEN freeTextFeedback IS NOT NULL
+    AND (
+      freeTextFeedback LIKE '%test%'
+      OR freeTextFeedback LIKE '%测试%'
+      OR freeTextFeedback LIKE '%随便%'
+    ) THEN 'text-test'
+    ELSE '?'
+  END AS test_reason
+FROM feedback
+WHERE clientVersion LIKE 'v0.%'
+  OR sessionId LIKE '%test%'
+  OR listeningSessionId LIKE '%test%'
+  OR (
+    freeTextFeedback IS NOT NULL
+    AND (
+      freeTextFeedback LIKE '%test%'
+      OR freeTextFeedback LIKE '%测试%'
+      OR freeTextFeedback LIKE '%随便%'
+    )
+  )
+ORDER BY createdAt DESC;
+-- ════════════════════════════════════════════════════════════════
+-- 真实反馈分析建议
+-- ════════════════════════════════════════════════════════════════
+--
+-- 1. 正式分析前先跑查询 13 确认测试数据占比
+-- 2. 使用查询 14（排除测试数据）作为正式分析基础
+-- 3. 如果测试数据占比很高（>80%），说明当前 D1 数据主要是开发测试，
+--    不应作为推荐质量判断依据，应等真实用户数据积累后再分析
+-- 4. 定期跑查询 16 排查是否有真实数据被误判为测试数据
+-- 5. PowerShell 脚本对应：
+--    .\scripts\query-feedback.ps1 -ExcludeTest          # 排除测试数据的基础统计
+--    .\scripts\query-feedback.ps1 -Recent -ExcludeTest  # 排除测试数据的最近反馈
+--    .\scripts\query-feedback.ps1 -OnlyTest             # 仅测试数据（排查用）

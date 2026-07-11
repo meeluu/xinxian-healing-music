@@ -32,7 +32,7 @@ class AppVersion {
   /// - `P{N}-ui-{n}`：P 阶段第 n 批 UI / 体验优化
   /// - `P{N}-data-{n}`：P 阶段第 n 批数据 / 脚本扩展
   /// - `P{N}-stable`：P 阶段收尾验收通过，正式发布
-  static const String buildLabel = 'P3-data-1-fix1';
+  static const String buildLabel = 'P3-data-2';
 
   /// 构建日期（YYYY-MM-DD），手动维护。
   static const String buildDate = '2026-07-11';

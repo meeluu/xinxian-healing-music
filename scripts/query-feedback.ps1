@@ -1,6 +1,6 @@
 ﻿<#
 .SYNOPSIS
-  心弦 · D1 反馈数据查询辅助脚本（P3-Web-v1.0 第一批）
+  心弦 · D1 反馈数据查询辅助脚本（P3-Web-v1.0 第一批 + 第二批）
 
 .DESCRIPTION
   封装常用的 wrangler d1 execute 命令，快速查看 Cloudflare D1 xinxian-feedback 数据库的反馈数据。
@@ -38,11 +38,18 @@
 .PARAMETER TextRatio
   查看文字反馈占比
 
+.PARAMETER ExcludeTest
+  排除测试数据（只看真实用户反馈）。测试数据识别规则见 .NOTES。
+  正式分析时建议始终加此参数。
+
+.PARAMETER OnlyTest
+  只看测试数据（反向排查用）。与 -ExcludeTest 互斥，同时传时 -ExcludeTest 优先。
+
 .PARAMETER Local
   使用 --local 查询本地 D1 副本（默认 --remote 查询线上数据库）
 
 .EXAMPLE
-  # 基础统计（默认）：总反馈数 + 总体平均评分
+  # 基础统计（默认）：总反馈数 + 总体平均评分 + 测试数据占比
   .\scripts\query-feedback.ps1
 
 .EXAMPLE
@@ -62,6 +69,18 @@
   .\scripts\query-feedback.ps1 -Notes
 
 .EXAMPLE
+  # 排除测试数据后的基础统计（正式分析推荐）
+  .\scripts\query-feedback.ps1 -ExcludeTest
+
+.EXAMPLE
+  # 只看测试数据（反向排查）
+  .\scripts\query-feedback.ps1 -OnlyTest
+
+.EXAMPLE
+  # 排除测试数据 + 按 targetState 聚合
+  .\scripts\query-feedback.ps1 -ByTargetState -ExcludeTest
+
+.EXAMPLE
   # 查询本地 D1 副本（调试用）
   .\scripts\query-feedback.ps1 -Recent -Local
 
@@ -73,7 +92,22 @@
 
   当前不能直接计算 improvement（D1 未存 tensionBefore/tensionAfter 原始值）。
 
+  测试数据识别规则（P3 第二批，保守策略）：
+    满足以下任一条件即视为测试数据：
+    1. clientVersion LIKE 'v0.%'   —— 历史开发版本（v0.x.x 为 M4-M8 阶段开发版本）
+    2. sessionId 包含 'test'        —— sessionId / listeningSessionId 含 test 字样
+    3. freeTextFeedback 包含明显测试词：'test' / '测试' / '随便'
+
+    注意：
+    - 不会把低评分自动视为测试数据（低评分可能是真实用户不满）
+    - 不会把 mock analyzerMode 自动视为测试数据（mock 是用户未同意 AI 解析时的正常 fallback）
+    - 规则保守，可能漏判部分测试数据，但不会误判真实用户数据
+
+    当前 D1 中的反馈大多为开发者测试时填写，不能作为真实用户结论。
+    正式分析时建议始终使用 -ExcludeTest。
+
   fix1（2026-07-11）：所有 SQL 改用 here-string @" ... "@ 避免 <= / >= / 单引号被 PowerShell 解析坏。
+  fix2（2026-07-11）：新增 -ExcludeTest / -OnlyTest 参数 + 测试数据识别规则 + 过滤注入。
 #>
 
 [CmdletBinding()]
@@ -86,6 +120,8 @@ param(
   [switch]$Notes,
   [switch]$Daily,
   [switch]$TextRatio,
+  [switch]$ExcludeTest,
+  [switch]$OnlyTest,
   [switch]$Local
 )
 
@@ -94,6 +130,25 @@ $target = if ($Local) { '--local' } else { '--remote' }
 
 # 数据库名称
 $dbName = 'xinxian-feedback'
+
+# ── 测试数据识别条件（P3 第二批）─────────────────────────────────
+# 保守规则：满足任一即视为测试数据
+# 1. clientVersion LIKE 'v0.%'  历史开发版本
+# 2. sessionId / listeningSessionId 含 'test'
+# 3. freeTextFeedback 含 test / 测试 / 随便
+$testCondition = "(clientVersion LIKE 'v0.%' OR sessionId LIKE '%test%' OR listeningSessionId LIKE '%test%' OR (freeTextFeedback IS NOT NULL AND (freeTextFeedback LIKE '%test%' OR freeTextFeedback LIKE '%测试%' OR freeTextFeedback LIKE '%随便%')))"
+
+# 根据参数构建过滤子句（追加到 WHERE 末尾）
+# -ExcludeTest 优先于 -OnlyTest
+$filterClause = ''
+$filterLabel = '全部数据（含测试数据）'
+if ($ExcludeTest) {
+    $filterClause = "AND NOT $testCondition"
+    $filterLabel = '已排除测试数据（真实用户反馈）'
+} elseif ($OnlyTest) {
+    $filterClause = "AND $testCondition"
+    $filterLabel = '仅测试数据'
+}
 
 function Invoke-D1Query {
   param(
@@ -115,11 +170,18 @@ function Invoke-D1Query {
   Write-Host ""
 }
 
-# 如果没有任何参数，执行默认基础统计
+# 显示当前过滤模式
+Write-Host "当前过滤模式：$filterLabel" -ForegroundColor Yellow
+if (-not $ExcludeTest -and -not $OnlyTest) {
+    Write-Host "提示：正式分析时建议加 -ExcludeTest 排除测试数据" -ForegroundColor Yellow
+}
+Write-Host ""
+
+# 如果没有任何查询参数，执行默认基础统计
 $noSwitch = -not ($Recent -or $ByTargetState -or $ByAudio -or $LowRating -or $HighRating -or $Notes -or $Daily -or $TextRatio)
 
 if ($noSwitch) {
-  # 默认：总反馈数 + 总体平均评分（查询 1 + 查询 9 合并展示）
+  # 默认：总反馈数 + 总体平均评分（应用过滤）
   $sqlBasic = @"
 SELECT COUNT(*) AS total_feedback,
        ROUND(AVG(relaxationScore), 2) AS avg_relaxation_score,
@@ -127,32 +189,45 @@ SELECT COUNT(*) AS total_feedback,
        MIN(relaxationScore) AS min_relaxation,
        MAX(relaxationScore) AS max_relaxation
 FROM feedback
-WHERE relaxationScore IS NOT NULL;
+WHERE relaxationScore IS NOT NULL $filterClause;
 "@
   Invoke-D1Query -Title "基础统计：总反馈数 + 平均评分" -Sql $sqlBasic
 
-  # 同时展示 targetState 分布概览
+  # 测试数据占比概览（始终显示全部数据的 test/real 分布，不受过滤影响）
+  $sqlTestOverview = @"
+SELECT COUNT(*) AS total,
+       SUM(CASE WHEN $testCondition THEN 1 ELSE 0 END) AS test_data,
+       SUM(CASE WHEN NOT $testCondition THEN 1 ELSE 0 END) AS real_data,
+       ROUND(SUM(CASE WHEN $testCondition THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 1) AS test_percentage
+FROM feedback;
+"@
+  Invoke-D1Query -Title "测试数据占比概览（全部数据）" -Sql $sqlTestOverview
+
+  # targetState 分布概览（应用过滤）
   $sqlDist = @"
 SELECT COALESCE(targetState, '(null)') AS target_state,
        COUNT(*) AS count,
-       ROUND(COUNT(*) * 100.0 / (SELECT COUNT(*) FROM feedback), 1) AS percentage
+       ROUND(COUNT(*) * 100.0 / (SELECT COUNT(*) FROM feedback WHERE 1=1 $filterClause), 1) AS percentage
 FROM feedback
+WHERE 1=1 $filterClause
 GROUP BY targetState
 ORDER BY count DESC;
 "@
   Invoke-D1Query -Title "targetState 分布概览" -Sql $sqlDist
 
-  # 同时展示文字反馈占比
+  # 文字反馈占比（应用过滤）
   $sqlText = @"
 SELECT COUNT(*) AS total,
        SUM(CASE WHEN freeTextFeedback IS NOT NULL AND freeTextFeedback != '' THEN 1 ELSE 0 END) AS has_text,
        ROUND(SUM(CASE WHEN freeTextFeedback IS NOT NULL AND freeTextFeedback != '' THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 1) AS text_percentage
-FROM feedback;
+FROM feedback
+WHERE 1=1 $filterClause;
 "@
   Invoke-D1Query -Title "文字反馈占比" -Sql $sqlText
 
   Write-Host "提示：使用 -Recent / -ByTargetState / -ByAudio / -LowRating / -HighRating / -Notes / -Daily / -TextRatio 查看更多维度" -ForegroundColor Yellow
-  Write-Host "示例：.\scripts\query-feedback.ps1 -Recent" -ForegroundColor Yellow
+  Write-Host "过滤：-ExcludeTest（排除测试数据）/ -OnlyTest（仅测试数据）" -ForegroundColor Yellow
+  Write-Host "示例：.\scripts\query-feedback.ps1 -Recent -ExcludeTest" -ForegroundColor Yellow
   return
 }
 
@@ -170,6 +245,7 @@ SELECT listeningSessionId,
        CASE WHEN freeTextFeedback IS NOT NULL AND freeTextFeedback != '' THEN '(有)' ELSE '(无)' END AS has_text,
        clientVersion
 FROM feedback
+WHERE 1=1 $filterClause
 ORDER BY createdAt DESC
 LIMIT 20;
 "@
@@ -181,13 +257,13 @@ if ($ByTargetState) {
   $sql = @"
 SELECT COALESCE(targetState, '(null)') AS target_state,
        COUNT(*) AS count,
-       ROUND(COUNT(*) * 100.0 / (SELECT COUNT(*) FROM feedback), 1) AS percentage,
+       ROUND(COUNT(*) * 100.0 / (SELECT COUNT(*) FROM feedback WHERE relaxationScore IS NOT NULL $filterClause), 1) AS percentage,
        ROUND(AVG(relaxationScore), 2) AS avg_relaxation,
        ROUND(AVG(calmnessScore), 2) AS avg_calmness,
        MIN(relaxationScore) AS min_relaxation,
        MAX(relaxationScore) AS max_relaxation
 FROM feedback
-WHERE relaxationScore IS NOT NULL
+WHERE relaxationScore IS NOT NULL $filterClause
 GROUP BY targetState
 ORDER BY count DESC;
 "@
@@ -204,7 +280,7 @@ SELECT COALESCE(audioAssetId, '(null)') AS audio_asset_id,
        MIN(relaxationScore) AS min_relaxation,
        MAX(relaxationScore) AS max_relaxation
 FROM feedback
-WHERE relaxationScore IS NOT NULL
+WHERE relaxationScore IS NOT NULL $filterClause
 GROUP BY audioAssetId
 ORDER BY count DESC;
 "@
@@ -223,7 +299,7 @@ SELECT substr(createdAt, 1, 19) AS created_at,
        analyzerMode,
        CASE WHEN freeTextFeedback IS NOT NULL AND freeTextFeedback != '' THEN '(有)' ELSE '(无)' END AS has_text
 FROM feedback
-WHERE relaxationScore IS NOT NULL AND relaxationScore <= 2
+WHERE relaxationScore IS NOT NULL AND relaxationScore <= 2 $filterClause
 ORDER BY relaxationScore ASC, createdAt DESC;
 "@
   Invoke-D1Query -Title "低评分反馈列表（relaxationScore <= 2）" -Sql $sql
@@ -241,7 +317,7 @@ SELECT substr(createdAt, 1, 19) AS created_at,
        analyzerMode,
        CASE WHEN freeTextFeedback IS NOT NULL AND freeTextFeedback != '' THEN '(有)' ELSE '(无)' END AS has_text
 FROM feedback
-WHERE relaxationScore IS NOT NULL AND relaxationScore >= 4
+WHERE relaxationScore IS NOT NULL AND relaxationScore >= 4 $filterClause
 ORDER BY relaxationScore DESC, createdAt DESC;
 "@
   Invoke-D1Query -Title "高评分反馈列表（relaxationScore >= 4）" -Sql $sql
@@ -261,7 +337,7 @@ SELECT substr(createdAt, 1, 19) AS created_at,
        calmnessScore,
        freeTextFeedback
 FROM feedback
-WHERE freeTextFeedback IS NOT NULL AND freeTextFeedback != ''
+WHERE freeTextFeedback IS NOT NULL AND freeTextFeedback != '' $filterClause
 ORDER BY createdAt DESC
 LIMIT 50;
 "@
@@ -274,6 +350,7 @@ if ($Daily) {
 SELECT substr(createdAt, 1, 10) AS date,
        COUNT(*) AS count
 FROM feedback
+WHERE 1=1 $filterClause
 GROUP BY substr(createdAt, 1, 10)
 ORDER BY date DESC;
 "@
@@ -286,7 +363,8 @@ if ($TextRatio) {
 SELECT COUNT(*) AS total,
        SUM(CASE WHEN freeTextFeedback IS NOT NULL AND freeTextFeedback != '' THEN 1 ELSE 0 END) AS has_text,
        ROUND(SUM(CASE WHEN freeTextFeedback IS NOT NULL AND freeTextFeedback != '' THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 1) AS text_percentage
-FROM feedback;
+FROM feedback
+WHERE 1=1 $filterClause;
 "@
   Invoke-D1Query -Title "文字反馈占比" -Sql $sql
 }
