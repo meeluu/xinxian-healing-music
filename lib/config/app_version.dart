@@ -30,7 +30,8 @@ class AppVersion {
   /// - `M{n}-preview`：预览部署
   /// - `M{n}-stable`：正式发布
   /// - `P{N}-ui-{n}`：P 阶段第 n 批 UI / 体验优化
-  static const String buildLabel = 'P2-ui-4-fix1';
+  /// - `P{N}-stable`：P 阶段收尾验收通过，正式发布
+  static const String buildLabel = 'P2-stable';
 
   /// 构建日期（YYYY-MM-DD），手动维护。
   static const String buildDate = '2026-07-11';
