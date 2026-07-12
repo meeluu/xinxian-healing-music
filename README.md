@@ -5,7 +5,7 @@
 心弦是一款基于 Flutter Web 的情绪陪伴 Demo。用户输入当下心境后，系统通过 LLM 生成情绪画像与音乐参数，并播放匹配的本地音频素材，形成「自然语言 → AI 情绪解析 → 音乐方案 → 音频体验 → 用户反馈」的完整闭环。
 
 - **正式体验地址**：[https://xinxian-music.xyz](https://xinxian-music.xyz)
-- **当前版本**：`v1.0.0 · P4-mock-1 · Cloudflare Pages`
+- **当前版本**：`v1.0.0 · P4-provider-skeleton-1 · Cloudflare Pages`
 - **定位**：辅助情绪调节、睡前舒缓、正念陪伴、温和充能的轻量化工具，**不提供医疗诊断或治疗**，不替代专业心理咨询与医疗建议（详见[第十二章 免责声明](#十二免责声明)）
 
 ---
@@ -72,8 +72,8 @@
 
 ### 2.1 当前阶段
 
-- **阶段**：`P4-AI-Music-v1.0 进行中 / P4-mock-1`
-- **版本号**：`v1.0.0 · P4-mock-1 · Cloudflare Pages`（首页底部显示 `心弦 v1.0.0 · P4-mock-1 · Cloudflare Pages`）
+- **阶段**：`P4-AI-Music-v1.0 进行中 / P4-provider-skeleton-1`
+- **版本号**：`v1.0.0 · P4-provider-skeleton-1 · Cloudflare Pages`（首页底部显示 `心弦 v1.0.0 · P4-provider-skeleton-1 · Cloudflare Pages`）
 - **构建日期**：2026-07-12
 - **部署目标**：Cloudflare Pages
 - **上一阶段**：P3-Web-v1.0 已完成（`P3-data-3`，2026-07-11 第三批完成）；P2-Web-v1.0 已完成（`P2-stable`，2026-07-11 收尾验收通过）
@@ -841,6 +841,122 @@ Flutter Web → Pages Function /api/generate-music → Stable Audio API（异步
 
 **当前状态**：mock 闭环可运行，生成结果与预置音频相同（仅验证链路），**P4 真正 AI 音乐生成仍是后续必做项**
 
+#### 6.8.12 P4.3 mock/adapter 最小闭环 fix1：交互修复（2026-07-12）
+
+修复 P4.3 mock 生成流程的用户体验问题：点击「生成专属音乐（实验）」后直接进入播放器并卡住。
+
+**根因**：
+- `MusicGenerationScreen` 在 `createJob` 失败时（本地开发无 Functions）立即 `pushReplacement` 到 PlayerScreen，用户看不清生成页
+- 成功/失败后 800ms/1500ms 自动跳转，用户来不及识别状态
+- 轮询超时 150 秒过长，mock 阶段不需要
+
+**已修复**：
+- ✅ 移除所有自动跳转逻辑，用户手动点击按钮才进入播放器
+- ✅ `createJob` 失败时本地模拟 3-4 秒生成过程（mock 阶段最终都是预置音频），让用户看到完整生成流程
+- ✅ 成功后显示「播放这段音乐」+「改用预置音乐」两个按钮
+- ✅ 失败后显示「播放预置音乐」按钮 + 温和文案
+- ✅ 生成中显示「这是实验功能，当前使用 mock 生成流程」副文案
+- ✅ `MusicGenerationService` 超时调整：`maxPollDuration` 150s → 15s，`pollInterval` 3s → 2s
+- ✅ AppBar 关闭按钮始终可用，不会卡死
+
+**未做事项**：
+- ❌ 未接入真实 Stable Audio API（P4.4）
+- ❌ 未改 D1 schema
+- ❌ 未改现有预置音频匹配和播放逻辑
+- ❌ 未产生付费调用
+
+**当前状态**：mock 生成流程可理解、可操作、不卡死，**P4 真正 AI 音乐生成仍是后续必做项**
+
+#### 6.8.13 P4.3 mock/adapter 最小闭环 fix2：生成页空白与关闭按钮修复（2026-07-12）
+
+修复 P4.3 fix1 遗留问题：生成页主体空白、关闭按钮不可点击。
+
+**根因**：
+- `CenteredPageScaffold` 内部使用 `SingleChildScrollView`，给子级的高度约束是无界的
+- `MusicGenerationScreen` 的 `Column` 中使用了 `Spacer()`（内部是 `Expanded`），在无界高度约束下抛出 `RenderFlex children have non-zero flex but the height constraints are unbounded` 布局异常
+- 布局异常导致整个 Column 渲染失败，页面空白
+- body 渲染抛异常后，widget tree 的 hit-test 链受影响，关闭按钮点击无响应
+
+**已修复**：
+- ✅ 移除 `Spacer()`，改用 `SizedBox(height: 32)` 固定间距
+- ✅ `_phase` 初始值改为 `generating`，首帧立即显示生成中 UI，绝不空白
+- ✅ 简化为纯 3 秒 `Future.delayed` 本地模拟，不调用 `createJob`/`pollUntilComplete`，避免任何网络/HTTP/解析异常
+- ✅ 关闭按钮改用 `Navigator.of(context).maybePop()`，不检查任何状态，永远可点击
+- ✅ 进度条改为 indeterminate（不确定进度），不需要更新 progress 值，更简单稳定
+- ✅ 新增 `test/music_generation_screen_test.dart`（3 个 widget test：初始文案、3 秒后成功按钮、关闭按钮 pop）
+
+**未做事项**：
+- ❌ 未接入真实 Stable Audio API（P4.4）
+- ❌ 未改 D1 schema
+- ❌ 未改现有预置音频匹配和播放逻辑
+- ❌ 未产生付费调用
+
+**当前状态**：生成页首帧即有内容、关闭按钮永远可点击、3 秒后显示成功按钮，**P4 真正 AI 音乐生成仍是后续必做项**
+
+#### 6.8.14 P4.4-1 Provider Adapter 与密钥/成本控制设计（2026-07-12）
+
+在 P4.3 mock/adapter 闭环已稳定的基础上，为真实 Stable Audio 接入做工程准备。本批只做设计，不实际调用付费 API。
+
+**新增文档**：[`docs/ai-music-provider-adapter-design.md`](docs/ai-music-provider-adapter-design.md)（12 章节）
+
+**设计内容**：
+- Provider adapter 架构：`MockProvider`（P4.3 已实现）+ `StableAudioProvider`（P4.4-2 实现），通过环境变量 `MUSIC_GENERATION_PROVIDER=mock|stable_audio` 切换
+- Provider 选择逻辑：未设置默认 mock；设为 stable_audio 但 API Key 缺失时自动降级到 mock
+- Stable Audio 接入草案：endpoint `POST /v2/audio/stable-audio-3.0`、payload 结构、response 解析、8 类错误码映射、5 层超时策略
+- 环境变量设计：`MUSIC_GENERATION_PROVIDER`、`STABLE_AUDIO_API_KEY`、`MUSIC_GENERATION_DAILY_LIMIT`（默认 20）、`MUSIC_GENERATION_MAX_DURATION`（默认 180s）、`R2_BUCKET_NAME` 等
+- 成本控制：每会话 1 次、每日 20 次、单次最大 180 秒、每日成本上限 $1.0、免费 credits 监控
+- 安全与隐私：不上传 moodText、prompt 禁止医疗化表达、API Key 只在 Cloudflare env、日志脱敏
+- D1 migration 草案：`music_generation_jobs` 表（15 字段 + 5 索引，本批不执行）
+- R2 准备：bucket `xinxian-music-gen`、路径 `generated-music/{yyyy}/{mm}/{jobId}.mp3`、30 天生命周期
+- Fallback 链：stable_audio 失败 → mock → 预置音频
+
+**当前状态**：
+- ✅ mock provider 仍是默认，未接入真实 Stable Audio API
+- ✅ 未产生付费调用
+- ✅ 未改 D1 schema / 未改前端播放主流程
+- ✅ P4.4-2 实施清单 15 项任务已拆分（含 8 项需人工确认的前置条件）
+- **P4 真正 AI 音乐生成仍是后续必做项**
+
+#### 6.8.15 P4.4-2 Provider Adapter 代码骨架实现（2026-07-12）
+
+基于 [P4.4-1 设计文档](docs/ai-music-provider-adapter-design.md)，实现后端 provider adapter 代码骨架，让 `/api/generate-music` 和 `/api/music-status` 支持 provider 选择。本批仍不调用真实 Stable Audio API。
+
+**新增文件**：
+- `functions/api/_music/music-generation-utils.js` — 共享工具（CORS / 校验 / fallback / jobId 生成与解析 / 进度估算）
+- `functions/api/_music/providers/mock-provider.js` — MockProvider（从 P4.3 抽出，无状态，4s 后 90% 成功）
+- `functions/api/_music/providers/stable-audio-provider.js` — StableAudioProvider 骨架（不发真实请求，返回 `provider_disabled` + fallback）
+- `functions/api/_music/provider-factory.js` — Provider 工厂（根据 `MUSIC_GENERATION_PROVIDER` + `STABLE_AUDIO_API_KEY` 选择 provider）
+- `scripts/verify-provider-adapter.mjs` — Node.js 验证脚本（10 个测试）
+
+**修改文件**：
+- `functions/api/generate-music.js` — 重构为使用 provider factory
+- `functions/api/music-status.js` — 重构为使用 provider factory
+
+**Provider 选择逻辑**：
+
+| `MUSIC_GENERATION_PROVIDER` | `STABLE_AUDIO_API_KEY` | 实际 provider |
+|---|---|---|
+| 未设置 / `mock` | — | MockProvider |
+| `stable_audio` | 缺失 | MockProvider（降级） |
+| `stable_audio` | 有值 | StableAudioProvider 骨架（返回 `not_implemented` + fallback） |
+| 未知值 | — | MockProvider + warning |
+
+**验证结果**：
+- ✅ `node scripts/verify-provider-adapter.mjs` — 10/10 passed
+- ✅ mock provider 仍是默认
+- ✅ 未配置 API Key 自动降级 mock
+- ✅ stable_audio 有 Key 也不发真实请求（骨架阶段）
+- ✅ API 响应结构完全兼容前端
+- ✅ 前端 UI 不变（仍用 P4.3-fix2 的稳定 3 秒本地 mock）
+
+**未做事项**：
+- ❌ 未调用真实 Stable Audio API
+- ❌ 未产生付费调用
+- ❌ 未改 D1 schema
+- ❌ 未配置 R2 bucket
+- ❌ 未改前端主流程
+- **下一步才是 API Key / 平台配置 / 真实请求灰度**
+
 ---
 
 ## 七、数据与隐私
@@ -1165,6 +1281,10 @@ Web 与 Android 的构建链路相互独立：Android 的 Gradle 配置不参与
 | 2026-07-12 | v1.0.0 / P4-research-1-fix1 | P4 第 1.5 批 | 供应商可用性与版权/API 复核：确认 Stable Audio 3.0 Large API 已于 2026-05-20 官方发布（platform.stability.ai）；修正模型家族描述（Large 2.7B 仅 API/企业授权，Small/Medium 开源权重）；澄清 Community License 允许商用（年营收 <$1M 免费）vs Stable Audio Open 旧版非商用；确认 MusicGen CC-BY-NC 4.0 仍非商业仅作 fallback；维持 Suno/Udio/ElevenLabs/MiniMax/Lyria 不推荐判断；列出 10 项待人工确认事项；下一步 P4.2 最小 PoC |
 | 2026-07-12 | v1.0.0 / P4-design-1 | P4 第二批 | 最小 PoC 接入设计：新增 `docs/ai-music-generation-poc-design.md`（13 章节）；设计 `/api/generate-music` + `/api/music-status` 接口；设计 6 状态流（queued/generating/storing/succeeded/failed/fallback）+ 进度估算 + 超时策略；设计 D1 `music_generation_jobs` 表（15 字段 + 4 索引，不立即迁移）；设计 R2 路径 `generated-music/{yyyy}/{mm}/{jobId}.mp3` + 30 天生命周期；5 类 targetState 英文 prompt 模板（纯音乐/无歌词/无医疗化表达）；前端最小 UI 流程 + 轮询逻辑；fallback 策略（所有失败零中断）；P4.3 任务拆分 15 项；不接真实 API / 不写代码 / 不改 D1 / 不改 Functions；只运行 `flutter analyze` |
 | 2026-07-12 | v1.0.0 / P4-mock-1 | P4 第三批 | mock/adapter 最小闭环实现：新增 `functions/api/generate-music.js`（mock 创建任务 + 输入校验 + prompt 过滤 + CORS）+ `functions/api/music-status.js`（无状态查询 + 时间戳进度 + 90% 成功 / 10% 失败）；新增 `lib/pipeline/music_generation/`（models + service，封装 createJob/getStatus/pollUntilComplete + 网络异常 fallback）；新增 `lib/screens/music_generation_screen.dart`（呼吸圆 + 进度条 + 状态文案 + 实验标签 + 自动进入播放器）；修改 `lib/screens/plan_screen.dart`（新增「生成专属音乐（实验）」按钮）；新增 `test/music_generation_service_test.dart`（10 条测试）；不改 D1 schema / 不改预置音频逻辑 / 不接真实 API / 不产生付费调用 |
+| 2026-07-12 | v1.0.0 / P4-mock-1-fix1 | P4 第三批 fix1 | mock 生成流程交互修复：移除 `MusicGenerationScreen` 所有自动跳转逻辑，改为用户手动点击按钮进入播放器；`createJob` 失败时本地模拟 3-4 秒生成过程（mock 阶段最终都是预置音频）；成功后显示「播放这段音乐」+「改用预置音乐」按钮；失败后显示「播放预置音乐」按钮；`MusicGenerationService` 超时调整 `maxPollDuration` 150s → 15s、`pollInterval` 3s → 2s；未接入真实 Stable Audio API / 未改 D1 schema / 未改预置音频逻辑 / 未产生付费调用 |
+| 2026-07-12 | v1.0.0 / P4-mock-1-fix2 | P4 第三批 fix2 | 生成页空白与关闭按钮修复：根因是 `Column` 中 `Spacer()` 在 `SingleChildScrollView` 无界高度约束下抛布局异常导致页面空白；移除 `Spacer()` 改用 `SizedBox` 固定间距；`_phase` 初始值改为 `generating` 确保首帧有内容；简化为纯 3 秒 `Future.delayed` 本地模拟，不再调用 `createJob`/`pollUntilComplete`；关闭按钮改用 `maybePop` 永远可点击；进度条改为 indeterminate；新增 `test/music_generation_screen_test.dart`（3 个 widget test）；未接入真实 Stable Audio API / 未改 D1 schema / 未改预置音频逻辑 / 未产生付费调用 |
+| 2026-07-12 | v1.0.0 / P4-provider-design-1 | P4 第四批第一步 | Provider adapter 与密钥/成本控制设计：新增 `docs/ai-music-provider-adapter-design.md`（12 章节）；设计 MockProvider + StableAudioProvider 双 provider 架构 + 环境变量切换逻辑；Stable Audio 接入草案（endpoint / payload / response / 8 类错误码映射 / 5 层超时策略）；8 个环境变量设计（`MUSIC_GENERATION_PROVIDER` / `STABLE_AUDIO_API_KEY` / `MUSIC_GENERATION_DAILY_LIMIT` 等）；成本控制矩阵（每会话 1 次 / 每日 20 次 / 单次 180s / 每日 $1 上限）；安全与隐私设计（不上传 moodText / API Key 只在 Cloudflare env / 日志脱敏）；D1 migration 草案（15 字段 + 5 索引，不执行）；R2 准备方案；P4.4-2 实施清单 15 项任务 + 8 项人工确认前置条件；未接入真实 Stable Audio API / 未产生付费调用 / 未改 D1 schema / 未改前端播放主流程 |
+| 2026-07-12 | v1.0.0 / P4-provider-skeleton-1 | P4 第四批第二步 | Provider adapter 代码骨架实现：新增 `functions/api/_music/music-generation-utils.js`（共享工具）+ `providers/mock-provider.js`（从 P4.3 抽出）+ `providers/stable-audio-provider.js`（骨架，不发真实请求）+ `provider-factory.js`（环境变量选择）；重构 `generate-music.js` + `music-status.js` 使用 provider factory；新增 `scripts/verify-provider-adapter.mjs`（10 个 Node.js 测试）；Provider 选择：默认 mock / stable_audio 无 Key 降级 mock / stable_audio 有 Key 返回 `not_implemented` + fallback；API 响应结构完全兼容前端；前端 UI 不变（仍用 P4.3-fix2 稳定 3 秒本地 mock）；未调用真实 Stable Audio API / 未产生付费调用 / 未改 D1 schema / 未改前端主流程 |
 
 ### 13.6 项目结构
 

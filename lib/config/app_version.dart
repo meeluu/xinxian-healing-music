@@ -35,8 +35,11 @@ class AppVersion {
   /// - `P{N}-research-{n}-fix{m}`：P 阶段第 n 批调研的第 m 次复核修订
   /// - `P{N}-design-{n}`：P 阶段第 n 批接入设计（接口/数据/Prompt/前端架构）
   /// - `P{N}-mock-{n}`：P 阶段第 n 批 mock/adapter 最小闭环实现
+  /// - `P{N}-mock-{n}-fix{m}`：P 阶段第 n 批 mock 的第 m 次交互修复
+  /// - `P{N}-provider-design-{n}`：P 阶段第 n 批 provider adapter 与密钥/成本控制设计
+  /// - `P{N}-provider-skeleton-{n}`：P 阶段第 n 批 provider adapter 代码骨架实现
   /// - `P{N}-stable`：P 阶段收尾验收通过，正式发布
-  static const String buildLabel = 'P4-mock-1';
+  static const String buildLabel = 'P4-provider-skeleton-1';
 
   /// 构建日期（YYYY-MM-DD），手动维护。
   static const String buildDate = '2026-07-12';

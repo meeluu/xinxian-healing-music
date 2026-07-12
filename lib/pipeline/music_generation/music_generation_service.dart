@@ -20,10 +20,10 @@ import 'music_generation_models.dart';
 class MusicGenerationService {
   final http.Client _client;
 
-  /// 轮询间隔（默认 3 秒）
+  /// 轮询间隔（默认 2 秒）
   final Duration pollInterval;
 
-  /// 最大轮询时长（默认 150 秒）
+  /// 最大轮询时长（默认 15 秒，mock 阶段不需要等太久）
   final Duration maxPollDuration;
 
   /// 单次 HTTP 请求超时
@@ -31,8 +31,8 @@ class MusicGenerationService {
 
   MusicGenerationService({
     http.Client? client,
-    this.pollInterval = const Duration(seconds: 3),
-    this.maxPollDuration = const Duration(seconds: 150),
+    this.pollInterval = const Duration(seconds: 2),
+    this.maxPollDuration = const Duration(seconds: 15),
     this.requestTimeout = const Duration(seconds: 10),
   }) : _client = client ?? http.Client();
 
@@ -133,10 +133,9 @@ class MusicGenerationService {
 
   Uri _statusEndpoint(String jobId, String targetState) {
     final base = Uri.base.resolve('/api/music-status');
-    return base.replace(queryParameters: {
-      'id': jobId,
-      'targetState': targetState,
-    });
+    return base.replace(
+      queryParameters: {'id': jobId, 'targetState': targetState},
+    );
   }
 
   /// 网络失败时的 fallback 生成响应
