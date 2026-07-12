@@ -5,7 +5,7 @@
 心弦是一款基于 Flutter Web 的情绪陪伴 Demo。用户输入当下心境后，系统通过 LLM 生成情绪画像与音乐参数，并播放匹配的本地音频素材，形成「自然语言 → AI 情绪解析 → 音乐方案 → 音频体验 → 用户反馈」的完整闭环。
 
 - **正式体验地址**：[https://xinxian-music.xyz](https://xinxian-music.xyz)
-- **当前版本**：`v1.0.0 · P3-data-3 · Cloudflare Pages`
+- **当前版本**：`v1.0.0 · P4-design-1 · Cloudflare Pages`
 - **定位**：辅助情绪调节、睡前舒缓、正念陪伴、温和充能的轻量化工具，**不提供医疗诊断或治疗**，不替代专业心理咨询与医疗建议（详见[第十二章 免责声明](#十二免责声明)）
 
 ---
@@ -21,6 +21,7 @@
 6.5. [P3-Web-v1.0 第一批：反馈数据查询脚本 + 基础统计](#六点五p3-web-v10-第一批反馈数据查询脚本--基础统计)
 6.6. [P3-Web-v1.0 第二批：测试数据标记与查询隔离](#六点六p3-web-v10-第二批测试数据标记与查询隔离)
 6.7. [P3-Web-v1.0 第三批：真实反馈采集准备](#六点七p3-web-v10-第三批真实反馈采集准备)
+6.8. [P4-AI-Music-v1.0 第一批：AI 音乐生成服务选型调研](#六点八p4-ai-music-v10-第一批ai-音乐生成服务选型调研)
 7. [数据与隐私](#七数据与隐私)
 8. [环境变量与部署](#八环境变量与部署)
 9. [本地开发与验证](#九本地开发与验证)
@@ -71,11 +72,11 @@
 
 ### 2.1 当前阶段
 
-- **阶段**：`P3-Web-v1.0 进行中 / P3-data-3`
-- **版本号**：`v1.0.0 · P3-data-3 · Cloudflare Pages`（首页底部显示 `心弦 v1.0.0 · P3-data-3 · Cloudflare Pages`）
-- **构建日期**：2026-07-11
+- **阶段**：`P4-AI-Music-v1.0 进行中 / P4-design-1`
+- **版本号**：`v1.0.0 · P4-design-1 · Cloudflare Pages`（首页底部显示 `心弦 v1.0.0 · P4-design-1 · Cloudflare Pages`）
+- **构建日期**：2026-07-12
 - **部署目标**：Cloudflare Pages
-- **上一阶段**：P2-Web-v1.0 已完成（`P2-stable`，2026-07-11 收尾验收通过）
+- **上一阶段**：P3-Web-v1.0 已完成（`P3-data-3`，2026-07-11 第三批完成）；P2-Web-v1.0 已完成（`P2-stable`，2026-07-11 收尾验收通过）
 
 ### 2.2 当前部署架构
 
@@ -710,6 +711,109 @@ analysis_stage: 未达门槛（<30）：只看链路，不下结论
 
 ---
 
+### 6.8 P4-AI-Music-v1.0 第一批：AI 音乐生成服务选型调研
+
+> 版本：`v1.0.0 · P4-research-1-fix1 · 2026-07-12`
+> 完整调研文档：[docs/ai-music-generation-research.md](docs/ai-music-generation-research.md)（含 P4.1 调研 + P4.1-fix 供应商可用性复核）
+
+#### 6.8.1 目标与范围
+
+P4 的核心目标是**真正接入 AI 音乐生成**，将 `AudioGenerationPort` 从本地预置音频替换为真实 AI 生成模型。本批（第一批）只做技术调研与方案设计，**不接入代码、不调用付费 API、不改现有播放逻辑、不改 D1 schema、不改 Cloudflare Functions**，为 P4.2 起的实际接入提供选型依据与架构草图。
+
+#### 6.8.2 调研覆盖方案
+
+| 方案 | 类型 | 官方 API | 纯音乐 | 版权风险 |
+|---|---|---|---|---|
+| Suno v5.5 | 商业平台 | ❌ 无官方（第三方 wrapper） | ✅ | ⚠️ 高（诉讼中） |
+| Udio v4 | 商业平台 | ❌ 无官方 API | ✅ | ⚠️ 中（部分和解） |
+| **Stable Audio 3.0** | 商业 + 开源权重 | ✅ 官方 API | ✅ | ✅ 低（100% 授权数据） |
+| MusicGen / AudioCraft | 开源 + Replicate | ❌ 无官方 | ✅ | ⚠️ 中（CC-BY-NC 非商业） |
+| ElevenLabs Music | 商业 API | ✅ FAL.AI | ✅ | ⚠️ 中 |
+| MiniMax Music 2.5 | 商业 API | ✅ FAL.AI | ✅ | ⚠️ 中 |
+| Google Lyria 3 | 商业 API | ⚠️ 邀请制 | ✅ | ⚠️ 中 |
+
+#### 6.8.3 推荐 Top 2
+
+1. **🥇 Stable Audio 3.0（主选）**：官方 API + 训练数据 100% 授权（AudioSparx）+ 纯音乐原生 + 时长精确到秒 + Small 模型可移动端推理 + Community License（<$1M 年营收免费）
+2. **🥈 MusicGen / AudioCraft（备选）**：完全开源 + Replicate ~$0.052/run + melody conditioning 独有能力；但权重 CC-BY-NC 4.0 非商业许可是硬伤，仅作 Demo 阶段备选
+
+#### 6.8.4 不推荐方案
+
+- **Suno v5.5**：无官方 API + 第三方 wrapper 不稳定 + 诉讼风险
+- **Udio v4**：无官方 API，无法程序化调用
+- **ElevenLabs Music**：$0.80/min 成本过高
+- **MiniMax Music 2.5**：单次输出 50-76s 过短，需拼接
+- **Google Lyria 3**：邀请制 + WebSocket 不适合 Pages Functions
+
+#### 6.8.5 推荐接入路线
+
+```
+P4.1（本批，已完成）：技术调研 + 方案设计 + 架构草图
+P4.2：Stable Audio 3.0 官方 API 接入（异步任务 + R2 存储 + fallback 预置）
+P4.3：DSP 后处理接入（白噪音 / 粉红噪音 / EQ / 淡入淡出）
+P4.4：成本与安全控制（限流 + 内容过滤 + R2 生命周期）
+P4.5（可选）：MusicGen 二级 fallback
+```
+
+#### 6.8.6 接入架构草图
+
+```
+Flutter Web → Pages Function /api/generate-music → Stable Audio API（异步）
+                                  ↓
+            Pages Function /api/music-status/{taskId}（轮询）
+                                  ↓ 完成则下载 → 上传 R2 → 返回 audioUrl
+                                  ↓ 失败/超时 → fallback 到预置音频
+            just_audio 播放 R2 URL 或预置音频
+                                  ↓
+            反馈页正常采集（audioAssetId 标记 gen_ 或预置名，D1 schema 不变）
+```
+
+#### 6.8.7 重要约束（本批遵守）
+
+- 不接入真实 API Key
+- 不写死任何第三方密钥
+- 不调用付费生成接口
+- 不改现有预置音频播放逻辑
+- 不改 D1 schema
+- 不改 Cloudflare Functions
+- 不做医疗化表达（统一「辅助情绪调节 / 睡前舒缓 / 正念陪伴 / 温和充能」措辞）
+- 保留预置音频作为未来 fallback 方案
+
+#### 6.8.8 验证结果
+
+- `flutter analyze`：通过（本批只新增文档 + 版本号，未改业务逻辑，未运行 test/build）
+- 交付物：`docs/ai-music-generation-research.md` + README 同步 + `app_version.dart` 版本号更新
+
+#### 6.8.9 P4.1-fix 供应商可用性复核（2026-07-12）
+
+在 P4.1 调研基础上，对推荐方案做二次复核，确认以下关键结论（详见调研文档第十二章）：
+
+- **Stable Audio 3.0 Large API 已确认可用**：Stability AI 官方 2026-05-20 release notes 明确发布 API；入口 platform.stability.ai；Large 模型（2.7B 参数）仅 API/企业授权，不开源；Small/Medium 开源权重
+- **授权边界澄清**：Community License 允许商用（年营收 <$1M 免费，高校 Demo 适用）；Stable Audio Open 旧版 1.0 为 Research/Non-Commercial，不可混用
+- **定价模型**：1 credit = $0.01，新用户 25 免费 credits，pay-per-use 无订阅要求
+- **MusicGen 复核**：权重仍为 CC-BY-NC 4.0 非商业，仅作 P4.5 可选二级 fallback；Replicate ~$0.067/run
+- **不推荐方案维持原判**：Suno/Udio 无官方 API；ElevenLabs 成本过高；MiniMax 时长不足；Lyria 邀请制
+- **最终建议**：主方案 Stable Audio 3.0 Large API；备选 MusicGen（仅 fallback，需声明非商业）；暂不接入 Suno/Udio/ElevenLabs/MiniMax/Lyria/Stable Audio Open 旧版
+- **待人工确认**：账号注册、25 免费 credits 到账、单次生成 credit 成本、速率限制、异步任务方式、输出格式、Community License 全文审阅等 10 项（详见调研文档 12.6 节）
+- **下一步**：P4.2 最小 PoC（人工注册 + 用免费 credits 验证生成流程），**当前尚未接入真实生成**
+
+#### 6.8.10 P4.2 最小 PoC 接入设计（2026-07-12）
+
+在 P4.1 调研与 P4.1-fix 复核基础上，完成最小可行接入的**架构设计**（详见 [docs/ai-music-generation-poc-design.md](docs/ai-music-generation-poc-design.md)）：
+
+- **接口设计**：`POST /api/generate-music`（创建 job + 立即返回 fallbackTrack）+ `GET /api/music-status?id=xxx`（轮询状态）+ 可选 `POST /api/music-cancel`
+- **状态流设计**：queued → generating → storing → succeeded / failed / fallback，含进度估算与超时策略（总 120s 超时）
+- **D1 设计**：`music_generation_jobs` 表（15 字段 + 4 索引，通过 session_id 关联 feedback 表，**不立即迁移**）
+- **R2 设计**：bucket `xinxian-music-gen`，路径 `generated-music/{yyyy}/{mm}/{jobId}.mp3`，30 天生命周期
+- **Prompt 映射**：5 类 targetState（sleep/soothe/regulate/focus/energize）→ 英文 prompt 模板，纯音乐/无歌词/无医疗化表达
+- **前端流程**：方案页新增「生成专属音乐（实验）」入口（默认折叠）→ 生成进度页（呼吸圆+进度条）→ 成功播放生成音频 / 失败 fallback 预置音频
+- **Fallback 策略**：所有失败/超时/限流都返回 fallbackTrack，前端零中断
+- **成本与安全**：每 IP 每日 20 次、每 session 1 次、prompt 内容过滤、API Key 仅在 Cloudflare env（设计不实现）
+- **P4.3 任务拆分**：15 项任务（D1 迁移 / 2 个 Pages Function / Mock 生成器 / Prompt 映射器 / 前端 4 项 / 数据串联 / 限流 / 过滤 / 测试 / 验证 / README 同步）
+- **下一步**：P4.3 最小 mock/adapter 实现（不接真实 API），**当前尚未接入真实生成**
+
+---
+
 ## 七、数据与隐私
 
 ### 7.1 心境文本处理
@@ -952,8 +1056,8 @@ Web 与 Android 的构建链路相互独立：Android 的 Gradle 配置不参与
 
 | 阶段 | 计划内容 | 状态 |
 |---|---|---|
-| **P3-Web-v1.0**（进行中） | 数据与反馈运营：第一批已完成反馈数据查询脚本 + 基础统计（查询 9-12 + PowerShell 脚本）；后续批次基于 D1 已采集数据深化反馈分析（calmnessScore 分布 / targetState 命中 / 音频匹配效果）；补齐 improvement 派生指标（after-before，正值代表状态改善，P3 补齐 D1 端派生）；M8.2 消融对比实验音频旁路落地（generic 固定 `soothe_01.mp3`、control 固定 `sleep_01.mp3`，真正改变推荐结果）；反馈数据可视化轻量方案；可选补 `completionRatio` D1 字段 | 🔜 进行中（第一批完成） |
-| **P4-AI-Music-v1.0**（必做） | 真正 AI 音乐生成接入（**产品核心升级，非可选项**）：将 `AudioGenerationPort` 从本地预置音频替换为真实 AI 音乐生成模型（如 MusicGen / Suno API），按 `generationPrompt` 实时生成个性化音频；DSP 后处理（白噪音 / 粉红噪音 / EQ / 淡入淡出）接入；异步生成任务；音频存储；fallback 到预置音频；成本与安全控制 | ⏳ 计划中 |
+| **P3-Web-v1.0**（已完成） | 数据与反馈运营：第一批已完成反馈数据查询脚本 + 基础统计（查询 9-12 + PowerShell 脚本）；第二批测试数据标记与查询隔离（`-ExcludeTest` / `-OnlyTest`）；第三批真实反馈采集准备（`-MinVersion` / `-PreCheck` + 分析门槛 <30/30-100/>100）；后续可基于 D1 已采集数据深化反馈分析；M8.2 消融对比实验音频旁路落地；反馈数据可视化轻量方案 | ✅ 已完成（三批交付） |
+| **P4-AI-Music-v1.0**（必做） | 真正 AI 音乐生成接入（**产品核心升级，非可选项**）：将 `AudioGenerationPort` 从本地预置音频替换为真实 AI 音乐生成模型，按 `generationPrompt` 实时生成个性化音频；DSP 后处理（白噪音 / 粉红噪音 / EQ / 淡入淡出）接入；异步生成任务；音频存储；fallback 到预置音频；成本与安全控制。**第一批已完成技术调研与方案设计，第 1.5 批已完成供应商可用性与版权/API 复核，第二批已完成最小 PoC 接入设计**（详见 [docs/ai-music-generation-research.md](docs/ai-music-generation-research.md) 与 [docs/ai-music-generation-poc-design.md](docs/ai-music-generation-poc-design.md)）：确认 Stable Audio 3.0 Large API（platform.stability.ai）为 P4.4 主接入方案；MusicGen 因 CC-BY-NC 4.0 非商业许可仅作可选二级 fallback；**下一步是 P4.3 最小 mock/adapter 实现（不接真实 API），当前尚未接入真实生成** | 🔜 进行中（调研 + 复核 + PoC 设计完成） |
 | **P5-Mobile-v1.0** | 移动端 App 准备：解决 Android 构建上游插件与 Gradle 9 兼容性问题；Android/iOS 原生打包与发布流程 | ⏳ 计划中 |
 | **P6** | 用户系统与跨设备：可选登录 / 跨端历史同步 | ⏳ 计划中 |
 | **P7** | 正式发布与运营：反馈数据可视化公开管理后台；正式发布与运营 | ⏳ 计划中 |
@@ -1024,7 +1128,15 @@ Web 与 Android 的构建链路相互独立：Android 的 Gradle 配置不参与
 | 2026-07-11 | v1.0.0 / P3-data-2 | P3 第二批 | 测试数据标记与查询隔离：`query-feedback.ps1` 新增 `-ExcludeTest` / `-OnlyTest` 参数；`feedback-queries.sql` 新增查询 13-16；保守识别规则（clientVersion v0.x / sessionId 含 test / 文字反馈含测试词）；不改 D1 schema / 不删除远程数据 |
 | 2026-07-11 | v1.0.0 / P3-data-3 | P3 第三批 | 真实反馈采集准备：`query-feedback.ps1` 新增 `-MinVersion` / `-PreCheck` 参数；`feedback-queries.sql` 新增查询 17-20（真实反馈数量+门槛 / clientVersion 分布 / 日期分布 / targetState 分布）；建立分析门槛（<30 只看链路 / 30-100 方向性观察 / >100 分组优化）；当前真实反馈=0 |
 
-### 13.5 项目结构
+### 13.5 P4-AI-Music-v1.0（AI 音乐生成接入）
+
+| 日期 | 版本 | 阶段 | 摘要 |
+|---|---|---|---|
+| 2026-07-12 | v1.0.0 / P4-research-1 | P4 第一批 | AI 音乐生成服务选型调研：新增 `docs/ai-music-generation-research.md`（覆盖 Suno/Udio/Stable Audio/MusicGen/ElevenLabs/MiniMax/Lyria 7 类方案）；推荐 Top 2（Stable Audio 3.0 主选 + MusicGen 备选）；输出接入架构草图（Flutter Web → Pages Function → Stable Audio API → R2 → Player）；不接入代码 / 不调用付费 API / 不改播放逻辑 / 不改 D1 schema / 不改 Functions；保留预置音频作 fallback；只运行 `flutter analyze`（未改业务逻辑） |
+| 2026-07-12 | v1.0.0 / P4-research-1-fix1 | P4 第 1.5 批 | 供应商可用性与版权/API 复核：确认 Stable Audio 3.0 Large API 已于 2026-05-20 官方发布（platform.stability.ai）；修正模型家族描述（Large 2.7B 仅 API/企业授权，Small/Medium 开源权重）；澄清 Community License 允许商用（年营收 <$1M 免费）vs Stable Audio Open 旧版非商用；确认 MusicGen CC-BY-NC 4.0 仍非商业仅作 fallback；维持 Suno/Udio/ElevenLabs/MiniMax/Lyria 不推荐判断；列出 10 项待人工确认事项；下一步 P4.2 最小 PoC |
+| 2026-07-12 | v1.0.0 / P4-design-1 | P4 第二批 | 最小 PoC 接入设计：新增 `docs/ai-music-generation-poc-design.md`（13 章节）；设计 `/api/generate-music` + `/api/music-status` 接口；设计 6 状态流（queued/generating/storing/succeeded/failed/fallback）+ 进度估算 + 超时策略；设计 D1 `music_generation_jobs` 表（15 字段 + 4 索引，不立即迁移）；设计 R2 路径 `generated-music/{yyyy}/{mm}/{jobId}.mp3` + 30 天生命周期；5 类 targetState 英文 prompt 模板（纯音乐/无歌词/无医疗化表达）；前端最小 UI 流程 + 轮询逻辑；fallback 策略（所有失败零中断）；P4.3 任务拆分 15 项；不接真实 API / 不写代码 / 不改 D1 / 不改 Functions；只运行 `flutter analyze` |
+
+### 13.6 项目结构
 
 ```
 lib/
@@ -1077,6 +1189,10 @@ schema/
 scripts/
 └── feedback-queries.sql           # 常用 D1 查询脚本（12 条查询 + 附录 B 消融实验查询，P3 扩展至 12 条）
     query-feedback.ps1             # PowerShell 辅助查询脚本（P3 新增，8 个参数封装 wrangler 命令）
+
+docs/
+└── ai-music-generation-research.md # P4 第一批 AI 音乐生成服务选型调研文档（P4 新增）
+    ai-music-generation-poc-design.md # P4 第二批 AI 音乐生成最小 PoC 接入设计文档（P4 新增）
 
 web/
 ├── index.html                     # Flutter Web 入口模板
