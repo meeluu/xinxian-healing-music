@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:xinxian_healing_music/models/music_plan.dart';
+import 'package:xinxian_healing_music/screens/music_generation_screen.dart';
 import 'package:xinxian_healing_music/screens/player_screen.dart';
 import 'package:xinxian_healing_music/theme/app_colors.dart';
 import 'package:xinxian_healing_music/utils/recommendation_reason.dart';
@@ -339,6 +340,38 @@ class _PlanScreenState extends State<PlanScreen> {
               ),
               style: FilledButton.styleFrom(
                 minimumSize: const Size.fromHeight(52),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          // P4.3 新增：AI 音乐生成实验入口（默认折叠，不阻塞预置音频体验）
+          FadeSlideItem(
+            delayMs: 420,
+            child: OutlinedButton.icon(
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => MusicGenerationScreen(
+                      plan: plan,
+                      moodText: widget.moodText,
+                    ),
+                  ),
+                );
+              },
+              icon: const Icon(Icons.auto_awesome_rounded, size: 18),
+              label: const Text(
+                '生成专属音乐（实验）',
+                style: TextStyle(fontSize: 14, letterSpacing: 0.5),
+              ),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppColors.primaryDeep,
+                minimumSize: const Size.fromHeight(44),
+                side: BorderSide(
+                  color: AppColors.primary.withValues(alpha: 0.4),
+                ),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(16),
                 ),

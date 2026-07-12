@@ -5,7 +5,7 @@
 心弦是一款基于 Flutter Web 的情绪陪伴 Demo。用户输入当下心境后，系统通过 LLM 生成情绪画像与音乐参数，并播放匹配的本地音频素材，形成「自然语言 → AI 情绪解析 → 音乐方案 → 音频体验 → 用户反馈」的完整闭环。
 
 - **正式体验地址**：[https://xinxian-music.xyz](https://xinxian-music.xyz)
-- **当前版本**：`v1.0.0 · P4-design-1 · Cloudflare Pages`
+- **当前版本**：`v1.0.0 · P4-mock-1 · Cloudflare Pages`
 - **定位**：辅助情绪调节、睡前舒缓、正念陪伴、温和充能的轻量化工具，**不提供医疗诊断或治疗**，不替代专业心理咨询与医疗建议（详见[第十二章 免责声明](#十二免责声明)）
 
 ---
@@ -72,8 +72,8 @@
 
 ### 2.1 当前阶段
 
-- **阶段**：`P4-AI-Music-v1.0 进行中 / P4-design-1`
-- **版本号**：`v1.0.0 · P4-design-1 · Cloudflare Pages`（首页底部显示 `心弦 v1.0.0 · P4-design-1 · Cloudflare Pages`）
+- **阶段**：`P4-AI-Music-v1.0 进行中 / P4-mock-1`
+- **版本号**：`v1.0.0 · P4-mock-1 · Cloudflare Pages`（首页底部显示 `心弦 v1.0.0 · P4-mock-1 · Cloudflare Pages`）
 - **构建日期**：2026-07-12
 - **部署目标**：Cloudflare Pages
 - **上一阶段**：P3-Web-v1.0 已完成（`P3-data-3`，2026-07-11 第三批完成）；P2-Web-v1.0 已完成（`P2-stable`，2026-07-11 收尾验收通过）
@@ -812,6 +812,35 @@ Flutter Web → Pages Function /api/generate-music → Stable Audio API（异步
 - **P4.3 任务拆分**：15 项任务（D1 迁移 / 2 个 Pages Function / Mock 生成器 / Prompt 映射器 / 前端 4 项 / 数据串联 / 限流 / 过滤 / 测试 / 验证 / README 同步）
 - **下一步**：P4.3 最小 mock/adapter 实现（不接真实 API），**当前尚未接入真实生成**
 
+#### 6.8.11 P4.3 mock/adapter 最小闭环实现（2026-07-12）
+
+在 P4.2 PoC 设计基础上，实现不调用真实付费 API 的最小可运行闭环（详见 [docs/ai-music-generation-poc-design.md](docs/ai-music-generation-poc-design.md)）：
+
+**已实现**：
+- ✅ 后端 mock 接口 `functions/api/generate-music.js`：创建生成任务，返回 `jobId` + `fallbackTrack` + `provider:"mock"`；输入校验 + prompt 关键词过滤 + CORS + 异常保护
+- ✅ 后端 mock 接口 `functions/api/music-status.js`：无状态查询，通过 jobId 编码的时间戳计算进度；4 秒后 90% succeeded / 10% failed
+- ✅ 前端服务层 `lib/pipeline/music_generation/`：`MusicGenerationService`（createJob + getStatus + pollUntilComplete）+ 数据模型（Request/Response/FallbackTrack/Phase）
+- ✅ 前端 UI `lib/screens/music_generation_screen.dart`：呼吸圆动画 + 进度条 + 状态文案（queued/generating/succeeded/failed）+ 实验功能标签 + fallback 自动进入播放器
+- ✅ 方案页入口 `lib/screens/plan_screen.dart`：新增「生成专属音乐（实验）」OutlinedButton，不阻塞原有「进入疗愈播放」
+- ✅ 单元测试 `test/music_generation_service_test.dart`：models 序列化 + service createJob/getStatus/pollUntilComplete + 网络异常 fallback
+
+**状态文案**（不承诺治疗效果，失败不吓人）：
+- queued：「已加入生成队列」
+- generating：「正在为这次心境整理音乐方向」
+- succeeded：「专属音乐已生成」
+- failed：「这次专属生成没有完成，已为你切换到合适的预置音乐」
+
+**Fallback 策略**：所有失败/超时/网络异常都自动进入 PlayerScreen 播放预置音频，用户零中断
+
+**未做事项**：
+- ❌ 未接入真实 Stable Audio API（P4.4）
+- ❌ 未改 D1 schema（P4.3 不迁移 music_generation_jobs 表）
+- ❌ 未改现有预置音频匹配和播放逻辑
+- ❌ 未接入 API Key
+- ❌ 未产生付费调用
+
+**当前状态**：mock 闭环可运行，生成结果与预置音频相同（仅验证链路），**P4 真正 AI 音乐生成仍是后续必做项**
+
 ---
 
 ## 七、数据与隐私
@@ -1057,7 +1086,7 @@ Web 与 Android 的构建链路相互独立：Android 的 Gradle 配置不参与
 | 阶段 | 计划内容 | 状态 |
 |---|---|---|
 | **P3-Web-v1.0**（已完成） | 数据与反馈运营：第一批已完成反馈数据查询脚本 + 基础统计（查询 9-12 + PowerShell 脚本）；第二批测试数据标记与查询隔离（`-ExcludeTest` / `-OnlyTest`）；第三批真实反馈采集准备（`-MinVersion` / `-PreCheck` + 分析门槛 <30/30-100/>100）；后续可基于 D1 已采集数据深化反馈分析；M8.2 消融对比实验音频旁路落地；反馈数据可视化轻量方案 | ✅ 已完成（三批交付） |
-| **P4-AI-Music-v1.0**（必做） | 真正 AI 音乐生成接入（**产品核心升级，非可选项**）：将 `AudioGenerationPort` 从本地预置音频替换为真实 AI 音乐生成模型，按 `generationPrompt` 实时生成个性化音频；DSP 后处理（白噪音 / 粉红噪音 / EQ / 淡入淡出）接入；异步生成任务；音频存储；fallback 到预置音频；成本与安全控制。**第一批已完成技术调研与方案设计，第 1.5 批已完成供应商可用性与版权/API 复核，第二批已完成最小 PoC 接入设计**（详见 [docs/ai-music-generation-research.md](docs/ai-music-generation-research.md) 与 [docs/ai-music-generation-poc-design.md](docs/ai-music-generation-poc-design.md)）：确认 Stable Audio 3.0 Large API（platform.stability.ai）为 P4.4 主接入方案；MusicGen 因 CC-BY-NC 4.0 非商业许可仅作可选二级 fallback；**下一步是 P4.3 最小 mock/adapter 实现（不接真实 API），当前尚未接入真实生成** | 🔜 进行中（调研 + 复核 + PoC 设计完成） |
+| **P4-AI-Music-v1.0**（必做） | 真正 AI 音乐生成接入（**产品核心升级，非可选项**）：将 `AudioGenerationPort` 从本地预置音频替换为真实 AI 音乐生成模型，按 `generationPrompt` 实时生成个性化音频；DSP 后处理（白噪音 / 粉红噪音 / EQ / 淡入淡出）接入；异步生成任务；音频存储；fallback 到预置音频；成本与安全控制。**第一批已完成技术调研，第 1.5 批已完成供应商可用性复核，第二批已完成 PoC 设计，第三批已完成 mock/adapter 最小闭环实现**（详见 [docs/ai-music-generation-research.md](docs/ai-music-generation-research.md) 与 [docs/ai-music-generation-poc-design.md](docs/ai-music-generation-poc-design.md)）：已实现 mock 生成接口（`/api/generate-music` + `/api/music-status`）+ 前端实验入口 + fallback 到预置音频；**当前仍未接入真实 Stable Audio API，不会产生付费调用；下一步 P4.4 接入真实 API（需人工注册账号）** | 🔜 进行中（mock 闭环完成，真实接入待 P4.4） |
 | **P5-Mobile-v1.0** | 移动端 App 准备：解决 Android 构建上游插件与 Gradle 9 兼容性问题；Android/iOS 原生打包与发布流程 | ⏳ 计划中 |
 | **P6** | 用户系统与跨设备：可选登录 / 跨端历史同步 | ⏳ 计划中 |
 | **P7** | 正式发布与运营：反馈数据可视化公开管理后台；正式发布与运营 | ⏳ 计划中 |
@@ -1135,6 +1164,7 @@ Web 与 Android 的构建链路相互独立：Android 的 Gradle 配置不参与
 | 2026-07-12 | v1.0.0 / P4-research-1 | P4 第一批 | AI 音乐生成服务选型调研：新增 `docs/ai-music-generation-research.md`（覆盖 Suno/Udio/Stable Audio/MusicGen/ElevenLabs/MiniMax/Lyria 7 类方案）；推荐 Top 2（Stable Audio 3.0 主选 + MusicGen 备选）；输出接入架构草图（Flutter Web → Pages Function → Stable Audio API → R2 → Player）；不接入代码 / 不调用付费 API / 不改播放逻辑 / 不改 D1 schema / 不改 Functions；保留预置音频作 fallback；只运行 `flutter analyze`（未改业务逻辑） |
 | 2026-07-12 | v1.0.0 / P4-research-1-fix1 | P4 第 1.5 批 | 供应商可用性与版权/API 复核：确认 Stable Audio 3.0 Large API 已于 2026-05-20 官方发布（platform.stability.ai）；修正模型家族描述（Large 2.7B 仅 API/企业授权，Small/Medium 开源权重）；澄清 Community License 允许商用（年营收 <$1M 免费）vs Stable Audio Open 旧版非商用；确认 MusicGen CC-BY-NC 4.0 仍非商业仅作 fallback；维持 Suno/Udio/ElevenLabs/MiniMax/Lyria 不推荐判断；列出 10 项待人工确认事项；下一步 P4.2 最小 PoC |
 | 2026-07-12 | v1.0.0 / P4-design-1 | P4 第二批 | 最小 PoC 接入设计：新增 `docs/ai-music-generation-poc-design.md`（13 章节）；设计 `/api/generate-music` + `/api/music-status` 接口；设计 6 状态流（queued/generating/storing/succeeded/failed/fallback）+ 进度估算 + 超时策略；设计 D1 `music_generation_jobs` 表（15 字段 + 4 索引，不立即迁移）；设计 R2 路径 `generated-music/{yyyy}/{mm}/{jobId}.mp3` + 30 天生命周期；5 类 targetState 英文 prompt 模板（纯音乐/无歌词/无医疗化表达）；前端最小 UI 流程 + 轮询逻辑；fallback 策略（所有失败零中断）；P4.3 任务拆分 15 项；不接真实 API / 不写代码 / 不改 D1 / 不改 Functions；只运行 `flutter analyze` |
+| 2026-07-12 | v1.0.0 / P4-mock-1 | P4 第三批 | mock/adapter 最小闭环实现：新增 `functions/api/generate-music.js`（mock 创建任务 + 输入校验 + prompt 过滤 + CORS）+ `functions/api/music-status.js`（无状态查询 + 时间戳进度 + 90% 成功 / 10% 失败）；新增 `lib/pipeline/music_generation/`（models + service，封装 createJob/getStatus/pollUntilComplete + 网络异常 fallback）；新增 `lib/screens/music_generation_screen.dart`（呼吸圆 + 进度条 + 状态文案 + 实验标签 + 自动进入播放器）；修改 `lib/screens/plan_screen.dart`（新增「生成专属音乐（实验）」按钮）；新增 `test/music_generation_service_test.dart`（10 条测试）；不改 D1 schema / 不改预置音频逻辑 / 不接真实 API / 不产生付费调用 |
 
 ### 13.6 项目结构
 
