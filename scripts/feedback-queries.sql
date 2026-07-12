@@ -1,4 +1,4 @@
--- 心弦 · 反馈数据分析常用 SQL 查询（M8 建立，P3-Web-v1.0 第一批 + 第二批扩展）
+-- 心弦 · 反馈数据分析常用 SQL 查询（M8 建立，P3-Web-v1.0 第一批 + 第二批 + 第三批扩展）
 --
 -- 用法：
 --   1. 单条查询：复制 SQL 内容执行
@@ -594,3 +594,115 @@ ORDER BY createdAt DESC;
 --    .\scripts\query-feedback.ps1 -ExcludeTest          # 排除测试数据的基础统计
 --    .\scripts\query-feedback.ps1 -Recent -ExcludeTest  # 排除测试数据的最近反馈
 --    .\scripts\query-feedback.ps1 -OnlyTest             # 仅测试数据（排查用）
+-- ════════════════════════════════════════════════════════════════
+-- P3-Web-v1.0 第三批：真实反馈采集准备 + 分析门槛
+--
+-- 背景：
+--   P3 第二批已确认当前 D1 中 7 条反馈均为开发/验收测试数据，真实用户反馈为 0。
+--   后续不应基于测试评分优化推荐，而应等真实反馈积累到足够数量后再做分析。
+--
+-- 真实反馈分析门槛：
+--   真实反馈数 < 30：只看链路完整性，不下推荐质量结论
+--   真实反馈数 30-100：可做方向性观察（哪个 targetState / audioAssetId 趋势好）
+--   真实反馈数 > 100：可以开始基于 targetState / audioAssetId 做分组优化判断
+--
+--   ⚠️ 当前真实反馈数 = 0，远未达到分析门槛。
+--   后续收集真实反馈前，不基于测试数据优化推荐。
+--
+--   PowerShell 快速预检：.\scripts\query-feedback.ps1 -PreCheck
+-- ════════════════════════════════════════════════════════════════
+-- 查询 17：真实反馈数量 + 分析门槛判断
+-- 用途：快速判断当前真实反馈是否达到分析门槛
+-- 对应 PowerShell：.\scripts\query-feedback.ps1 -PreCheck
+-- ════════════════════════════════════════════════════════════════
+SELECT COUNT(*) AS real_feedback_count,
+  CASE
+    WHEN COUNT(*) < 30 THEN '未达门槛（<30）：只看链路，不下结论'
+    WHEN COUNT(*) <= 100 THEN '方向性观察（30-100）：可看趋势'
+    ELSE '可分组优化（>100）：可做推荐质量判断'
+  END AS analysis_stage
+FROM feedback
+WHERE NOT (
+    clientVersion LIKE 'v0.%'
+    OR sessionId LIKE '%test%'
+    OR listeningSessionId LIKE '%test%'
+    OR (
+      freeTextFeedback IS NOT NULL
+      AND (
+        freeTextFeedback LIKE '%test%'
+        OR freeTextFeedback LIKE '%测试%'
+        OR freeTextFeedback LIKE '%随便%'
+      )
+    )
+  );
+-- ════════════════════════════════════════════════════════════════
+-- 查询 18：真实反馈的 clientVersion 分布
+-- 用途：确认真实反馈来自哪些版本，判断版本分布是否均衡
+-- 对应 PowerShell：.\scripts\query-feedback.ps1 -PreCheck
+-- ════════════════════════════════════════════════════════════════
+SELECT COALESCE(clientVersion, '(null)') AS client_version,
+  COUNT(*) AS count
+FROM feedback
+WHERE NOT (
+    clientVersion LIKE 'v0.%'
+    OR sessionId LIKE '%test%'
+    OR listeningSessionId LIKE '%test%'
+    OR (
+      freeTextFeedback IS NOT NULL
+      AND (
+        freeTextFeedback LIKE '%test%'
+        OR freeTextFeedback LIKE '%测试%'
+        OR freeTextFeedback LIKE '%随便%'
+      )
+    )
+  )
+GROUP BY clientVersion
+ORDER BY clientVersion DESC;
+-- ════════════════════════════════════════════════════════════════
+-- 查询 19：真实反馈的日期分布
+-- 用途：观察真实反馈的收集趋势，判断是否在持续增长
+-- 对应 PowerShell：.\scripts\query-feedback.ps1 -PreCheck
+-- ════════════════════════════════════════════════════════════════
+SELECT substr(createdAt, 1, 10) AS date,
+  COUNT(*) AS count
+FROM feedback
+WHERE NOT (
+    clientVersion LIKE 'v0.%'
+    OR sessionId LIKE '%test%'
+    OR listeningSessionId LIKE '%test%'
+    OR (
+      freeTextFeedback IS NOT NULL
+      AND (
+        freeTextFeedback LIKE '%test%'
+        OR freeTextFeedback LIKE '%测试%'
+        OR freeTextFeedback LIKE '%随便%'
+      )
+    )
+  )
+GROUP BY substr(createdAt, 1, 10)
+ORDER BY date DESC;
+-- ════════════════════════════════════════════════════════════════
+-- 查询 20：真实反馈的 targetState 分布 + 平均评分
+-- 用途：真实反馈达到 30 条后，可开始观察哪个 targetState 反馈更好
+-- 对应 PowerShell：.\scripts\query-feedback.ps1 -PreCheck
+-- ════════════════════════════════════════════════════════════════
+SELECT COALESCE(targetState, '(null)') AS target_state,
+  COUNT(*) AS count,
+  ROUND(AVG(relaxationScore), 2) AS avg_relaxation,
+  ROUND(AVG(calmnessScore), 2) AS avg_calmness
+FROM feedback
+WHERE NOT (
+    clientVersion LIKE 'v0.%'
+    OR sessionId LIKE '%test%'
+    OR listeningSessionId LIKE '%test%'
+    OR (
+      freeTextFeedback IS NOT NULL
+      AND (
+        freeTextFeedback LIKE '%test%'
+        OR freeTextFeedback LIKE '%测试%'
+        OR freeTextFeedback LIKE '%随便%'
+      )
+    )
+  )
+GROUP BY targetState
+ORDER BY count DESC;

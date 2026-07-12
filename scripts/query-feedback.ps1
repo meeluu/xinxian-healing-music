@@ -1,6 +1,6 @@
 ﻿<#
 .SYNOPSIS
-  心弦 · D1 反馈数据查询辅助脚本（P3-Web-v1.0 第一批 + 第二批）
+  心弦 · D1 反馈数据查询辅助脚本（P3-Web-v1.0 第一批 + 第二批 + 第三批）
 
 .DESCRIPTION
   封装常用的 wrangler d1 execute 命令，快速查看 Cloudflare D1 xinxian-feedback 数据库的反馈数据。
@@ -45,6 +45,15 @@
 .PARAMETER OnlyTest
   只看测试数据（反向排查用）。与 -ExcludeTest 互斥，同时传时 -ExcludeTest 优先。
 
+.PARAMETER MinVersion
+  只看某个版本之后的反馈（clientVersion >= 指定版本）。字符串比较，如 v1.0.0。
+  可与 -ExcludeTest 组合使用。
+  示例：.\scripts\query-feedback.ps1 -ExcludeTest -MinVersion v1.0.0
+
+.PARAMETER PreCheck
+  真实反馈分析预检：显示真实反馈数量、clientVersion 分布、日期分布、targetState 分布，
+  并判断是否达到 30 条分析门槛。不受 -ExcludeTest / -OnlyTest 影响（始终排除测试数据）。
+
 .PARAMETER Local
   使用 --local 查询本地 D1 副本（默认 --remote 查询线上数据库）
 
@@ -57,28 +66,20 @@
   .\scripts\query-feedback.ps1 -Recent
 
 .EXAMPLE
-  # 按 targetState 聚合
-  .\scripts\query-feedback.ps1 -ByTargetState
-
-.EXAMPLE
-  # 查看低评分反馈
-  .\scripts\query-feedback.ps1 -LowRating
-
-.EXAMPLE
-  # 查看文字反馈原文（隐私敏感）
-  .\scripts\query-feedback.ps1 -Notes
-
-.EXAMPLE
   # 排除测试数据后的基础统计（正式分析推荐）
   .\scripts\query-feedback.ps1 -ExcludeTest
 
 .EXAMPLE
-  # 只看测试数据（反向排查）
-  .\scripts\query-feedback.ps1 -OnlyTest
+  # 排除测试数据 + 只看 v1.0.0 之后的反馈
+  .\scripts\query-feedback.ps1 -ExcludeTest -MinVersion v1.0.0
 
 .EXAMPLE
-  # 排除测试数据 + 按 targetState 聚合
-  .\scripts\query-feedback.ps1 -ByTargetState -ExcludeTest
+  # 真实反馈分析预检（判断是否达到 30 条门槛）
+  .\scripts\query-feedback.ps1 -PreCheck
+
+.EXAMPLE
+  # 只看测试数据（反向排查）
+  .\scripts\query-feedback.ps1 -OnlyTest
 
 .EXAMPLE
   # 查询本地 D1 副本（调试用）
@@ -103,11 +104,18 @@
     - 不会把 mock analyzerMode 自动视为测试数据（mock 是用户未同意 AI 解析时的正常 fallback）
     - 规则保守，可能漏判部分测试数据，但不会误判真实用户数据
 
-    当前 D1 中的反馈大多为开发者测试时填写，不能作为真实用户结论。
-    正式分析时建议始终使用 -ExcludeTest。
+  真实反馈分析门槛（P3 第三批）：
+    - 真实反馈数 < 30：只看链路完整性，不下推荐质量结论
+    - 真实反馈数 30-100：可做方向性观察（哪个 targetState / audioAssetId 趋势好）
+    - 真实反馈数 > 100：可以开始基于 targetState / audioAssetId 做分组优化判断
+    使用 -PreCheck 快速查看当前真实反馈数和门槛达成情况。
+
+  当前 D1 中的反馈大多为开发者测试时填写，不能作为真实用户结论。
+  正式分析时建议始终使用 -ExcludeTest。
 
   fix1（2026-07-11）：所有 SQL 改用 here-string @" ... "@ 避免 <= / >= / 单引号被 PowerShell 解析坏。
   fix2（2026-07-11）：新增 -ExcludeTest / -OnlyTest 参数 + 测试数据识别规则 + 过滤注入。
+  batch3（2026-07-11）：新增 -MinVersion 参数 + -PreCheck 真实反馈分析预检 + 分析门槛。
 #>
 
 [CmdletBinding()]
@@ -122,6 +130,8 @@ param(
   [switch]$TextRatio,
   [switch]$ExcludeTest,
   [switch]$OnlyTest,
+  [string]$MinVersion,
+  [switch]$PreCheck,
   [switch]$Local
 )
 
@@ -150,6 +160,12 @@ if ($ExcludeTest) {
     $filterLabel = '仅测试数据'
 }
 
+# -MinVersion 追加版本过滤（独立于测试数据过滤，可组合）
+if ($MinVersion) {
+    $filterClause = "$filterClause AND clientVersion >= '$MinVersion'"
+    $filterLabel = "$filterLabel（clientVersion >= $MinVersion）"
+}
+
 function Invoke-D1Query {
   param(
     [string]$Title,
@@ -176,6 +192,68 @@ if (-not $ExcludeTest -and -not $OnlyTest) {
     Write-Host "提示：正式分析时建议加 -ExcludeTest 排除测试数据" -ForegroundColor Yellow
 }
 Write-Host ""
+
+# ── 真实反馈分析预检（-PreCheck）──────────────────────────────────
+# 始终排除测试数据，不受 -ExcludeTest / -OnlyTest 影响
+if ($PreCheck) {
+  # 1. 真实反馈数量 + 门槛判断
+  $sqlRealCount = @"
+SELECT COUNT(*) AS real_feedback_count,
+       CASE
+         WHEN COUNT(*) < 30 THEN '未达门槛（<30）：只看链路，不下结论'
+         WHEN COUNT(*) <= 100 THEN '方向性观察（30-100）：可看趋势'
+         ELSE '可分组优化（>100）：可做推荐质量判断'
+       END AS analysis_stage
+FROM feedback
+WHERE NOT $testCondition
+$(if ($MinVersion) { "AND clientVersion >= '$MinVersion'" } else { '' });
+"@
+  Invoke-D1Query -Title "真实反馈数量 + 分析门槛" -Sql $sqlRealCount
+
+  # 2. clientVersion 分布（排除测试数据）
+  $sqlVersionDist = @"
+SELECT COALESCE(clientVersion, '(null)') AS client_version,
+       COUNT(*) AS count
+FROM feedback
+WHERE NOT $testCondition
+$(if ($MinVersion) { "AND clientVersion >= '$MinVersion'" } else { '' })
+GROUP BY clientVersion
+ORDER BY clientVersion DESC;
+"@
+  Invoke-D1Query -Title "clientVersion 分布（真实反馈）" -Sql $sqlVersionDist
+
+  # 3. 日期分布（排除测试数据）
+  $sqlDateDist = @"
+SELECT substr(createdAt, 1, 10) AS date,
+       COUNT(*) AS count
+FROM feedback
+WHERE NOT $testCondition
+$(if ($MinVersion) { "AND clientVersion >= '$MinVersion'" } else { '' })
+GROUP BY substr(createdAt, 1, 10)
+ORDER BY date DESC;
+"@
+  Invoke-D1Query -Title "日期分布（真实反馈）" -Sql $sqlDateDist
+
+  # 4. targetState 分布（排除测试数据）
+  $sqlTargetDist = @"
+SELECT COALESCE(targetState, '(null)') AS target_state,
+       COUNT(*) AS count,
+       ROUND(AVG(relaxationScore), 2) AS avg_relaxation,
+       ROUND(AVG(calmnessScore), 2) AS avg_calmness
+FROM feedback
+WHERE NOT $testCondition
+$(if ($MinVersion) { "AND clientVersion >= '$MinVersion'" } else { '' })
+GROUP BY targetState
+ORDER BY count DESC;
+"@
+  Invoke-D1Query -Title "targetState 分布（真实反馈）" -Sql $sqlTargetDist
+
+  Write-Host "分析门槛说明：" -ForegroundColor Yellow
+  Write-Host "  < 30 条：只看链路完整性，不下推荐质量结论" -ForegroundColor Yellow
+  Write-Host "  30-100 条：可做方向性观察（哪个 targetState / audioAssetId 趋势好）" -ForegroundColor Yellow
+  Write-Host "  > 100 条：可以开始基于 targetState / audioAssetId 做分组优化判断" -ForegroundColor Yellow
+  return
+}
 
 # 如果没有任何查询参数，执行默认基础统计
 $noSwitch = -not ($Recent -or $ByTargetState -or $ByAudio -or $LowRating -or $HighRating -or $Notes -or $Daily -or $TextRatio)
@@ -226,8 +304,9 @@ WHERE 1=1 $filterClause;
   Invoke-D1Query -Title "文字反馈占比" -Sql $sqlText
 
   Write-Host "提示：使用 -Recent / -ByTargetState / -ByAudio / -LowRating / -HighRating / -Notes / -Daily / -TextRatio 查看更多维度" -ForegroundColor Yellow
-  Write-Host "过滤：-ExcludeTest（排除测试数据）/ -OnlyTest（仅测试数据）" -ForegroundColor Yellow
-  Write-Host "示例：.\scripts\query-feedback.ps1 -Recent -ExcludeTest" -ForegroundColor Yellow
+  Write-Host "过滤：-ExcludeTest / -OnlyTest / -MinVersion v1.0.0" -ForegroundColor Yellow
+  Write-Host "预检：-PreCheck（真实反馈分析门槛判断）" -ForegroundColor Yellow
+  Write-Host "示例：.\scripts\query-feedback.ps1 -PreCheck" -ForegroundColor Yellow
   return
 }
 
