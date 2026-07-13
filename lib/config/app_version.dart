@@ -38,11 +38,12 @@ class AppVersion {
   /// - `P{N}-mock-{n}-fix{m}`：P 阶段第 n 批 mock 的第 m 次交互修复
   /// - `P{N}-provider-design-{n}`：P 阶段第 n 批 provider adapter 与密钥/成本控制设计
   /// - `P{N}-provider-skeleton-{n}`：P 阶段第 n 批 provider adapter 代码骨架实现
+  /// - `P{N}-replicate-skeleton-{n}`：P 阶段第 n 批 Replicate MusicGen provider 骨架
   /// - `P{N}-stable`：P 阶段收尾验收通过，正式发布
-  static const String buildLabel = 'P4-provider-skeleton-1';
+  static const String buildLabel = 'P4-replicate-skeleton-1';
 
   /// 构建日期（YYYY-MM-DD），手动维护。
-  static const String buildDate = '2026-07-12';
+  static const String buildDate = '2026-07-13';
 
   /// 部署目标平台。
   static const String deployTarget = 'Cloudflare Pages';

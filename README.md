@@ -5,7 +5,7 @@
 心弦是一款基于 Flutter Web 的情绪陪伴 Demo。用户输入当下心境后，系统通过 LLM 生成情绪画像与音乐参数，并播放匹配的本地音频素材，形成「自然语言 → AI 情绪解析 → 音乐方案 → 音频体验 → 用户反馈」的完整闭环。
 
 - **正式体验地址**：[https://xinxian-music.xyz](https://xinxian-music.xyz)
-- **当前版本**：`v1.0.0 · P4-provider-skeleton-1 · Cloudflare Pages`
+- **当前版本**：`v1.0.0 · P4-replicate-skeleton-1 · Cloudflare Pages`
 - **定位**：辅助情绪调节、睡前舒缓、正念陪伴、温和充能的轻量化工具，**不提供医疗诊断或治疗**，不替代专业心理咨询与医疗建议（详见[第十二章 免责声明](#十二免责声明)）
 
 ---
@@ -72,9 +72,9 @@
 
 ### 2.1 当前阶段
 
-- **阶段**：`P4-AI-Music-v1.0 进行中 / P4-provider-skeleton-1`
-- **版本号**：`v1.0.0 · P4-provider-skeleton-1 · Cloudflare Pages`（首页底部显示 `心弦 v1.0.0 · P4-provider-skeleton-1 · Cloudflare Pages`）
-- **构建日期**：2026-07-12
+- **阶段**：`P4-AI-Music-v1.0 进行中 / P4-replicate-skeleton-1`
+- **版本号**：`v1.0.0 · P4-replicate-skeleton-1 · Cloudflare Pages`（首页底部显示 `心弦 v1.0.0 · P4-replicate-skeleton-1 · Cloudflare Pages`）
+- **构建日期**：2026-07-13
 - **部署目标**：Cloudflare Pages
 - **上一阶段**：P3-Web-v1.0 已完成（`P3-data-3`，2026-07-11 第三批完成）；P2-Web-v1.0 已完成（`P2-stable`，2026-07-11 收尾验收通过）
 
@@ -957,6 +957,44 @@ Flutter Web → Pages Function /api/generate-music → Stable Audio API（异步
 - ❌ 未改前端主流程
 - **下一步才是 API Key / 平台配置 / 真实请求灰度**
 
+#### 6.8.16 P4.4-3 Replicate MusicGen Provider 骨架（2026-07-13）
+
+在 P4.4-2 provider adapter 骨架基础上，新增 `replicate_musicgen` provider 和真实调用安全开关。
+
+**新增文件**：
+- `functions/api/_music/providers/replicate-musicgen-provider.js` — ReplicateMusicGenProvider 骨架
+
+**修改文件**：
+- `functions/api/_music/provider-factory.js` — 支持 `replicate_musicgen` provider 选择
+- `scripts/verify-provider-adapter.mjs` — 新增 8 个测试（共 18 个）
+
+**Cloudflare Pages 已配置环境变量**：
+- `REPLICATE_API_TOKEN`（Secret）— Replicate API Token
+- `MUSIC_GENERATION_PROVIDER=replicate_musicgen`
+- `MUSIC_GENERATION_REAL_CALLS_ENABLED=false`
+
+**Provider 选择逻辑**：
+
+| `MUSIC_GENERATION_PROVIDER` | `REPLICATE_API_TOKEN` | `MUSIC_GENERATION_REAL_CALLS_ENABLED` | 实际 provider |
+|---|---|---|---|
+| 未设置 / `mock` | — | — | MockProvider |
+| `replicate_musicgen` | 缺失 | — | MockProvider（降级） |
+| `replicate_musicgen` | 有值 | `false` / 未设置 | `replicate_musicgen_disabled` |
+| `replicate_musicgen` | 有值 | `true` | `replicate_musicgen_not_implemented`（仍不发请求） |
+
+**安全保证**：
+- ✅ `MUSIC_GENERATION_REAL_CALLS_ENABLED=false` 时绝对不调用 Replicate API
+- ✅ 即使 `MUSIC_GENERATION_REAL_CALLS_ENABLED=true`，本批也不真实 fetch Replicate，只返回 `not_implemented` + fallback
+- ✅ 不打印 token 值，只记录 `apiTokenConfigured: true/false`
+- ✅ Token 只在 Cloudflare Secret 中，不写入代码 / README
+- ✅ mock provider 继续可用
+- ✅ 未改 D1 schema / 未配置 R2 / 未上传真实音频
+
+**验证结果**：
+- ✅ `node scripts/verify-provider-adapter.mjs` — 18/18 passed
+- ✅ 不会产生付费调用
+- ✅ 下一步才是极小额度真实调用测试
+
 ---
 
 ## 七、数据与隐私
@@ -1285,6 +1323,7 @@ Web 与 Android 的构建链路相互独立：Android 的 Gradle 配置不参与
 | 2026-07-12 | v1.0.0 / P4-mock-1-fix2 | P4 第三批 fix2 | 生成页空白与关闭按钮修复：根因是 `Column` 中 `Spacer()` 在 `SingleChildScrollView` 无界高度约束下抛布局异常导致页面空白；移除 `Spacer()` 改用 `SizedBox` 固定间距；`_phase` 初始值改为 `generating` 确保首帧有内容；简化为纯 3 秒 `Future.delayed` 本地模拟，不再调用 `createJob`/`pollUntilComplete`；关闭按钮改用 `maybePop` 永远可点击；进度条改为 indeterminate；新增 `test/music_generation_screen_test.dart`（3 个 widget test）；未接入真实 Stable Audio API / 未改 D1 schema / 未改预置音频逻辑 / 未产生付费调用 |
 | 2026-07-12 | v1.0.0 / P4-provider-design-1 | P4 第四批第一步 | Provider adapter 与密钥/成本控制设计：新增 `docs/ai-music-provider-adapter-design.md`（12 章节）；设计 MockProvider + StableAudioProvider 双 provider 架构 + 环境变量切换逻辑；Stable Audio 接入草案（endpoint / payload / response / 8 类错误码映射 / 5 层超时策略）；8 个环境变量设计（`MUSIC_GENERATION_PROVIDER` / `STABLE_AUDIO_API_KEY` / `MUSIC_GENERATION_DAILY_LIMIT` 等）；成本控制矩阵（每会话 1 次 / 每日 20 次 / 单次 180s / 每日 $1 上限）；安全与隐私设计（不上传 moodText / API Key 只在 Cloudflare env / 日志脱敏）；D1 migration 草案（15 字段 + 5 索引，不执行）；R2 准备方案；P4.4-2 实施清单 15 项任务 + 8 项人工确认前置条件；未接入真实 Stable Audio API / 未产生付费调用 / 未改 D1 schema / 未改前端播放主流程 |
 | 2026-07-12 | v1.0.0 / P4-provider-skeleton-1 | P4 第四批第二步 | Provider adapter 代码骨架实现：新增 `functions/api/_music/music-generation-utils.js`（共享工具）+ `providers/mock-provider.js`（从 P4.3 抽出）+ `providers/stable-audio-provider.js`（骨架，不发真实请求）+ `provider-factory.js`（环境变量选择）；重构 `generate-music.js` + `music-status.js` 使用 provider factory；新增 `scripts/verify-provider-adapter.mjs`（10 个 Node.js 测试）；Provider 选择：默认 mock / stable_audio 无 Key 降级 mock / stable_audio 有 Key 返回 `not_implemented` + fallback；API 响应结构完全兼容前端；前端 UI 不变（仍用 P4.3-fix2 稳定 3 秒本地 mock）；未调用真实 Stable Audio API / 未产生付费调用 / 未改 D1 schema / 未改前端主流程 |
+| 2026-07-13 | v1.0.0 / P4-replicate-skeleton-1 | P4 第四批第三步 | Replicate MusicGen Provider 骨架与真实调用安全开关：新增 `functions/api/_music/providers/replicate-musicgen-provider.js`（骨架，不发真实请求）；修改 `provider-factory.js` 支持 `replicate_musicgen` provider 选择 + `MUSIC_GENERATION_REAL_CALLS_ENABLED` 安全开关；更新 `scripts/verify-provider-adapter.mjs`（18 个测试）；Provider 行为：无 Token 降级 mock / 有 Token + REAL_CALLS=false 返回 `replicate_musicgen_disabled` / 有 Token + REAL_CALLS=true 返回 `replicate_musicgen_not_implemented`（仍不发请求）；Cloudflare 已配置 `REPLICATE_API_TOKEN`（Secret）/ `MUSIC_GENERATION_PROVIDER=replicate_musicgen` / `MUSIC_GENERATION_REAL_CALLS_ENABLED=false`；不打印 token / 不写入代码 / 未改 D1 schema / 未配置 R2 / 未产生付费调用 |
 
 ### 13.6 项目结构
 
