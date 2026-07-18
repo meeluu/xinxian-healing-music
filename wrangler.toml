@@ -14,16 +14,31 @@
 # 注意：OPENAI_API_KEY 不写在此文件中！
 #   生产环境 → Cloudflare Dashboard → Pages → Settings → Environment variables（设为 Secret）
 #   本地开发 → .dev.vars 文件（已 gitignore）
+#
+# P4.4-4: 同理，MINIMAX_API_KEY / REPLICATE_API_TOKEN / STABLE_AUDIO_API_KEY 均为 Secret，
+#   不写入本文件，只在 Dashboard → Secret 中管理。
 
 name = "xinxian-healing-music"
 compatibility_date = "2024-09-01"
 pages_build_output_dir = "build/web"
 
-# ─── 非敏感环境变量（敏感的 OPENAI_API_KEY 在 Dashboard 配置）───
+# ─── 非敏感环境变量（敏感的 API Key 在 Dashboard Secret 配置）───
 [vars]
 OPENAI_BASE_URL = "https://api.deepseek.com"
 OPENAI_MODEL = "deepseek-v4-flash"
 ENABLE_LLM = "true"
+
+# P4.4-4 / P4.4-5: AI 音乐生成 provider 选择（非敏感，可入 wrangler.toml）
+# 敏感凭证 MINIMAX_API_KEY / REPLICATE_API_TOKEN / STABLE_AUDIO_API_KEY 在 Dashboard Secret 管理
+MUSIC_GENERATION_PROVIDER = "minimax_music"
+MUSIC_GENERATION_REAL_CALLS_ENABLED = "true"
+# P4.4-5: MiniMax Music-2.0 真实调用测试参数（非敏感）
+# - MINIMAX_MUSIC_MODEL：模型名（Music-2.0）
+# - MUSIC_GENERATION_MAX_DURATION_SECONDS：单次测试目标时长上限（120s = 2 分钟）
+# 注意：MiniMax Music-2.0 API 本身不强制 duration 参数，此处仅作内部约束，
+#       实际时长通过短 prompt / 不传 lyrics 控制。
+MINIMAX_MUSIC_MODEL = "music-2.0"
+MUSIC_GENERATION_MAX_DURATION_SECONDS = "120"
 
 # ─── M7: Cloudflare D1 数据库 binding（匿名云端反馈采集）───
 # 创建命令：npx wrangler d1 create xinxian-feedback

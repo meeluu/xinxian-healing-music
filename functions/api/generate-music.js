@@ -51,8 +51,9 @@ export async function onRequestPost(context) {
         }
 
         // 通过 provider factory 选择 provider 并创建任务
+        // P4.4-5: MiniMax 真实调用分支为 async，统一 await（mock 同步返回值 await 也可）
         var provider = createProvider(env);
-        var result = provider.createJob(validation);
+        var result = await provider.createJob(validation);
 
         return jsonResponse(result, 200, origin, 'POST, OPTIONS');
     } catch (topErr) {

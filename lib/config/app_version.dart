@@ -39,11 +39,16 @@ class AppVersion {
   /// - `P{N}-provider-design-{n}`：P 阶段第 n 批 provider adapter 与密钥/成本控制设计
   /// - `P{N}-provider-skeleton-{n}`：P 阶段第 n 批 provider adapter 代码骨架实现
   /// - `P{N}-replicate-skeleton-{n}`：P 阶段第 n 批 Replicate MusicGen provider 骨架
+  /// - `P{N}-minimax-skeleton-{n}`：P 阶段第 n 批 MiniMax Music provider 骨架
+  /// - `P{N}-minimax-realtest-{n}`：P 阶段第 n 批 MiniMax Music 真实调用测试（受双重开关保护）
+  /// - `P{N}-comfort-song-design-{n}`：P 阶段第 n 批「困惑解惑→歌词→AI 歌曲」新方向产品设计
+  /// - `P{N}-comfort-song-design-{n}-fix{m}`：P 阶段第 n 批新方向产品设计的第 m 次修订
+  /// - `P{N}-comfort-lyrics-{n}`：P 阶段第 n 批「困惑解惑 + 歌词生成」LLM 流程代码实现
   /// - `P{N}-stable`：P 阶段收尾验收通过，正式发布
-  static const String buildLabel = 'P4-replicate-skeleton-1';
+  static const String buildLabel = 'P4-comfort-lyrics-1';
 
   /// 构建日期（YYYY-MM-DD），手动维护。
-  static const String buildDate = '2026-07-13';
+  static const String buildDate = '2026-07-18';
 
   /// 部署目标平台。
   static const String deployTarget = 'Cloudflare Pages';

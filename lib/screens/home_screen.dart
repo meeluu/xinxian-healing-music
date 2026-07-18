@@ -4,6 +4,7 @@ import 'package:xinxian_healing_music/pipeline/consent/cloud_feedback_consent_se
 import 'package:xinxian_healing_music/pipeline/llm/llm_consent_service.dart';
 import 'package:xinxian_healing_music/pipeline/services.dart';
 import 'package:xinxian_healing_music/screens/analysis_screen.dart';
+import 'package:xinxian_healing_music/screens/comfort_lyrics_screen.dart';
 import 'package:xinxian_healing_music/screens/history_screen.dart';
 import 'package:xinxian_healing_music/screens/privacy_screen.dart';
 import 'package:xinxian_healing_music/theme/app_colors.dart';
@@ -144,6 +145,17 @@ class _HomeScreenState extends State<HomeScreen> {
     ).push(MaterialPageRoute(builder: (_) => AnalysisScreen(moodText: text)));
   }
 
+  /// P4 新方向第一批：进入「把困惑写成一首歌」新流程。
+  /// 与"生成专属疗愈方案"（快速模式）并列，作为新主流程的入口。
+  /// 不依赖 LLM 同意状态（页面内部任何失败都走 fallback，不阻塞用户）。
+  Future<void> _goComfortLyrics() async {
+    FocusScope.of(context).unfocus();
+    if (!mounted) return;
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => const ComfortLyricsScreen()));
+  }
+
   @override
   void dispose() {
     _controller.dispose();
@@ -268,6 +280,36 @@ class _HomeScreenState extends State<HomeScreen> {
               minimumSize: const Size.fromHeight(52),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(16),
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+          // P4 新方向第一批：「把困惑写成一首歌」入口。
+          // 与"生成专属疗愈方案"（快速模式）并列，作为新主流程入口。
+          // 用 OutlinedButton 弱化视觉，避免喧宾夺主；但显眼可见，保证导航入口可达。
+          OutlinedButton.icon(
+            onPressed: _goComfortLyrics,
+            icon: const Icon(
+              Icons.lyrics_outlined,
+              size: 18,
+              color: AppColors.tealDeep,
+            ),
+            label: const Padding(
+              padding: EdgeInsets.symmetric(vertical: 4),
+              child: Text(
+                '把困惑写成一首歌',
+                style: TextStyle(
+                  fontSize: 14,
+                  letterSpacing: 1,
+                  color: AppColors.tealDeep,
+                ),
+              ),
+            ),
+            style: OutlinedButton.styleFrom(
+              minimumSize: const Size.fromHeight(46),
+              side: const BorderSide(color: AppColors.tealDeep, width: 1.2),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14),
               ),
             ),
           ),

@@ -5,7 +5,7 @@
 心弦是一款基于 Flutter Web 的情绪陪伴 Demo。用户输入当下心境后，系统通过 LLM 生成情绪画像与音乐参数，并播放匹配的本地音频素材，形成「自然语言 → AI 情绪解析 → 音乐方案 → 音频体验 → 用户反馈」的完整闭环。
 
 - **正式体验地址**：[https://xinxian-music.xyz](https://xinxian-music.xyz)
-- **当前版本**：`v1.0.0 · P4-replicate-skeleton-1 · Cloudflare Pages`
+- **当前版本**：`v1.0.0 · P4-comfort-lyrics-1 · Cloudflare Pages`
 - **定位**：辅助情绪调节、睡前舒缓、正念陪伴、温和充能的轻量化工具，**不提供医疗诊断或治疗**，不替代专业心理咨询与医疗建议（详见[第十二章 免责声明](#十二免责声明)）
 
 ---
@@ -22,6 +22,8 @@
 6.6. [P3-Web-v1.0 第二批：测试数据标记与查询隔离](#六点六p3-web-v10-第二批测试数据标记与查询隔离)
 6.7. [P3-Web-v1.0 第三批：真实反馈采集准备](#六点七p3-web-v10-第三批真实反馈采集准备)
 6.8. [P4-AI-Music-v1.0 第一批：AI 音乐生成服务选型调研](#六点八p4-ai-music-v10-第一批ai-音乐生成服务选型调研)
+6.9. [P4 新方向：困惑解惑 → 歌词 → AI 歌曲生成](#六点九p4-新方向困惑解惑--歌词--ai-歌曲生成)
+6.10. [P4 新方向第一批：困惑解惑 + 歌词生成 LLM 流程](#六点十p4-新方向第一批困惑解惑--歌词生成-llm-流程)
 7. [数据与隐私](#七数据与隐私)
 8. [环境变量与部署](#八环境变量与部署)
 9. [本地开发与验证](#九本地开发与验证)
@@ -72,9 +74,9 @@
 
 ### 2.1 当前阶段
 
-- **阶段**：`P4-AI-Music-v1.0 进行中 / P4-replicate-skeleton-1`
-- **版本号**：`v1.0.0 · P4-replicate-skeleton-1 · Cloudflare Pages`（首页底部显示 `心弦 v1.0.0 · P4-replicate-skeleton-1 · Cloudflare Pages`）
-- **构建日期**：2026-07-13
+- **阶段**：`P4-AI-Music-v1.0 进行中 / P4-comfort-song-design-1-fix1（新方向：困惑解惑 → 歌词 → AI 歌曲；主线 provider：MiniMax）`
+- **版本号**：`v1.0.0 · P4-comfort-song-design-1-fix1 · Cloudflare Pages`（首页底部显示 `心弦 v1.0.0 · P4-comfort-song-design-1-fix1 · Cloudflare Pages`）
+- **构建日期**：2026-07-18
 - **部署目标**：Cloudflare Pages
 - **上一阶段**：P3-Web-v1.0 已完成（`P3-data-3`，2026-07-11 第三批完成）；P2-Web-v1.0 已完成（`P2-stable`，2026-07-11 收尾验收通过）
 
@@ -995,6 +997,330 @@ Flutter Web → Pages Function /api/generate-music → Stable Audio API（异步
 - ✅ 不会产生付费调用
 - ✅ 下一步才是极小额度真实调用测试
 
+#### 6.8.17 P4.4-4 MiniMax Music Provider 骨架与 wrangler.toml 迁移（2026-07-13）
+
+在 P4.4-3 基础上，新增 `minimax_music` provider，并将非敏感环境变量迁移到 `wrangler.toml` 管理。主线 provider 从 Replicate 调整为 MiniMax。
+
+**新增文件**：
+- `functions/api/_music/providers/minimax-music-provider.js` — MiniMaxMusicProvider 骨架
+
+**修改文件**：
+- `wrangler.toml` — 新增非敏感变量 `MUSIC_GENERATION_PROVIDER = "minimax_music"` + `MUSIC_GENERATION_REAL_CALLS_ENABLED = "false"`
+- `functions/api/_music/provider-factory.js` — 支持 `minimax_music` provider 选择
+- `scripts/verify-provider-adapter.mjs` — 新增 8 个测试（共 26 个）
+
+**环境变量管理分工**：
+
+| 变量 | 管理位置 | 说明 |
+|---|---|---|
+| `MUSIC_GENERATION_PROVIDER` | `wrangler.toml` [vars] | 非敏感，当前值 `minimax_music` |
+| `MUSIC_GENERATION_REAL_CALLS_ENABLED` | `wrangler.toml` [vars] | 非敏感，当前值 `false` |
+| `MINIMAX_API_KEY` | Cloudflare Dashboard Secret | 敏感，不写入 wrangler.toml / 代码 / README |
+| `REPLICATE_API_TOKEN` | Cloudflare Dashboard Secret | 敏感（P4.4-3 保留） |
+| `STABLE_AUDIO_API_KEY` | Cloudflare Dashboard Secret | 敏感（P4.4-2 保留） |
+
+**Provider 选择逻辑**：
+
+| `MUSIC_GENERATION_PROVIDER` | `MINIMAX_API_KEY` | `MUSIC_GENERATION_REAL_CALLS_ENABLED` | 实际 provider |
+|---|---|---|---|
+| 未设置 / `mock` | — | — | MockProvider |
+| `minimax_music` | 缺失 | — | MockProvider（降级） |
+| `minimax_music` | 有值 | `false` / 未设置 | `minimax_music_disabled` |
+| `minimax_music` | 有值 | `true` | `minimax_music_not_implemented`（仍不发请求） |
+
+**安全保证**：
+- ✅ `MUSIC_GENERATION_REAL_CALLS_ENABLED=false` 时绝对不调用 MiniMax API
+- ✅ 即使 `=true`，本批也不真实 fetch MiniMax，只返回 `not_implemented` + fallback
+- ✅ 不打印 API Key 值，只记录 `apiKeyConfigured: true/false`
+- ✅ `MINIMAX_API_KEY` 只在 Cloudflare Secret 中，不写入 wrangler.toml / 代码 / README
+- ✅ mock provider 继续可用
+- ✅ replicate_musicgen / stable_audio provider 保留不回归
+- ✅ 未改 D1 schema / 未配置 R2 / 未上传真实音频
+
+**验证结果**：
+- ✅ `node scripts/verify-provider-adapter.mjs` — 26/26 passed
+- ✅ 不会产生付费调用
+- ✅ 下一步才是极小额度真实调用测试
+
+#### 6.8.18 P4.4-5 MiniMax Music-2.0 极小额度真实调用测试（2026-07-13）
+
+在 P4.4-4 骨架基础上，实现 MiniMax Music-2.0 真实调用分支，但受**双重开关保护**，默认仍关闭，只允许手动 curl 测试。前端仍未开放真实生成。
+
+**修改文件**：
+- `wrangler.toml` — 新增非敏感变量 `MINIMAX_MUSIC_MODEL = "music-2.0"` + `MUSIC_GENERATION_MAX_DURATION_SECONDS = "120"`
+- `functions/api/_music/providers/minimax-music-provider.js` — 实现 `_callMiniMax` 真实调用分支（受双重保护）
+- `functions/api/_music/music-generation-utils.js` — `validateInput` 透传 `manualTest` 字段
+- `functions/api/generate-music.js` — `createJob` 调用改为 `await`（兼容 async 真实调用）
+- `functions/api/_music/provider-factory.js` — 注释更新（P4.4-5 双重保护说明）
+- `scripts/verify-provider-adapter.mjs` — 32 个测试（新增 6 个 MiniMax 真实调用分支测试 + 安全验证）
+
+**MiniMax Music-2.0 真实调用双重保护**：
+
+| 保护层 | 变量 / 标志 | 管理位置 | 默认值 | 作用 |
+|---|---|---|---|---|
+| 第 1 道 | `MUSIC_GENERATION_REAL_CALLS_ENABLED` | `wrangler.toml` [vars] | `false` | 总开关，false 时直接返回 fallback |
+| 第 2 道 | `manualTest`（请求体字段）| 手动 curl 显式传入 | `false` | 即使总开关 true，无 manualTest 仍返回 fallback |
+| 凭证 | `MINIMAX_API_KEY` | Cloudflare Dashboard Secret | — | 缺失时 ProviderFactory 降级 MockProvider |
+
+**Provider 行为矩阵**：
+
+| `MUSIC_GENERATION_REAL_CALLS_ENABLED` | `MINIMAX_API_KEY` | `manualTest` | 行为 | provider |
+|---|---|---|---|---|
+| `false` / 未设置 | — | — | 不发请求，返回 fallback | `minimax_music_disabled` |
+| `true` | 缺失 | — | ProviderFactory 降级 MockProvider | `mock` |
+| `true` | 有值 | `false` / 未传 | 不发请求，返回 fallback | `minimax_music_manual_test_required` |
+| `true` | 有值 | `true` | **真实 POST `/v1/music_generation`**，返回 ok:true + 元数据 | `minimax_music` |
+
+**MiniMax API 调用参数**：
+- endpoint：`https://api.minimax.chat/v1/music_generation`
+- method：POST
+- model：`music-2.0`
+- audio_setting：`{ format: "mp3", sample_rate: 44100, bitrate: 256000 }`
+- prompt：按 targetState 预置短 prompt（非医疗化表达，纯音乐，no vocals）
+- lyrics：不传（控制时长 < 2 分钟；Music-2.0 lyrics 可选）
+- 鉴权：`Authorization: Bearer {MINIMAX_API_KEY}`（不打印 key 值）
+
+**返回结果处理（真实调用成功时）**：
+- 返回 `ok: true` / `provider: "minimax_music"` / `status: "succeeded"`
+- 返回 `audioHexLength`（不返回完整 hex，避免巨大响应）
+- 返回 `musicDuration` / `traceId` / `fallbackTrack`
+- 不返回 `audioPreviewBase64`（避免巨大响应）
+- 日志只记录 `audioHexLength` / `musicDuration` / `traceId`，不记录完整 hex
+
+**时长控制说明**：
+- MiniMax Music-2.0 API 本身不强制 `duration` 参数，不伪造不存在的参数
+- 通过短 prompt + 不传 lyrics 控制目标时长 < 2 分钟
+- `MUSIC_GENERATION_MAX_DURATION_SECONDS = "120"` 仅作内部约束，不发送给 API
+- README 写明：Music-2.0 本批以"短生成测试"为目标，时长不是硬性 API 参数
+
+**错误处理（真实调用失败时全部 fallback）**：
+- HTTP 错误（非 2xx）→ `http_error_{status}` + `minimax_music_http_error`
+- MiniMax 业务错误（`base_resp.status_code !== 0`）→ `minimax_error_{code}` + `minimax_music_api_error`
+- 请求超时（55s AbortController）→ `request_timeout` + `minimax_music_timeout`
+- 网络异常 → `request_failed` + `minimax_music_request_failed`
+
+**安全保证**：
+- ✅ `MUSIC_GENERATION_REAL_CALLS_ENABLED=false` 时绝对不调用 MiniMax API
+- ✅ 即使 `=true`，无 `manualTest: true` 仍不发请求
+- ✅ 不打印 `MINIMAX_API_KEY` 值，只记录 `apiKeyConfigured: true/false`
+- ✅ 不打印完整 audioHex，只记录 `audioHexLength`
+- ✅ 不保存生成音频到 D1 / R2 / 文件系统
+- ✅ `MINIMAX_API_KEY` 只在 Cloudflare Secret 中，不写入 wrangler.toml / 代码 / README
+- ✅ mock / replicate_musicgen / stable_audio provider 不回归
+- ✅ 未改 D1 schema / 未配置 R2 / 未改前端播放主流程
+
+**成本说明**：
+- MiniMax Music-2.0 官方价格约 0.25 元/首（以控制台实际扣费为准）
+- 本批只允许手动 curl 测试一次，不循环调用
+- 验证脚本使用 mock fetch 注入，不产生真实网络请求和费用
+
+**前端影响**：
+- ❌ 前端仍未开放真实生成入口
+- ❌ 前端请求默认不携带 `manualTest` 字段（`validateInput` 默认 `false`）
+- ✅ 前端主流程仍使用 P4.3-fix2 稳定的 3 秒本地 mock
+- ✅ 即使误触达真实调用分支，无 `manualTest: true` 也不会发请求
+
+**验证结果**：
+- ✅ `node scripts/verify-provider-adapter.mjs` — 32/32 passed（含 mock fetch 注入测试，不产生真实调用）
+- ✅ 测试脚本不真实调用 MiniMax API（使用 `global.fetch` 注入）
+- ✅ 默认配置 `MUSIC_GENERATION_REAL_CALLS_ENABLED=false` 不产生费用
+- ✅ 下一步（P4.4-6）才是前端接入与正式开放
+
+**手动 curl 测试命令**（需先在 Cloudflare Dashboard 临时开启 `MUSIC_GENERATION_REAL_CALLS_ENABLED=true`）：
+
+```bash
+curl -X POST https://xinxian-music.xyz/api/generate-music \
+  -H "Content-Type: application/json" \
+  -d '{
+    "sessionId": "manual-test-001",
+    "targetState": "sleep",
+    "generationPrompt": "ambient sleep music, instrumental, no vocals, slow tempo",
+    "durationSeconds": 120,
+    "manualTest": true
+  }'
+```
+
+预期返回（真实调用成功）：
+```json
+{
+  "ok": true,
+  "provider": "minimax_music",
+  "status": "succeeded",
+  "audioHexLength": 1234567,
+  "musicDuration": 45.5,
+  "traceId": "...",
+  "fallbackTrack": { ... }
+}
+```
+
+测试完成后请立即在 Cloudflare Dashboard 将 `MUSIC_GENERATION_REAL_CALLS_ENABLED` 改回 `false`。
+
+#### 6.8.19 P4.4-6 MiniMax 真实调用测试失败与方向调整（2026-07-18，fix1 修订）
+
+P4.4-5 完成真实调用分支代码后，手动 curl 真实调用 MiniMax Music-2.0 API 仍失败。失败可能涉及鉴权、请求体格式、模型可用性等多方面。
+
+**fix1 修订**：上一版（P4-comfort-song-design-1）曾据此把 Mureka 写成下一主线，现修正为——**当前主线继续使用 MiniMax**（账户已充值，成本更可控，真实调用失败需继续排查）；**Mureka 降级为后续候选 provider**（最低充值 200 元，测试成本偏高，暂不接入）。
+
+**MiniMax 当前状态**：
+- ✅ P4.4-4 骨架代码已完成（`minimax-music-provider.js`，受双重保护）
+- ✅ P4.4-5 真实调用分支代码已实现（`_callMiniMax`，受 `manualTest` + `REAL_CALLS` 双重保护）
+- ❌ 真实调用测试仍失败
+- ⚠️ **fix1 修订：继续作为当前主线排查，不放弃**（上一版曾写"暂不作为下一主线继续硬调试"，现修正）
+- ✅ **MiniMax 代码保留**，不删除（`MUSIC_GENERATION_PROVIDER=minimax_music` 仍可切换回去）
+
+**不删除 MiniMax 代码的理由**：
+- 骨架与真实调用分支代码已稳定，验证脚本 31 项测试通过
+- 失败原因可能不在代码层面（可能是账号 / 模型可用性 / 区域限制）
+- MiniMax 账户已充值，单首成本约 0.25 元，成本更可控
+- 未来若排查修复，可快速重新启用
+
+**MiniMax 真实调用失败排查方向**（下一批任务）：
+- 鉴权 header 格式（`Authorization: Bearer {key}`）
+- 请求体字段名 / 结构是否符合 Music-2.0 官方文档
+- `model` 值是否准确（`music-2.0`）
+- 账户是否有 Music-2.0 模型权限
+- 区域 / 网络是否可达 `api.minimax.chat`
+- Cloudflare Pages Function 是否正确读取 `MINIMAX_API_KEY` Secret
+
+**方向调整**：
+- **当前主线继续使用 MiniMax**（fix1 修订）
+- **Mureka 降级为后续候选 provider**（最低充值 200 元，暂不接入）
+- 新方向不再是"情绪 → 纯音乐"，而是"困惑解惑 → 歌词 → AI 歌曲"（详见 6.9 章节）
+
+---
+
+### 6.9 P4 新方向：困惑解惑 → 歌词 → AI 歌曲生成（2026-07-18）
+
+指导老师指出，当前"识别情绪 → 生成符合情绪的音乐"信息维度太单一，只把用户复杂处境压缩成情绪标签、valence、arousal 等少量维度。新方向是：用户描述最近的困惑/痛苦/愧疚/压力后，系统先像温和的心理陪伴者一样帮他解惑，再把这段解惑内容转成歌词，最后用 AI 音乐生成 API 生成一首能安慰他的歌曲。
+
+**新增文档**：
+- [docs/comfort-song-product-flow.md](docs/comfort-song-product-flow.md) — 产品流程设计（新主流程 / 数据模型草案 / 文案规范 / 与旧流程关系）
+- [docs/mureka-api-integration-plan.md](docs/mureka-api-integration-plan.md) — Mureka API 接入调研（能力梳理 / 推荐路径 / 环境变量 / fallback / 成本 / 任务拆分）
+
+**新主流程**：
+
+```
+用户输入困惑/事件/情绪
+  → LLM 生成「温和解惑」（comfortInterpretation）
+  → LLM 生成歌词草稿（lyricDraft）
+  → 用户确认/微调歌词
+  → AI 音乐 API 生成歌曲（当前主线 provider：MiniMax）
+  → 播放
+  → 反馈
+  → （后续阶段）付费转化 / 社交 Agent
+```
+
+**与旧流程的关系**：
+- 旧流程（情绪识别 → 纯音乐/预置音乐）：**保留**为「快速模式」
+- 新流程（困惑解惑 → 歌词歌曲）：作为 P4 之后**主体验**
+- 两个流程共用：sessionId / 反馈采集 / 历史记录 / fallback 预置音频
+- 两个流程不共用：中间产物（MoodProfile vs comfortInterpretation + lyricDraft）
+
+**当前 API 主线：MiniMax**（fix1 修订）：
+- MiniMax 账户已充值，单首成本约 0.25 元，**成本更可控**
+- P4.4-4 / P4.4-5 已完成 `minimax_music` provider 骨架 + 真实调用分支代码
+- 真实调用测试虽然上一轮失败，但**应继续排查并推进**，不放弃
+- MiniMax 真实调用失败需排查方向：鉴权 header / 请求体格式 / `model` 值 / 账户权限 / 网络可达性 / Cloudflare Secret 读取
+- 代码已稳定，31 项验证脚本测试通过
+- `MINIMAX_API_KEY` 只放 Cloudflare Secret，不写入 wrangler.toml / 代码 / README
+
+**Mureka：后续候选 provider**（fix1 修订，暂不接入）：
+- 上一版（P4-comfort-song-design-1）曾把 Mureka 写成下一主线，现修正为**后续候选**
+- 原因：Mureka **最低充值 200 元**，当前测试成本偏高
+- Mureka 官方 API 支持歌词生成歌曲 / 提示词生成歌曲 / 纯音乐 / 任务查询（API server `https://api.mureka.ai`，鉴权 `Bearer MUREKA_API_KEY`）
+- Mureka 的潜在优势：原生支持歌词生成歌曲 / 支持中文歌词 / 返回 audioUrl（无需转码）/ 有任务查询接口
+- **当前仍未真实调用 Mureka API**，调研文档保留为后续候选方案
+- 后期如果预算允许、且 MiniMax 确实无法修复，再切换或新增 Mureka
+- `MUREKA_API_KEY` 不写入 wrangler.toml / 代码 / README
+
+**文案规范**：
+- ✅ 可以使用：情绪支持 / 音乐陪伴 / 心理舒缓 / 温和开导 / 自我理解 / 也许 / 可以试着 / 这首歌想陪你看见
+- ❌ 禁用医疗化：治疗 / 治愈 / 治疗焦虑 / 治疗失眠 / 治好你的焦虑
+- ❌ 禁用玄学：命中注定 / 天意 / 神的安排 / 算准 / 神谕 / 命运注定
+- ❌ 禁用空话：一切都会好的 / 加油 / 你是最棒的
+- ❌ 禁用说教：你应该 / 你必须 / 你这样下去会
+
+**明确不做的边界**：
+- ❌ 本批不做：mureka_music provider 代码 / 真实调用 Mureka / D1 schema 迁移 / 前端 UI
+- ❌ **付费模块**（高品质生成 / 多版本选择 / 下载 / 分享）：明确是**后续阶段**，不是当前阶段
+- ❌ **社交 Agent**（心境卡片 / 对话 Agent / 小红书抖音分享）：明确是**后续阶段**，不是当前阶段
+- ❌ 心理量表 / 生理数据采集：后续科研方向，不进主流程
+
+**下一步计划**（fix1 修订）：
+1. **P4 新方向第一批代码**：先做「解惑文本 + 歌词生成」本地/LLM 流程（用 DeepSeek LLM，不依赖真实 AI 音乐生成）
+2. **P4 MiniMax 修复**：排查线上为什么仍返回 `provider=mock`（检查 Secret 读取 / 鉴权 / 请求体 / `model` 值 / 账户权限 / 网络可达性）
+3. **暂不做 Mureka**：Mureka 最低充值 200 元，暂不接入，保留为后续候选
+4. **暂不做付费模块**：明确是后续阶段
+5. **暂不做社交 Agent**：明确是后续阶段
+
+> 详细的 Mureka 后续候选方案任务拆分见 [docs/mureka-api-integration-plan.md](docs/mureka-api-integration-plan.md) 第七章（当前不执行）。
+
+---
+
+### 6.10 P4 新方向第一批：困惑解惑 + 歌词生成 LLM 流程（2026-07-18）
+
+承接 6.9 P4 新方向设计，本批落地"用户输入困惑/事件 → LLM 温和解惑 → LLM 生成歌词草稿"的核心体验，**不依赖真实 AI 音乐生成 API**。MiniMax 真实生成继续作为后续排查任务，不阻塞本批。
+
+**核心交付**：
+
+1. **新增后端 API** `functions/api/comfort-lyrics.js`：
+   - 输入：`storyText` / `sessionId` / `targetStyle`（`gentle_pop` / `ambient_ballad` / `acoustic_warm` / `soft_piano`）/ `language`（默认 `zh-CN`）
+   - 输出：`ok` / `source: "llm" | "fallback"` / `comfortInterpretation` / `lyricDraft` / `songPrompt` / `safetyNotes`
+   - 复用 `analyze-mood.js` 的 OpenAI-compatible LLM 配置（`OPENAI_API_KEY` / `OPENAI_BASE_URL` / `OPENAI_MODEL` / `ENABLE_LLM`），原生 fetch + AbortController 15s 超时，temperature 0.7，max_tokens 800
+   - 完整 try/catch 兜底，任何异常都返回 fallback，**绝不返回 502，不让前端卡死**
+   - 关键内部函数 `validateInput` / `sanitizeText` / `normalizeResult` / `localFallback` 已 `export`，供验证脚本直接测试
+
+2. **LLM Prompt 设计**（避免医疗化 / 玄学化 / 说教 / 空话）：
+   - `comfortInterpretation`（150-300 字，2-4 段）：第 1 段用"听起来你…"复述处境；第 2 段用"也许…"重新框架；第 3 段用"可以试着…"指向一个小的可执行行动
+   - `lyricDraft`（80-150 字）：含「主歌」「副歌」「尾声」标记；主歌具象化处境，副歌承认情绪 + 微小行动意象，尾声留白不强行升华
+   - `songPrompt`（英文 20-40 字）：简短描述曲风 / 情绪 / 速度 / 乐器，**不含用户原文隐私细节**，**不含 heal/cure/treatment/therapy 等医疗化词汇**
+   - `safetyNotes`：未检测到风险线索时返回"未检测到风险线索"；检测到敏感词时返回"已过滤敏感表达"
+
+3. **后端 sanitizeText 过滤**：
+   - 医疗化词汇（治疗焦虑 / 治疗失眠 / 治好你的焦虑 / 治愈你的 / 疗法 / 疗效）→ 替换为「辅助舒缓」
+   - 玄学化词汇（命中注定 / 天意 / 神的安排 / 算准 / 神谕 / 命运注定）→ 替换为「也许」
+   - 空话词汇（一切都会好的 / 加油哦 / 你是最棒的 / 会好起来的）→ 替换为「可以试着」
+   - 检测到违规词汇时 `safetyNotes` 自动追加"已过滤敏感表达"标注
+
+4. **fallback 策略**：
+   - 后端 `localFallback(storyText, targetStyle)`：LLM 失败时返回通用温和解惑 + 歌词草稿（按 targetStyle 选择 songPrompt）
+   - 前端 `ComfortLyricsService._localFallback`：网络完全不可达时再兜底一次，与后端 fallback 文案一致
+   - 双层 fallback 确保用户在任何情况下都能看到一段温和的解惑 + 歌词草稿
+
+5. **前端最小入口**：
+   - 首页「生成专属疗愈方案」按钮下方新增 `OutlinedButton`：「把困惑写成一首歌」（与快速模式并列，作为新主流程入口）
+   - 新页面 `lib/screens/comfort_lyrics_screen.dart`：输入困惑 → 选择曲风（4 选 1）→ 点击「生成解惑与歌词草稿」→ 显示来源标记 + 温和解惑卡片 + 歌词草稿卡片 + 曲风提示卡片 + 后续提示「下一步将用于生成专属歌曲。当前版本仅生成歌词草稿，暂不调用真实 AI 音乐生成」+ 「再写一首」重置按钮
+
+6. **新增/修改文件清单**：
+   - `functions/api/comfort-lyrics.js`（新增）：后端 LLM API + fallback + sanitizeText
+   - `lib/models/comfort_lyrics_result.dart`（新增）：前端数据模型
+   - `lib/pipeline/llm/comfort_lyrics_service.dart`（新增）：前端 Service（调用 /api/comfort-lyrics，失败返回本地 fallback）
+   - `lib/screens/comfort_lyrics_screen.dart`（新增）：前端页面
+   - `lib/screens/home_screen.dart`（修改）：新增「把困惑写成一首歌」入口 + `_goComfortLyrics` 方法
+   - `lib/config/app_version.dart`（修改）：`buildLabel` → `P4-comfort-lyrics-1`
+   - `scripts/verify-comfort-lyrics.mjs`（新增）：后端核心逻辑验证脚本（25 项测试）
+   - `test/comfort_lyrics_result_test.dart`（新增）：数据模型测试
+   - `test/comfort_lyrics_service_test.dart`（新增）：Service fallback 测试
+   - `test/comfort_lyrics_screen_test.dart`（新增）：页面不空白 / 按钮状态 / 切换曲风 / 重置测试
+
+7. **明确不做**：
+   - ❌ 本批**不调用 MiniMax API**（`MUSIC_GENERATION_REAL_CALLS_ENABLED` 保持 `false`）
+   - ❌ 本批**不调用 Mureka API**（Mureka 仍是后续候选，暂不接入）
+   - ❌ 本批**不生成真实音频**（前端主流程仍使用 P4.3-fix2 稳定的本地预置音频）
+   - ❌ 本批**不改 D1 schema**
+   - ❌ 本批**不改付费模块**（明确是后续阶段）
+   - ❌ 本批**不做社交 Agent**（明确是后续阶段）
+   - ❌ 本批**不写入任何 API Key**（`OPENAI_API_KEY` / `MINIMAX_API_KEY` / `MUREKA_API_KEY` 均只放 Cloudflare Secret）
+
+8. **后续任务（不阻塞本批）**：
+   - **MiniMax 真实调用排查**：仍是后续任务，需检查 Secret 读取 / 鉴权 header / 请求体格式 / `model` 值 / 账户权限 / 网络可达性
+   - **Mureka**：仍是后续候选 provider，最低充值 200 元，暂不接入
+   - **真实歌曲生成**：等 MiniMax 修复或 Mureka 接入后再接入新流程的"AI 音乐生成"环节
+
+9. **验证**：
+   - `node scripts/verify-comfort-lyrics.mjs`：25 项测试全部通过（validateInput / sanitizeText / normalizeResult / localFallback / 文案规范）
+   - `flutter analyze` / `flutter test` / `flutter build web --release`：见 [第九章 本地开发与验证](#九本地开发与验证)
+
 ---
 
 ## 七、数据与隐私
@@ -1324,6 +1650,11 @@ Web 与 Android 的构建链路相互独立：Android 的 Gradle 配置不参与
 | 2026-07-12 | v1.0.0 / P4-provider-design-1 | P4 第四批第一步 | Provider adapter 与密钥/成本控制设计：新增 `docs/ai-music-provider-adapter-design.md`（12 章节）；设计 MockProvider + StableAudioProvider 双 provider 架构 + 环境变量切换逻辑；Stable Audio 接入草案（endpoint / payload / response / 8 类错误码映射 / 5 层超时策略）；8 个环境变量设计（`MUSIC_GENERATION_PROVIDER` / `STABLE_AUDIO_API_KEY` / `MUSIC_GENERATION_DAILY_LIMIT` 等）；成本控制矩阵（每会话 1 次 / 每日 20 次 / 单次 180s / 每日 $1 上限）；安全与隐私设计（不上传 moodText / API Key 只在 Cloudflare env / 日志脱敏）；D1 migration 草案（15 字段 + 5 索引，不执行）；R2 准备方案；P4.4-2 实施清单 15 项任务 + 8 项人工确认前置条件；未接入真实 Stable Audio API / 未产生付费调用 / 未改 D1 schema / 未改前端播放主流程 |
 | 2026-07-12 | v1.0.0 / P4-provider-skeleton-1 | P4 第四批第二步 | Provider adapter 代码骨架实现：新增 `functions/api/_music/music-generation-utils.js`（共享工具）+ `providers/mock-provider.js`（从 P4.3 抽出）+ `providers/stable-audio-provider.js`（骨架，不发真实请求）+ `provider-factory.js`（环境变量选择）；重构 `generate-music.js` + `music-status.js` 使用 provider factory；新增 `scripts/verify-provider-adapter.mjs`（10 个 Node.js 测试）；Provider 选择：默认 mock / stable_audio 无 Key 降级 mock / stable_audio 有 Key 返回 `not_implemented` + fallback；API 响应结构完全兼容前端；前端 UI 不变（仍用 P4.3-fix2 稳定 3 秒本地 mock）；未调用真实 Stable Audio API / 未产生付费调用 / 未改 D1 schema / 未改前端主流程 |
 | 2026-07-13 | v1.0.0 / P4-replicate-skeleton-1 | P4 第四批第三步 | Replicate MusicGen Provider 骨架与真实调用安全开关：新增 `functions/api/_music/providers/replicate-musicgen-provider.js`（骨架，不发真实请求）；修改 `provider-factory.js` 支持 `replicate_musicgen` provider 选择 + `MUSIC_GENERATION_REAL_CALLS_ENABLED` 安全开关；更新 `scripts/verify-provider-adapter.mjs`（18 个测试）；Provider 行为：无 Token 降级 mock / 有 Token + REAL_CALLS=false 返回 `replicate_musicgen_disabled` / 有 Token + REAL_CALLS=true 返回 `replicate_musicgen_not_implemented`（仍不发请求）；Cloudflare 已配置 `REPLICATE_API_TOKEN`（Secret）/ `MUSIC_GENERATION_PROVIDER=replicate_musicgen` / `MUSIC_GENERATION_REAL_CALLS_ENABLED=false`；不打印 token / 不写入代码 / 未改 D1 schema / 未配置 R2 / 未产生付费调用 |
+| 2026-07-13 | v1.0.0 / P4-minimax-skeleton-1 | P4 第四批第四步 | MiniMax Music Provider 骨架与 wrangler.toml 迁移：新增 `functions/api/_music/providers/minimax-music-provider.js`（骨架，不发真实请求）；修改 `provider-factory.js` 支持 `minimax_music` provider 选择；修改 `wrangler.toml` 新增非敏感变量 `MUSIC_GENERATION_PROVIDER="minimax_music"` + `MUSIC_GENERATION_REAL_CALLS_ENABLED="false"`；更新 `scripts/verify-provider-adapter.mjs`（26 个测试）；主线 provider 从 Replicate 调整为 MiniMax；Provider 行为：无 Key 降级 mock / 有 Key + REAL_CALLS=false 返回 `minimax_music_disabled` / 有 Key + REAL_CALLS=true 返回 `minimax_music_not_implemented`（仍不发请求）；`MINIMAX_API_KEY` 只在 Cloudflare Secret 中 / 不写入 wrangler.toml / 不打印 / 未改 D1 schema / 未配置 R2 / 未产生付费调用 |
+| 2026-07-13 | v1.0.0 / P4-minimax-realtest-1 | P4 第四批第五步 | MiniMax Music-2.0 极小额度真实调用测试：实现 `minimax-music-provider.js` `_callMiniMax` 真实调用分支（POST `/v1/music_generation`，model `music-2.0`，mp3/44100/256000）；双重保护：`MUSIC_GENERATION_REAL_CALLS_ENABLED=true` + 请求体 `manualTest=true` 才真实调用，否则返回 fallback；修改 `wrangler.toml` 新增 `MINIMAX_MUSIC_MODEL="music-2.0"` + `MUSIC_GENERATION_MAX_DURATION_SECONDS="120"`；修改 `music-generation-utils.js` `validateInput` 透传 `manualTest` 字段；修改 `generate-music.js` `createJob` 改为 `await`；更新 `scripts/verify-provider-adapter.mjs`（31 个测试，含 mock fetch 注入测试不产生真实调用）；返回 `audioHexLength` / `musicDuration` / `traceId`，不返回完整 hex；不打印 API Key / 不保存到 D1/R2/文件系统；默认 `MUSIC_GENERATION_REAL_CALLS_ENABLED=false` 不产生费用；前端仍未开放真实生成；只允许手动 curl 测试一次 |
+| 2026-07-18 | v1.0.0 / P4-comfort-song-design-1 | P4 新方向设计 | 困惑解惑 → 歌词 → AI 歌曲生成主流程设计与 Mureka 路线切换：新增 `docs/comfort-song-product-flow.md`（产品流程设计：新主流程 / 数据模型草案 / 文案规范 / 与旧流程关系 / 三层同意机制）；新增 `docs/mureka-api-integration-plan.md`（Mureka API 调研：能力梳理 / 推荐路径 / 环境变量 / fallback / 成本 / 任务拆分）；README 新增 6.8.19（MiniMax 真实调用失败记录，保留为备选 provider 不删除）+ 6.9（P4 新方向章节）；MiniMax 真实调用测试仍失败，暂不继续硬调试，代码保留为备选；Mureka 为下一主线候选（API server `https://api.mureka.ai`，鉴权 `Bearer MUREKA_API_KEY`，支持歌词生成歌曲）；本批只做文档与版本号，不写代码 / 不真实调用 Mureka / 不改 D1 / 不接入付费模块 / 不做社交 Agent；文案规范禁用医疗化与玄学表达；旧流程保留为「快速模式」，新流程作为 P4 之后主体验 |
+| 2026-07-18 | v1.0.0 / P4-comfort-song-design-1-fix1 | P4 新方向设计 fix1 修订 | 修正上一版把 Mureka 写成下一主线的表述：**当前主线继续使用 MiniMax**（账户已充值，单首约 0.25 元，成本更可控，真实调用失败需继续排查）；**Mureka 降级为后续候选 provider**（最低充值 200 元，测试成本偏高，暂不接入）；修改 `docs/comfort-song-product-flow.md` 第五章（与 AI 音乐 provider 的关系：MiniMax 主线 / Mureka 后续候选）；修改 `docs/mureka-api-integration-plan.md` 顶部标注为「后续候选方案，当前不接入」+ 1.3 约束 + 第七章任务拆分（mureka_music 相关任务标注为后续候选不执行）；README 6.8.19 修正方向调整表述（MiniMax 继续作为当前主线排查，不放弃）+ 6.9 修正 Mureka 表述（后续候选，暂不接入）+ 新增下一步计划（解惑+歌词本地/LLM 流程 / MiniMax 修复 / 暂不做 Mureka / 暂不做付费 / 暂不做社交 Agent）；不删除 Mureka 调研文档 / 不删除 MiniMax provider 代码 / 不真实调用任何 API / 不改 D1 / 不改前端 UI / 不写入任何 API Key |
+| 2026-07-18 | v1.0.0 / P4-comfort-lyrics-1 | P4 新方向第一批 | 困惑解惑 + 歌词生成 LLM 流程代码实现：新增后端 API `functions/api/comfort-lyrics.js`（OpenAI-compatible LLM 调用 + 15s 超时 + 完整 try/catch 兜底 + sanitizeText 过滤医疗化/玄学化/空话词汇 + localFallback）；新增前端数据模型 `lib/models/comfort_lyrics_result.dart` + Service `lib/pipeline/llm/comfort_lyrics_service.dart`（双层 fallback：后端 fallback + 前端 fallback）+ 页面 `lib/screens/comfort_lyrics_screen.dart`（输入困惑 → 选择 4 种曲风 → 显示温和解惑 + 歌词草稿 + 曲风提示 + 后续提示）；修改 `lib/screens/home_screen.dart` 在主按钮下方新增「把困惑写成一首歌」OutlinedButton 入口；新增 `scripts/verify-comfort-lyrics.mjs`（25 项后端核心逻辑测试：validateInput / sanitizeText / normalizeResult / localFallback / 文案规范）；新增 3 个 flutter test 文件（数据模型 / Service fallback / 页面不空白）；LLM Prompt 严格避免医疗化/玄学化/说教/空话，要求输出含「主歌」「副歌」「尾声」结构的歌词草稿；本批**不调用 MiniMax** / **不调用 Mureka** / **不生成真实音频** / **不改 D1 schema** / **不改付费模块** / **不做社交 Agent** / **不写入任何 API Key**；MiniMax 真实调用排查仍是后续任务 |
 
 ### 13.6 项目结构
 
@@ -1335,7 +1666,8 @@ lib/
 ├── data/                          # 静态数据目录
 │   └── audio_asset_catalog.dart   # 本地音频资源目录 + 按 targetState 4 级匹配算法
 ├── models/                        # 数据模型
-│   └── cloud_feedback_payload.dart # 云端上传 payload 模型 + fromFeedback 工厂
+│   ├── cloud_feedback_payload.dart # 云端上传 payload 模型 + fromFeedback 工厂
+│   └── comfort_lyrics_result.dart # P4 新方向第一批：困惑解惑+歌词生成结果模型
 ├── pipeline/                      # Translation Pipeline（M1-M7 核心架构）
 │   ├── healing_pipeline.dart      # Pipeline 编排器
 │   ├── services.dart              # 全局服务实例
@@ -1350,15 +1682,17 @@ lib/
 │   ├── consent/                   # M7 同意服务
 │   ├── cloud/                     # M7 云端上传实现
 │   ├── local/                     # 本地持久化实现
-│   └── llm/                       # LLM 接入（M4）
+│   └── llm/                       # LLM 接入（M4 + P4 新方向第一批）
+│       └── comfort_lyrics_service.dart # P4 新方向第一批：调用 /api/comfort-lyrics + 双层 fallback
 ├── screens/                       # 核心页面
-│   ├── home_screen.dart           # 心境输入页
+│   ├── home_screen.dart           # 心境输入页（P4 新方向第一批：新增「把困惑写成一首歌」入口）
 │   ├── analysis_screen.dart       # 情绪解析动画页
 │   ├── plan_screen.dart           # 疗愈方案展示页
 │   ├── player_screen.dart         # 音频播放页
 │   ├── feedback_screen.dart       # 用户反馈页
 │   ├── history_screen.dart        # 历史记录页
-│   └── privacy_screen.dart        # 隐私政策页
+│   ├── privacy_screen.dart        # 隐私政策页
+│   └── comfort_lyrics_screen.dart # P4 新方向第一批：困惑解惑+歌词生成页面
 ├── theme/                         # 配色与主题
 ├── utils/                         # 工具函数
 │   ├── audio_asset_uri.dart       # Web / 非 Web 平台 AudioSource 路径解析
@@ -1369,6 +1703,7 @@ lib/
 functions/
 └── api/
     ├── analyze-mood.js            # Cloudflare Pages Function（LLM 网关）
+    ├── comfort-lyrics.js          # P4 新方向第一批：困惑解惑+歌词生成 LLM 网关（含 sanitizeText + fallback）
     ├── submit-feedback.js         # D1 upsert + 字段白名单 + 长度限制
     └── health.js                  # 健康检查端点
 
@@ -1378,10 +1713,15 @@ schema/
 scripts/
 └── feedback-queries.sql           # 常用 D1 查询脚本（12 条查询 + 附录 B 消融实验查询，P3 扩展至 12 条）
     query-feedback.ps1             # PowerShell 辅助查询脚本（P3 新增，8 个参数封装 wrangler 命令）
+    verify-provider-adapter.mjs    # P4 第四批：provider adapter 验证脚本（31 个测试）
+    verify-comfort-lyrics.mjs      # P4 新方向第一批：comfort-lyrics API 验证脚本（25 个测试）
 
 docs/
-└── ai-music-generation-research.md # P4 第一批 AI 音乐生成服务选型调研文档（P4 新增）
+└── ai-music-generation-research.md  # P4 第一批 AI 音乐生成服务选型调研文档（P4 新增）
     ai-music-generation-poc-design.md # P4 第二批 AI 音乐生成最小 PoC 接入设计文档（P4 新增）
+    ai-music-provider-adapter-design.md # P4 第四批第一步 provider adapter 设计文档（P4 新增）
+    comfort-song-product-flow.md     # P4 新方向：困惑解惑→歌词→AI 歌曲生成 产品流程设计（P4 新方向新增）
+    mureka-api-integration-plan.md   # P4 新方向：Mureka API 接入调研与计划（P4 新方向新增）
 
 web/
 ├── index.html                     # Flutter Web 入口模板

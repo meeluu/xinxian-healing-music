@@ -96,12 +96,16 @@ export function validateInput(body) {
   if (typeof durationSeconds !== 'number' || durationSeconds < 60 || durationSeconds > 600) {
     durationSeconds = 300;
   }
+  // P4.4-5: manualTest 字段透传（仅用于 MiniMax 真实调用测试双重保护）
+  // 默认 false；前端正常请求不会携带此字段，只有手动 curl 测试时显式传入 true
+  var manualTest = body.manualTest === true;
   return {
     ok: true,
     sessionId: sessionId,
     targetState: targetState,
     prompt: prompt,
     durationSeconds: Math.round(durationSeconds),
+    manualTest: manualTest,
   };
 }
 
