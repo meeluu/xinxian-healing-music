@@ -2,12 +2,19 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:xinxian_healing_music/models/comfort_lyrics_result.dart';
 import 'package:xinxian_healing_music/pipeline/llm/comfort_lyrics_service.dart';
 
-/// ComfortLyricsService 测试（P4 新方向第一批）。
+/// ComfortLyricsService 测试（P4 新方向第一批 / 第二批）。
+///
+/// P4 第二批更新：
+/// - fallback 改为按场景识别（detectScene）选择模板，不再按 targetStyle
+/// - 新增 5 场景 fallback 验证（学业/关系/工作/愧疚/默认）
+/// - 新增说教类禁用词检测（你必须/你应该/这说明你/你需要治疗）
+/// - 新增玄学类禁用词检测（命运安排/宇宙告诉你/上天告诉你/神明告诉你）
 ///
 /// 验证：
 /// - 网络失败时返回 fallback（不抛异常）
-/// - fallback 文案符合规范（含歌词结构、不含医疗化词汇）
-/// - 不同 targetStyle 返回不同 songPrompt
+/// - fallback 文案符合规范（含歌词结构、不含医疗化/玄学化/说教词汇）
+/// - 5 场景识别正确，每个场景有独立模板
+/// - songPrompt 为英文且含 vocal/tempo/instrumentation 要素
 /// - 不依赖真实后端（测试环境无网络，必然走 fallback）
 void main() {
   const service = ComfortLyricsService();
@@ -34,7 +41,12 @@ void main() {
       expect(result.comfortInterpretation, isNotEmpty);
       expect(result.comfortInterpretation.length, greaterThan(20));
       // 含中文
-      expect(result.comfortInterpretation.runes.any((r) => r >= 0x4E00 && r <= 0x9FFF), isTrue);
+      expect(
+        result.comfortInterpretation.runes.any(
+          (r) => r >= 0x4E00 && r <= 0x9FFF,
+        ),
+        isTrue,
+      );
     });
 
     test('fallback 歌词草稿含主歌/副歌/尾声结构', () async {
@@ -48,15 +60,20 @@ void main() {
       expect(result.lyricDraft, contains('【尾声】'));
     });
 
-    test('fallback songPrompt 不为空', () async {
+    test('fallback songPrompt 不为空且为英文', () async {
       final result = await service.generate(
         storyText: '我最近心情很低落',
         targetStyle: 'gentle_pop',
       );
 
       expect(result.songPrompt, isNotEmpty);
-      // songPrompt 是英文风格描述
       expect(result.songPrompt.length, greaterThan(10));
+      // songPrompt 应为纯英文（不含中文字符）
+      expect(
+        RegExp(r'[\u4E00-\u9FFF]').hasMatch(result.songPrompt),
+        isFalse,
+        reason: 'songPrompt 应为纯英文风格描述',
+      );
     });
 
     test('fallback safetyNotes 不为空', () async {
@@ -70,119 +87,272 @@ void main() {
     });
   });
 
-  group('ComfortLyricsService - targetStyle 切换', () {
-    test('gentle_pop 返回对应的 songPrompt', () async {
+  group('ComfortLyricsService - 场景识别（P4 第二批）', () {
+    /// P4 第二批：fallback 按 detectScene 选择模板，5 场景应有独立文案。
+    test('学业场景（考研/挂科）返回 academic_failure 模板', () async {
       final result = await service.generate(
-        storyText: '我最近心情很低落',
+        storyText: '我考研没考上，感觉努力都白费了',
         targetStyle: 'gentle_pop',
       );
 
-      expect(result.songPrompt, contains('gentle pop'));
-      expect(result.songPrompt, contains('acoustic guitar'));
+      // scene 字段应为 academic_failure
+      expect(result.scene, 'academic_failure');
+      // comfortInterpretation 应含学业场景特征词
+      expect(
+        result.comfortInterpretation.contains('考试') ||
+            result.comfortInterpretation.contains('学业') ||
+            result.comfortInterpretation.contains('卷子'),
+        isTrue,
+        reason: '学业场景模板应含学业相关意象',
+      );
     });
 
-    test('ambient_ballad 返回对应的 songPrompt', () async {
+    test('关系场景（吵架/分手）返回 relationship_conflict 模板', () async {
       final result = await service.generate(
-        storyText: '我最近心情很低落',
-        targetStyle: 'ambient_ballad',
+        storyText: '和妈妈大吵一架，她已读不回我',
+        targetStyle: 'gentle_pop',
       );
 
-      expect(result.songPrompt, contains('ambient ballad'));
-      expect(result.songPrompt, contains('soft pads'));
+      expect(result.scene, 'relationship_conflict');
+      // 关系场景特征词
+      expect(
+        result.comfortInterpretation.contains('关系') ||
+            result.comfortInterpretation.contains('争吵') ||
+            result.comfortInterpretation.contains('听懂'),
+        isTrue,
+        reason: '关系场景模板应含关系相关意象',
+      );
     });
 
-    test('acoustic_warm 返回对应的 songPrompt', () async {
+    test('工作场景（加班/压力）返回 work_pressure 模板', () async {
       final result = await service.generate(
-        storyText: '我最近心情很低落',
-        targetStyle: 'acoustic_warm',
+        storyText: '工作压力太大，天天加班到深夜',
+        targetStyle: 'gentle_pop',
       );
 
-      expect(result.songPrompt, contains('warm acoustic'));
-      expect(result.songPrompt, contains('fingerstyle guitar'));
+      expect(result.scene, 'work_pressure');
+      // 工作场景特征词
+      expect(
+        result.comfortInterpretation.contains('累') ||
+            result.comfortInterpretation.contains('撑') ||
+            result.comfortInterpretation.contains('项目'),
+        isTrue,
+        reason: '工作场景模板应含工作相关意象',
+      );
     });
 
-    test('soft_piano 返回对应的 songPrompt', () async {
+    test('愧疚场景（对不起/后悔）返回 guilt_regret 模板', () async {
       final result = await service.generate(
-        storyText: '我最近心情很低落',
-        targetStyle: 'soft_piano',
+        storyText: '我对不起他，当时不该说那些话',
+        targetStyle: 'gentle_pop',
       );
 
-      expect(result.songPrompt, contains('soft piano'));
-      expect(result.songPrompt, contains('gentle melody'));
+      expect(result.scene, 'guilt_regret');
+      // 愧疚场景特征词
+      expect(
+        result.comfortInterpretation.contains('愧疚') ||
+            result.comfortInterpretation.contains('错了') ||
+            result.comfortInterpretation.contains('责怪'),
+        isTrue,
+        reason: '愧疚场景模板应含愧疚相关意象',
+      );
     });
 
-    test('未知 targetStyle 回退到 gentle_pop', () async {
+    test('默认场景（迷茫/低落）返回 default 模板', () async {
       final result = await service.generate(
-        storyText: '我最近心情很低落',
-        targetStyle: 'unknown_style',
+        storyText: '今晚睡不着，脑子里停不下来',
+        targetStyle: 'gentle_pop',
       );
 
-      // 未知风格回退到 gentle_pop
-      expect(result.songPrompt, contains('gentle pop'));
+      expect(result.scene, 'default');
+    });
+
+    test('不同场景返回不同 comfortInterpretation', () async {
+      final academicResult = await service.generate(
+        storyText: '考研没考上',
+        targetStyle: 'gentle_pop',
+      );
+      final relationshipResult = await service.generate(
+        storyText: '和妈妈吵架',
+        targetStyle: 'gentle_pop',
+      );
+      final workResult = await service.generate(
+        storyText: '工作压力太大',
+        targetStyle: 'gentle_pop',
+      );
+
+      expect(
+        academicResult.comfortInterpretation,
+        isNot(equals(relationshipResult.comfortInterpretation)),
+      );
+      expect(
+        academicResult.comfortInterpretation,
+        isNot(equals(workResult.comfortInterpretation)),
+      );
+      expect(
+        relationshipResult.comfortInterpretation,
+        isNot(equals(workResult.comfortInterpretation)),
+      );
+    });
+
+    test('5 场景 songPrompt 均含 vocal/tempo 要素', () async {
+      final stories = ['考研没考上', '和妈妈吵架', '工作压力太大', '我对不起他', '今晚睡不着'];
+      for (final story in stories) {
+        final result = await service.generate(
+          storyText: story,
+          targetStyle: 'gentle_pop',
+        );
+        final lower = result.songPrompt.toLowerCase();
+        expect(
+          lower.contains('vocal'),
+          isTrue,
+          reason: 'songPrompt 应含 vocal: $story',
+        );
+        expect(
+          lower.contains('tempo'),
+          isTrue,
+          reason: 'songPrompt 应含 tempo: $story',
+        );
+      }
     });
   });
 
-  group('ComfortLyricsService - 文案规范', () {
-    /// 验证 fallback 文案不含医疗化/玄学化/空话词汇。
-    final bannedWords = [
-      '治疗焦虑',
-      '治疗失眠',
-      '治好你的焦虑',
-      '治愈你的',
-      '疗法',
-      '疗效',
+  group('ComfortLyricsService - 文案规范（P4 第二批扩展）', () {
+    /// P4 第二批扩展禁用词清单：新增说教类 + 玄学类补充。
+    final bannedMedicalWords = ['治疗焦虑', '治疗失眠', '治好你的焦虑', '治愈你的', '疗法', '疗效'];
+    final bannedMysticWords = [
       '命中注定',
       '天意',
       '神的安排',
       '神谕',
       '命运注定',
-      '一切都会好的',
-      '你是最棒的',
-      '会好起来的',
+      '命运安排',
+      '宇宙告诉你',
+      '上天告诉你',
+      '神明告诉你',
     ];
+    final bannedEmptyTalkWords = ['一切都会好的', '你是最棒的', '会好起来的', '一定会好'];
+    // P4 第二批新增：说教类禁用词
+    final bannedLecturingWords = ['你必须', '你应该', '你需要治疗', '这说明你'];
 
-    test('fallback 解惑文本不含任何禁用词汇', () async {
-      final result = await service.generate(
-        storyText: '我最近心情很低落',
-        targetStyle: 'gentle_pop',
-      );
+    /// 对多个场景的 fallback 都做禁用词检测，确保所有场景模板都符合规范。
+    final testStories = ['考研没考上，很难过', '和妈妈吵架了', '工作压力太大', '我对不起他', '今晚睡不着，很迷茫'];
 
-      for (final w in bannedWords) {
-        expect(
-          result.comfortInterpretation.contains(w),
-          isFalse,
-          reason: 'fallback 解惑文本不应包含禁用词汇: $w',
+    test('fallback 解惑文本不含医疗化词汇', () async {
+      for (final story in testStories) {
+        final result = await service.generate(
+          storyText: story,
+          targetStyle: 'gentle_pop',
         );
+        for (final w in bannedMedicalWords) {
+          expect(
+            result.comfortInterpretation.contains(w),
+            isFalse,
+            reason: 'fallback 解惑文本不应包含医疗化词汇: $w (story: $story)',
+          );
+        }
+      }
+    });
+
+    test('fallback 解惑文本不含玄学化词汇', () async {
+      for (final story in testStories) {
+        final result = await service.generate(
+          storyText: story,
+          targetStyle: 'gentle_pop',
+        );
+        for (final w in bannedMysticWords) {
+          expect(
+            result.comfortInterpretation.contains(w),
+            isFalse,
+            reason: 'fallback 解惑文本不应包含玄学化词汇: $w (story: $story)',
+          );
+        }
+      }
+    });
+
+    test('fallback 解惑文本不含空话词汇', () async {
+      for (final story in testStories) {
+        final result = await service.generate(
+          storyText: story,
+          targetStyle: 'gentle_pop',
+        );
+        for (final w in bannedEmptyTalkWords) {
+          expect(
+            result.comfortInterpretation.contains(w),
+            isFalse,
+            reason: 'fallback 解惑文本不应包含空话词汇: $w (story: $story)',
+          );
+        }
+      }
+    });
+
+    test('fallback 解惑文本不含说教词汇（P4 第二批新增）', () async {
+      for (final story in testStories) {
+        final result = await service.generate(
+          storyText: story,
+          targetStyle: 'gentle_pop',
+        );
+        for (final w in bannedLecturingWords) {
+          expect(
+            result.comfortInterpretation.contains(w),
+            isFalse,
+            reason: 'fallback 解惑文本不应包含说教词汇: $w (story: $story)',
+          );
+        }
       }
     });
 
     test('fallback 歌词草稿不含任何禁用词汇', () async {
-      final result = await service.generate(
-        storyText: '我最近心情很低落',
-        targetStyle: 'gentle_pop',
-      );
-
-      for (final w in bannedWords) {
-        expect(
-          result.lyricDraft.contains(w),
-          isFalse,
-          reason: 'fallback 歌词草稿不应包含禁用词汇: $w',
+      final allBanned = [
+        ...bannedMedicalWords,
+        ...bannedMysticWords,
+        ...bannedEmptyTalkWords,
+        ...bannedLecturingWords,
+      ];
+      for (final story in testStories) {
+        final result = await service.generate(
+          storyText: story,
+          targetStyle: 'gentle_pop',
         );
+        for (final w in allBanned) {
+          expect(
+            result.lyricDraft.contains(w),
+            isFalse,
+            reason: 'fallback 歌词草稿不应包含禁用词汇: $w (story: $story)',
+          );
+        }
       }
     });
 
     test('fallback songPrompt 不含医疗化英文词汇', () async {
+      for (final story in testStories) {
+        final result = await service.generate(
+          storyText: story,
+          targetStyle: 'gentle_pop',
+        );
+        // songPrompt 应为纯音乐风格描述，不含 heal/cure/treatment/therapy
+        final lowerPrompt = result.songPrompt.toLowerCase();
+        expect(lowerPrompt.contains('heal'), isFalse);
+        expect(lowerPrompt.contains('cure'), isFalse);
+        expect(lowerPrompt.contains('treatment'), isFalse);
+        expect(lowerPrompt.contains('therapy'), isFalse);
+      }
+    });
+
+    test('fallback songPrompt 不含用户隐私原句', () async {
+      // songPrompt 是英文风格描述，不应包含用户中文原文片段
       final result = await service.generate(
-        storyText: '我最近心情很低落',
+        storyText: '我考研没考上，和妈妈吵架了',
         targetStyle: 'gentle_pop',
       );
-
-      // songPrompt 应为纯音乐风格描述，不含 heal/cure/treatment/therapy
-      final lowerPrompt = result.songPrompt.toLowerCase();
-      expect(lowerPrompt.contains('heal'), isFalse);
-      expect(lowerPrompt.contains('cure'), isFalse);
-      expect(lowerPrompt.contains('treatment'), isFalse);
-      expect(lowerPrompt.contains('therapy'), isFalse);
+      final sensitiveFragments = ['考研', '妈妈', '吵架'];
+      for (final frag in sensitiveFragments) {
+        expect(
+          result.songPrompt.contains(frag),
+          isFalse,
+          reason: 'songPrompt 不应含用户隐私原句: $frag',
+        );
+      }
     });
   });
 }

@@ -83,6 +83,45 @@ void main() {
       });
       expect(r.isFallback, isFalse);
     });
+
+    test('P4 第二批：正确解析 scene 字段', () {
+      final scenes = [
+        'academic_failure',
+        'relationship_conflict',
+        'work_pressure',
+        'guilt_regret',
+        'default',
+      ];
+      for (final scene in scenes) {
+        final r = ComfortLyricsResult.fromJson({
+          'source': 'llm',
+          'comfortInterpretation': 'x',
+          'lyricDraft': 'y',
+          'scene': scene,
+        });
+        expect(r.scene, scene, reason: 'scene 应正确解析: $scene');
+      }
+    });
+
+    test('P4 第二批：scene 缺失时默认 default', () {
+      final r = ComfortLyricsResult.fromJson({
+        'source': 'llm',
+        'comfortInterpretation': 'x',
+        'lyricDraft': 'y',
+      });
+      expect(r.scene, 'default');
+    });
+
+    test('P4 第二批：构造函数 scene 默认 default', () {
+      final r = ComfortLyricsResult(
+        comfortInterpretation: 'x',
+        lyricDraft: 'y',
+        songPrompt: 'p',
+        safetyNotes: 's',
+        source: 'llm',
+      );
+      expect(r.scene, 'default');
+    });
   });
 
   group('文案规范 - 医疗化 / 玄学化词汇检测', () {
@@ -97,20 +136,8 @@ void main() {
       '疗法',
       '疗效',
     ];
-    final bannedMysticPatterns = [
-      '命中注定',
-      '天意',
-      '神的安排',
-      '算准',
-      '神谕',
-      '命运注定',
-    ];
-    final bannedEmptyTalkPatterns = [
-      '一切都会好的',
-      '加油哦',
-      '你是最棒的',
-      '会好起来的',
-    ];
+    final bannedMysticPatterns = ['命中注定', '天意', '神的安排', '算准', '神谕', '命运注定'];
+    final bannedEmptyTalkPatterns = ['一切都会好的', '加油哦', '你是最棒的', '会好起来的'];
 
     /// 理想的 fallback / 本地模板文本（必须不含任何禁用词汇）。
     final idealFallbackComfort =
@@ -118,7 +145,8 @@ void main() {
         '也许现在的你不需要立刻找到答案，也不需要把所有事都理清楚。先允许自己停一下，就停在这里。'
         '可以试着给自己倒一杯水，或者把窗户打开透透气。很小的一步，就够了。';
 
-    final idealFallbackLyric = '【主歌】\n你站在夜色里没说话\n风把心事吹得有些远\n想哭也没关系，我在听\n\n'
+    final idealFallbackLyric =
+        '【主歌】\n你站在夜色里没说话\n风把心事吹得有些远\n想哭也没关系，我在听\n\n'
         '【副歌】\n也许明天先把杯子洗干净\n也许今晚试着把手机放远一点\n不用急着好起来\n这首歌想陪你看见自己\n\n'
         '【尾声】\n天快亮了，你不用一个人。';
 
@@ -176,7 +204,8 @@ void main() {
   group('歌词结构字段检查', () {
     /// 验证：歌词草稿应含「主歌」「副歌」「尾声」结构标记。
     /// 这些是后端 SYSTEM_PROMPT 强制要求的结构。
-    final sampleLyric = '【主歌】\n你站在夜色里没说话\n风把心事吹得有些远\n想哭也没关系，我在听\n\n'
+    final sampleLyric =
+        '【主歌】\n你站在夜色里没说话\n风把心事吹得有些远\n想哭也没关系，我在听\n\n'
         '【副歌】\n也许明天先把杯子洗干净\n也许今晚试着把手机放远一点\n不用急着好起来\n这首歌想陪你看见自己\n\n'
         '【尾声】\n天快亮了，你不用一个人。';
 

@@ -42,6 +42,9 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
   /// 最近一次错误提示（仅用于 UI 显示，不暴露内部异常）。
   String? _errorHint;
 
+  /// songPrompt 是否展开（P4 第二批：折叠弱化，默认收起）。
+  bool _songPromptExpanded = false;
+
   /// 4 种曲风选项。
   static const List<_StyleOption> _styleOptions = [
     _StyleOption(
@@ -123,6 +126,7 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
       _result = null;
       _errorHint = null;
       _loading = false;
+      _songPromptExpanded = false;
     });
   }
 
@@ -158,7 +162,10 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
             ),
           ),
           const SizedBox(height: 10),
-          _StoryInputField(controller: _storyController, focusNode: _storyFocus),
+          _StoryInputField(
+            controller: _storyController,
+            focusNode: _storyFocus,
+          ),
 
           const SizedBox(height: 18),
 
@@ -268,18 +275,24 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
   }
 
   /// 结果区：来源标记 + 解惑卡片 + 歌词卡片 + 后续提示 + 重置按钮。
+  ///
+  /// P4 第二批优化：
+  /// - 「温和解惑」→「给现在的你」（更像产品而非分析报告）
+  /// - 「歌词草稿」→「写成歌的话」（更温柔、更产品化）
+  /// - songPrompt 折叠弱化（默认收起，标题改为「后续生成参数」）
+  /// - 显示场景标记（让用户感到"被听懂"）
   Widget _buildResult(ComfortLyricsResult result) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // 来源标记（llm / fallback）
-        _buildSourceBadge(result.source),
+        // 来源 + 场景标记
+        _buildBadges(result.source, result.scene),
         const SizedBox(height: 14),
 
-        // 温和解惑
+        // 给现在的你（温和解惑）
         _SectionCard(
           icon: Icons.favorite_border_rounded,
-          title: '温和解惑',
+          title: '给现在的你',
           child: SelectableText(
             result.comfortInterpretation,
             style: const TextStyle(
@@ -291,10 +304,10 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
         ),
         const SizedBox(height: 14),
 
-        // 歌词草稿
+        // 写成歌的话（歌词草稿）
         _SectionCard(
           icon: Icons.music_note_rounded,
-          title: '歌词草稿',
+          title: '写成歌的话',
           child: SelectableText(
             result.lyricDraft,
             style: const TextStyle(
@@ -307,7 +320,7 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
         ),
         const SizedBox(height: 14),
 
-        // songPrompt（折叠，作为后续音乐生成的风格提示）
+        // songPrompt 折叠弱化（默认收起）
         _buildSongPromptCard(result.songPrompt),
         const SizedBox(height: 18),
 
@@ -319,10 +332,7 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
         OutlinedButton.icon(
           onPressed: _reset,
           icon: const Icon(Icons.refresh_rounded, size: 18),
-          label: const Text(
-            '再写一首',
-            style: TextStyle(fontSize: 14),
-          ),
+          label: const Text('再写一首', style: TextStyle(fontSize: 14)),
           style: OutlinedButton.styleFrom(
             minimumSize: const Size.fromHeight(46),
             foregroundColor: AppColors.primary,
@@ -336,41 +346,148 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
     );
   }
 
-  /// 来源标记：llm / fallback。
-  Widget _buildSourceBadge(String source) {
+  /// 场景标签文案（P4 第二批）。
+  static const Map<String, String> _sceneLabels = {
+    'academic_failure': '学业受挫',
+    'relationship_conflict': '关系摩擦',
+    'work_pressure': '压力疲惫',
+    'guilt_regret': '愧疚后悔',
+    'default': '此刻心境',
+  };
+
+  /// 来源 + 场景标记（P4 第二批：组合显示）。
+  Widget _buildBadges(String source, String scene) {
     final isLlm = source == 'llm';
-    final label = isLlm ? 'AI 生成' : '本地模板（AI 暂不可用）';
-    final color = isLlm ? AppColors.tealDeep : AppColors.textMuted;
+    final sourceLabel = isLlm ? 'AI 生成' : '本地模板';
+    final sourceColor = isLlm ? AppColors.tealDeep : AppColors.textMuted;
+    final sceneLabel = _sceneLabels[scene] ?? '此刻心境';
+
     return Align(
       alignment: Alignment.centerLeft,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.1),
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: color.withValues(alpha: 0.3)),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(fontSize: 11, color: color, letterSpacing: 0.3),
-        ),
+      child: Wrap(
+        spacing: 8,
+        runSpacing: 6,
+        children: [
+          // 来源标记
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            decoration: BoxDecoration(
+              color: sourceColor.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: sourceColor.withValues(alpha: 0.3)),
+            ),
+            child: Text(
+              sourceLabel,
+              style: TextStyle(
+                fontSize: 11,
+                color: sourceColor,
+                letterSpacing: 0.3,
+              ),
+            ),
+          ),
+          // 场景标记（让用户感到"被听懂"）
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            decoration: BoxDecoration(
+              color: AppColors.lavender.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                color: AppColors.lavender.withValues(alpha: 0.3),
+              ),
+            ),
+            child: Text(
+              sceneLabel,
+              style: TextStyle(
+                fontSize: 11,
+                color: AppColors.lavender.withValues(alpha: 0.9),
+                letterSpacing: 0.3,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
 
-  /// songPrompt 卡片（折叠展开）。
+  /// songPrompt 卡片（P4 第二批：折叠弱化，默认收起）。
+  /// 标题改为「后续生成参数」，避免显得像开发调试工具。
   Widget _buildSongPromptCard(String songPrompt) {
-    return _SectionCard(
-      icon: Icons.graphic_eq_rounded,
-      title: '曲风提示（用于后续歌曲生成）',
-      child: SelectableText(
-        songPrompt,
-        style: const TextStyle(
-          fontSize: 12,
-          color: AppColors.textSecondary,
-          height: 1.6,
-          fontStyle: FontStyle.italic,
-        ),
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.cardBg,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.cardBorder),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.cardShadow,
+            blurRadius: 12,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Material(
+            color: Colors.transparent,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(6),
+              onTap: () =>
+                  setState(() => _songPromptExpanded = !_songPromptExpanded),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 2),
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.graphic_eq_rounded,
+                      size: 16,
+                      color: AppColors.textMuted,
+                    ),
+                    const SizedBox(width: 8),
+                    const Expanded(
+                      child: Text(
+                        '后续生成参数',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                    ),
+                    Icon(
+                      _songPromptExpanded
+                          ? Icons.keyboard_arrow_up_rounded
+                          : Icons.keyboard_arrow_down_rounded,
+                      size: 18,
+                      color: AppColors.textMuted,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          // 默认收起；点击展开后显示 songPrompt
+          AnimatedCrossFade(
+            duration: const Duration(milliseconds: 200),
+            crossFadeState: _songPromptExpanded
+                ? CrossFadeState.showSecond
+                : CrossFadeState.showFirst,
+            firstChild: const SizedBox(height: 0, width: double.infinity),
+            secondChild: Padding(
+              padding: const EdgeInsets.only(top: 10),
+              child: SelectableText(
+                songPrompt,
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: AppColors.textSecondary,
+                  height: 1.6,
+                  fontStyle: FontStyle.italic,
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -414,10 +531,7 @@ class _StoryInputField extends StatelessWidget {
   final TextEditingController controller;
   final FocusNode focusNode;
 
-  const _StoryInputField({
-    required this.controller,
-    required this.focusNode,
-  });
+  const _StoryInputField({required this.controller, required this.focusNode});
 
   @override
   Widget build(BuildContext context) {
@@ -433,18 +547,13 @@ class _StoryInputField extends StatelessWidget {
         height: 1.6,
       ),
       decoration: InputDecoration(
-        hintText: '试着写下你最近遇到的一件事、一个困惑，或者一段心情……\n例如：最近工作压力很大，每天回家都很累，但躺在床上又开始想明天的事，停不下来。',
-        hintStyle: const TextStyle(
-          color: AppColors.textMuted,
-          height: 1.6,
-        ),
+        hintText:
+            '试着写下你最近遇到的一件事、一个困惑，或者一段心情……\n例如：最近工作压力很大，每天回家都很累，但躺在床上又开始想明天的事，停不下来。',
+        hintStyle: const TextStyle(color: AppColors.textMuted, height: 1.6),
         alignLabelWithHint: true,
         filled: true,
         fillColor: AppColors.cardBg,
-        counterStyle: const TextStyle(
-          fontSize: 11,
-          color: AppColors.textMuted,
-        ),
+        counterStyle: const TextStyle(fontSize: 11, color: AppColors.textMuted),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(16),
           borderSide: const BorderSide(color: AppColors.cardBorder),

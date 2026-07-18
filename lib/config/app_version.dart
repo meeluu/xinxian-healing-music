@@ -45,7 +45,7 @@ class AppVersion {
   /// - `P{N}-comfort-song-design-{n}-fix{m}`：P 阶段第 n 批新方向产品设计的第 m 次修订
   /// - `P{N}-comfort-lyrics-{n}`：P 阶段第 n 批「困惑解惑 + 歌词生成」LLM 流程代码实现
   /// - `P{N}-stable`：P 阶段收尾验收通过，正式发布
-  static const String buildLabel = 'P4-comfort-lyrics-1';
+  static const String buildLabel = 'P4-comfort-lyrics-2';
 
   /// 构建日期（YYYY-MM-DD），手动维护。
   static const String buildDate = '2026-07-18';

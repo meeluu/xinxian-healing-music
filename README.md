@@ -5,7 +5,7 @@
 心弦是一款基于 Flutter Web 的情绪陪伴 Demo。用户输入当下心境后，系统通过 LLM 生成情绪画像与音乐参数，并播放匹配的本地音频素材，形成「自然语言 → AI 情绪解析 → 音乐方案 → 音频体验 → 用户反馈」的完整闭环。
 
 - **正式体验地址**：[https://xinxian-music.xyz](https://xinxian-music.xyz)
-- **当前版本**：`v1.0.0 · P4-comfort-lyrics-1 · Cloudflare Pages`
+- **当前版本**：`v1.0.0 · P4-comfort-lyrics-2 · Cloudflare Pages`
 - **定位**：辅助情绪调节、睡前舒缓、正念陪伴、温和充能的轻量化工具，**不提供医疗诊断或治疗**，不替代专业心理咨询与医疗建议（详见[第十二章 免责声明](#十二免责声明)）
 
 ---
@@ -24,6 +24,7 @@
 6.8. [P4-AI-Music-v1.0 第一批：AI 音乐生成服务选型调研](#六点八p4-ai-music-v10-第一批ai-音乐生成服务选型调研)
 6.9. [P4 新方向：困惑解惑 → 歌词 → AI 歌曲生成](#六点九p4-新方向困惑解惑--歌词--ai-歌曲生成)
 6.10. [P4 新方向第一批：困惑解惑 + 歌词生成 LLM 流程](#六点十p4-新方向第一批困惑解惑--歌词生成-llm-流程)
+6.11. [P4 新方向第二批：解惑文本与歌词质量优化](#六点十一p4-新方向第二批解惑文本与歌词质量优化)
 7. [数据与隐私](#七数据与隐私)
 8. [环境变量与部署](#八环境变量与部署)
 9. [本地开发与验证](#九本地开发与验证)
@@ -74,8 +75,8 @@
 
 ### 2.1 当前阶段
 
-- **阶段**：`P4-AI-Music-v1.0 进行中 / P4-comfort-song-design-1-fix1（新方向：困惑解惑 → 歌词 → AI 歌曲；主线 provider：MiniMax）`
-- **版本号**：`v1.0.0 · P4-comfort-song-design-1-fix1 · Cloudflare Pages`（首页底部显示 `心弦 v1.0.0 · P4-comfort-song-design-1-fix1 · Cloudflare Pages`）
+- **阶段**：`P4-AI-Music-v1.0 进行中 / P4-comfort-lyrics-2（新方向：困惑解惑 → 歌词 → AI 歌曲；主线 provider：MiniMax）`
+- **版本号**：`v1.0.0 · P4-comfort-lyrics-2 · Cloudflare Pages`（首页底部显示 `心弦 v1.0.0 · P4-comfort-lyrics-2 · Cloudflare Pages`）
 - **构建日期**：2026-07-18
 - **部署目标**：Cloudflare Pages
 - **上一阶段**：P3-Web-v1.0 已完成（`P3-data-3`，2026-07-11 第三批完成）；P2-Web-v1.0 已完成（`P2-stable`，2026-07-11 收尾验收通过）
@@ -1323,6 +1324,136 @@ P4.4-5 完成真实调用分支代码后，手动 curl 真实调用 MiniMax Musi
 
 ---
 
+### 6.11 P4 新方向第二批：解惑文本与歌词质量优化（2026-07-18）
+
+承接 6.10 P4 新方向第一批，本批优化"把困惑写成一首歌"的输出质量，让它更像一个**温和、可信、能安慰用户的歌词疗愈产品**，而不是普通情绪分析或建议清单。本批**不调用 MiniMax / Mureka，不生成真实音频，只优化 LLM prompt、fallback 文案、前端展示与测试**。
+
+#### 6.11.1 解惑文本质量优化
+
+`comfortInterpretation` 从第一批的"2-4 段自由结构"升级为**严格 4 段结构**，更像温和陪伴者而非分析报告：
+
+1. **第 1 段：复述处境**——用「听起来你正在……」开头，让用户感到「被听见」，不分析、不总结
+2. **第 2 段：重新框架化痛苦**——用「也许这件事最重的地方不是……而是……」开头，不否定痛苦，也不夸大
+3. **第 3 段：给一个很小的行动**——用「可以先把目标放小一点……」开头，不强制、不空话，今天就能做
+4. **第 4 段（结尾一句）：自然过渡到歌**——用「这首歌不急着推你往前，只先陪你站稳一点」收尾，不说教、不承诺结果
+
+**禁用表达**（在第一批医疗化/玄学化/空话基础上新增说教类）：
+- 你必须 / 你应该 / 这说明你 / 你需要治疗 / 一定会好 / 命运安排 / 宇宙告诉你 / 上天告诉你 / 神明告诉你
+
+**推荐表达**：
+- 听起来你正在…… / 也许这件事最重的地方不是……而是…… / 可以先把目标放小一点…… / 这首歌不急着推你往前，只先陪你站稳一点 / 想哭也没关系
+
+#### 6.11.2 歌词质量优化
+
+`lyricDraft` 从第一批的"含结构标记"升级为**画面感 + 重复 hook + 严格三段结构**：
+
+- **【主歌】**：具体画面感，用夜色 / 桌面 / 消息 / 路灯 / 风 / 没说出口的话等具象意象，不抽象
+- **【副歌】**：核心安慰 hook，可重复 1-2 句便于被唱。例：「今晚先别赶路，让风替你轻轻说完」
+- **【尾声】**：留白，不强行升华，不强行打气，可以是一句很轻的独白
+
+**禁用**：建议清单式（每句都是「你要 / 你可以」）/ 鸡汤（「一切都会好的 / 加油」）/ 过度抽象（「黑暗之后是光明」）/ 元指涉（「心弦 / 本产品 / AI」）
+
+**风格参考**（学习语气，不照抄）：
+- 我把没说完的话，放进慢慢亮起的窗
+- 不是所有跌倒，都要马上给出答案
+- 今晚先别赶路，让风替你轻轻说完
+
+#### 6.11.3 songPrompt 优化
+
+`songPrompt` 从第一批的"简短曲风描述"升级为**明确包含 5 要素的英文风格提示**，更适合歌曲生成（含人声）：
+
+- **vocal style**：warm vocal melody / breathy vocal / soft intimate vocal / soft male or female vocal
+- **mood**：intimate and comforting / bittersweet and tender / late night comforting / reflective and forgiving / late night intimate
+- **tempo**：slow tempo
+- **instrumentation**：soft piano and acoustic guitar / fingerstyle guitar and soft pads / gentle piano with subtle synth pads / acoustic guitar and warm piano / fingerstyle guitar and warm pads
+- **arrangement**：clean arrangement / minimal arrangement / spacious arrangement / sparse arrangement
+
+参考示例：`gentle mandarin ballad, warm vocal melody, soft piano and acoustic guitar, slow tempo, intimate and comforting mood, clean arrangement`
+
+约束：英文 / 不含用户隐私原句 / 不含 heal/cure/treatment/therapy 等医疗化词汇
+
+#### 6.11.4 场景识别（新增）
+
+后端 `detectScene(storyText)` 本地关键词匹配 5 类场景，用于 fallback 路径选择对应模板（LLM 路径下 scene 由 LLM 自己判断）：
+
+| 场景 | scene 值 | 关键词示例 | 叙事侧重 |
+|---|---|---|---|
+| 学业失败 / 挂科 | `academic_failure` | 考试 / 挂科 / 考研 / 高考 / 落榜 / 答辩 | 目标暂时没达到 ≠ 你这个人不行 |
+| 关系冲突 / 争吵 | `relationship_conflict` | 吵架 / 分手 / 妈妈 / 朋友 / 已读不回 / 室友 | 没说出口的话比争吵更重 |
+| 工作压力 / 疲惫 | `work_pressure` | 工作 / 加班 / deadline / 老板 / kpi / 996 | 累不是因为你不够强 |
+| 愧疚 / 后悔 | `guilt_regret` | 对不起 / 后悔 / 愧疚 / 辜负 / 都是我的错 | 做错了不等于你是错的 |
+| 默认（孤独/迷茫/睡前焦虑） | `default` | （以上都不匹配） | 现在不需要找到答案 |
+
+前端 `ComfortLyricsService._detectScene` 与后端 `detectScene` 关键词完全一致，确保双层 fallback 场景识别结果相同。
+
+#### 6.11.5 fallback 文案优化（5 场景独立模板）
+
+第一批 fallback 只有一套通用模板；本批为 5 场景分别准备独立模板，每个含独立的 `comfortInterpretation`（严格 4 段）+ `lyricDraft`（含主歌/副歌/尾声 + 重复 hook + 场景意象）+ `songPrompt`（英文 5 要素）：
+
+- **学业场景**：意象用模拟卷 / 走廊 / 复习计划；hook「不是所有跌倒，都要马上给出答案」
+- **关系场景**：意象用消息框 / 已读 / 关上的门；hook「我把没说完的话，放进慢慢亮起的窗」
+- **工作场景**：意象用屏幕光 / 末班车 / 没关的灯；hook「累不是因为你不够强，是你撑得太长」
+- **愧疚场景**：意象用没寄出的道歉 / 想拨的电话；hook「做错了不等于你是错的，只是这一次没做好」
+- **默认场景**：意象用夜色 / 没亮的窗 / 还没醒的城市；hook「想哭也没关系，我在听」
+
+后端 `FALLBACK_TEMPLATES` 与前端 `_fallbackTemplates` 内容完全一致。
+
+#### 6.11.6 前端展示优化
+
+`ComfortLyricsScreen` 结果区从"开发调试工具感"优化为"产品化温柔感"：
+
+| 优化项 | 第一批 | 第二批 |
+|---|---|---|
+| 解惑卡片标题 | 温和解惑 | **给现在的你** |
+| 歌词卡片标题 | 歌词草稿 | **写成歌的话** |
+| songPrompt 展示 | 独立卡片，直接显示 | **折叠弱化**：默认收起，标题改为「后续生成参数」，点击展开 |
+| 场景标记 | 无 | **新增**：显示场景标签（学业受挫 / 关系摩擦 / 压力疲惫 / 愧疚后悔 / 此刻心境），让用户感到"被听懂" |
+| 来源标记 | 单独显示 | 与场景标记组合显示（本地模板 / AI 生成 + 场景标签） |
+
+songPrompt 折叠使用 `AnimatedCrossFade` 实现 200ms 平滑展开/收起动画，默认收起，避免技术参数干扰产品体验。后续提示「下一步将用于生成专属歌曲。当前版本仅生成歌词草稿，暂不调用真实 AI 音乐生成」保留不变。
+
+#### 6.11.7 后端 sanitizeText 扩展
+
+在第一批医疗化/玄学化/空话过滤基础上新增**说教类过滤**（`LECTURING_PATTERNS`）：
+
+- 你必须 / 你应该 / 你需要治疗 / 这说明你 → 替换为「可以试着」
+
+检测到任何违规词汇时 `safetyNotes` 自动追加"已过滤敏感表达"标注。
+
+#### 6.11.8 新增/修改文件清单
+
+- `functions/api/comfort-lyrics.js`（修改）：SYSTEM_PROMPT 结构化（4 段解惑 + 歌词质量要求 + songPrompt 5 要素 + 场景识别指引）；新增 `detectScene`；`sanitizeText` 新增 `LECTURING_PATTERNS`；`FALLBACK_TEMPLATES` 扩展为 5 场景；`callLlm` temperature 0.7→0.75，max_tokens 800→1000；所有响应新增 `scene` 字段
+- `lib/models/comfort_lyrics_result.dart`（修改）：新增 `scene` 字段（默认 `default`），`fromJson` 解析 scene
+- `lib/pipeline/llm/comfort_lyrics_service.dart`（修改）：新增 `_detectScene` + `_fallbackTemplates`（5 场景，与后端一致）；`_localFallback` 按 scene 选择模板并设置 `scene` 字段
+- `lib/screens/comfort_lyrics_screen.dart`（修改）：标题改名（温和解惑→给现在的你 / 歌词草稿→写成歌的话）；songPrompt 折叠弱化（`_buildSongPromptCard` + `AnimatedCrossFade` + `_songPromptExpanded` 状态）；新增 `_sceneLabels` + `_buildBadges`（来源 + 场景组合标记）
+- `lib/config/app_version.dart`（修改）：`buildLabel` → `P4-comfort-lyrics-2`
+- `scripts/verify-comfort-lyrics.mjs`（修改）：25 项 → 35 项，新增 `detectScene` 5 场景测试 + 说教类 sanitizeText 测试 + 5 场景 fallback 结构/英文/禁用词/隐私/差异化测试
+- `test/comfort_lyrics_result_test.dart`（修改）：新增 scene 字段解析测试（3 项）
+- `test/comfort_lyrics_service_test.dart`（修改）：`targetStyle 切换` 组改为`场景识别`组（7 项）；文案规范组扩展说教类禁用词 + 5 场景遍历检测
+- `test/comfort_lyrics_screen_test.dart`（修改）：标题测试更新（温和解惑→给现在的你 / 歌词草稿→写成歌的话）；新增 songPrompt 折叠/展开测试 + 场景标记测试 + 结果区完整结构测试
+- `README.md`（修改）：新增 6.11 章节 + 13.5 变更记录 + 顶部版本号 + 2.1 当前阶段
+
+#### 6.11.9 明确不做
+
+- ❌ 本批**不调用 MiniMax API**（`MUSIC_GENERATION_REAL_CALLS_ENABLED` 保持 `false`）
+- ❌ 本批**不调用 Mureka API**（Mureka 仍是后续候选，暂不接入）
+- ❌ 本批**不生成真实音频**（前端主流程仍使用本地预置音频）
+- ❌ 本批**不改 D1 schema**
+- ❌ 本批**不改付费模块**（明确是后续阶段）
+- ❌ 本批**不做社交 Agent**（明确是后续阶段）
+- ❌ 本批**不写入任何 API Key**（`OPENAI_API_KEY` / `MINIMAX_API_KEY` / `MUREKA_API_KEY` 均只放 Cloudflare Secret）
+- ❌ 本批**不使用医疗化表达**（治疗焦虑 / 治疗失眠 / 治愈 / 疗法 / 疗效 全部禁用）
+- ❌ 本批**不包装成玄学 / 算命 / 宗教神谕**（命中注定 / 天意 / 神谕 / 命运安排 / 宇宙 / 上天 / 神明 全部禁用）
+
+#### 6.11.10 验证
+
+- `node scripts/verify-comfort-lyrics.mjs`：35 项测试全部通过（validateInput 9 项 + sanitizeText 9 项 + detectScene 5 项 + normalizeResult 7 项 + localFallback 5 项）
+- `flutter analyze`：No issues found
+- `flutter test`：全部通过（含 comfort_lyrics_result_test 20 项 + comfort_lyrics_service_test 19 项 + comfort_lyrics_screen_test 13 项）
+- `flutter build web --release`：见 [第九章 本地开发与验证](#九本地开发与验证)
+
+---
+
 ## 七、数据与隐私
 
 ### 7.1 心境文本处理
@@ -1655,6 +1786,7 @@ Web 与 Android 的构建链路相互独立：Android 的 Gradle 配置不参与
 | 2026-07-18 | v1.0.0 / P4-comfort-song-design-1 | P4 新方向设计 | 困惑解惑 → 歌词 → AI 歌曲生成主流程设计与 Mureka 路线切换：新增 `docs/comfort-song-product-flow.md`（产品流程设计：新主流程 / 数据模型草案 / 文案规范 / 与旧流程关系 / 三层同意机制）；新增 `docs/mureka-api-integration-plan.md`（Mureka API 调研：能力梳理 / 推荐路径 / 环境变量 / fallback / 成本 / 任务拆分）；README 新增 6.8.19（MiniMax 真实调用失败记录，保留为备选 provider 不删除）+ 6.9（P4 新方向章节）；MiniMax 真实调用测试仍失败，暂不继续硬调试，代码保留为备选；Mureka 为下一主线候选（API server `https://api.mureka.ai`，鉴权 `Bearer MUREKA_API_KEY`，支持歌词生成歌曲）；本批只做文档与版本号，不写代码 / 不真实调用 Mureka / 不改 D1 / 不接入付费模块 / 不做社交 Agent；文案规范禁用医疗化与玄学表达；旧流程保留为「快速模式」，新流程作为 P4 之后主体验 |
 | 2026-07-18 | v1.0.0 / P4-comfort-song-design-1-fix1 | P4 新方向设计 fix1 修订 | 修正上一版把 Mureka 写成下一主线的表述：**当前主线继续使用 MiniMax**（账户已充值，单首约 0.25 元，成本更可控，真实调用失败需继续排查）；**Mureka 降级为后续候选 provider**（最低充值 200 元，测试成本偏高，暂不接入）；修改 `docs/comfort-song-product-flow.md` 第五章（与 AI 音乐 provider 的关系：MiniMax 主线 / Mureka 后续候选）；修改 `docs/mureka-api-integration-plan.md` 顶部标注为「后续候选方案，当前不接入」+ 1.3 约束 + 第七章任务拆分（mureka_music 相关任务标注为后续候选不执行）；README 6.8.19 修正方向调整表述（MiniMax 继续作为当前主线排查，不放弃）+ 6.9 修正 Mureka 表述（后续候选，暂不接入）+ 新增下一步计划（解惑+歌词本地/LLM 流程 / MiniMax 修复 / 暂不做 Mureka / 暂不做付费 / 暂不做社交 Agent）；不删除 Mureka 调研文档 / 不删除 MiniMax provider 代码 / 不真实调用任何 API / 不改 D1 / 不改前端 UI / 不写入任何 API Key |
 | 2026-07-18 | v1.0.0 / P4-comfort-lyrics-1 | P4 新方向第一批 | 困惑解惑 + 歌词生成 LLM 流程代码实现：新增后端 API `functions/api/comfort-lyrics.js`（OpenAI-compatible LLM 调用 + 15s 超时 + 完整 try/catch 兜底 + sanitizeText 过滤医疗化/玄学化/空话词汇 + localFallback）；新增前端数据模型 `lib/models/comfort_lyrics_result.dart` + Service `lib/pipeline/llm/comfort_lyrics_service.dart`（双层 fallback：后端 fallback + 前端 fallback）+ 页面 `lib/screens/comfort_lyrics_screen.dart`（输入困惑 → 选择 4 种曲风 → 显示温和解惑 + 歌词草稿 + 曲风提示 + 后续提示）；修改 `lib/screens/home_screen.dart` 在主按钮下方新增「把困惑写成一首歌」OutlinedButton 入口；新增 `scripts/verify-comfort-lyrics.mjs`（25 项后端核心逻辑测试：validateInput / sanitizeText / normalizeResult / localFallback / 文案规范）；新增 3 个 flutter test 文件（数据模型 / Service fallback / 页面不空白）；LLM Prompt 严格避免医疗化/玄学化/说教/空话，要求输出含「主歌」「副歌」「尾声」结构的歌词草稿；本批**不调用 MiniMax** / **不调用 Mureka** / **不生成真实音频** / **不改 D1 schema** / **不改付费模块** / **不做社交 Agent** / **不写入任何 API Key**；MiniMax 真实调用排查仍是后续任务 |
+| 2026-07-18 | v1.0.0 / P4-comfort-lyrics-2 | P4 新方向第二批 | 解惑文本与歌词质量优化：`comfortInterpretation` 升级为严格 4 段结构（复述处境「听起来你正在……」/ 重新框架化痛苦「也许这件事最重的地方不是……而是……」/ 小行动「可以先把目标放小一点……」/ 过渡到歌「这首歌不急着推你往前，只先陪你站稳一点」）；`lyricDraft` 升级为画面感 + 重复 hook + 严格三段（【主歌】具象意象 / 【副歌】可重复 hook / 【尾声】留白不升华）；`songPrompt` 升级为明确含 vocal/mood/tempo/instrumentation/arrangement 5 要素的英文风格提示；新增 `detectScene` 本地场景识别（5 类：academic_failure/relationship_conflict/work_pressure/guilt_regret/default），fallback 按 scene 选择独立模板；`FALLBACK_TEMPLATES` 从 1 套通用模板扩展为 5 场景独立模板（学业用模拟卷意象 / 关系用消息框意象 / 工作用屏幕光意象 / 愧疚用没寄出的道歉意象 / 默认用夜色意象）；`sanitizeText` 新增 `LECTURING_PATTERNS`（你必须/你应该/你需要治疗/这说明你 → 替换「可以试着」）；前端 `ComfortLyricsScreen` 标题改名（温和解惑→给现在的你 / 歌词草稿→写成歌的话）+ songPrompt 折叠弱化（AnimatedCrossFade 默认收起，标题「后续生成参数」）+ 新增场景标记显示（学业受挫/关系摩擦/压力疲惫/愧疚后悔/此刻心境）；前端 Service `_localFallback` 修复 scene 字段未传递的 bug；`callLlm` temperature 0.7→0.75，max_tokens 800→1000；验证脚本 25 项→35 项（新增 detectScene 5 场景 + 说教类 sanitizeText + 5 场景 fallback 结构/英文/禁用词/隐私/差异化）；flutter test 新增 scene 字段解析 + 场景识别 + songPrompt 折叠/展开 + 场景标记测试；本批**不调用 MiniMax** / **不调用 Mureka** / **不生成真实音频** / **不改 D1 schema** / **不改付费模块** / **不做社交 Agent** / **不写入任何 API Key** / **不使用医疗化表达** / **不包装成玄学/算命/宗教神谕** |
 
 ### 13.6 项目结构
 
