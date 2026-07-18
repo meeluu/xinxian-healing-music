@@ -4,7 +4,7 @@ import 'package:xinxian_healing_music/pipeline/llm/comfort_lyrics_service.dart';
 import 'package:xinxian_healing_music/theme/app_colors.dart';
 import 'package:xinxian_healing_music/widgets/centered_page.dart';
 
-/// 「把困惑写成一首歌」页面（P4 新方向第一批）。
+/// 「把困惑写成一首歌」页面（P4 新方向第一/二/三批）。
 ///
 /// 流程：
 /// 1. 用户输入一段困惑/事件/情绪描述
@@ -14,6 +14,7 @@ import 'package:xinxian_healing_music/widgets/centered_page.dart';
 ///    - 温和解惑文本（comfortInterpretation）
 ///    - 歌词草稿（lyricDraft，含主歌/副歌/尾声标记）
 ///    - 后续提示：`下一步将用于生成专属歌曲`（本批不接真实音乐生成）
+/// 5. P4 第三批：用户可「编辑歌词」并保存/取消；底部新增「生成这首歌（即将开放）」占位按钮
 ///
 /// 任何失败都返回 fallback，不让用户卡死。
 ///
@@ -44,6 +45,24 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
 
   /// songPrompt 是否展开（P4 第二批：折叠弱化，默认收起）。
   bool _songPromptExpanded = false;
+
+  /// P4 第三批：歌词编辑状态。
+  ///
+  /// 状态管理规则：
+  /// - 生成结果后才能编辑歌词（_result != null）
+  /// - 编辑时不能重复点击「生成解惑与歌词草稿」（生成按钮 disabled）
+  /// - 保存后 [_editedLyric] 使用编辑后的内容，[songPrompt] 保持原结果不变
+  /// - 点击「再写一首」后清空编辑状态（_isEditing=false, _editedLyric=null）
+  bool _isEditing = false;
+
+  /// 歌词编辑控制器（仅编辑态使用）。
+  final TextEditingController _editingController = TextEditingController();
+
+  /// 歌词编辑焦点（进入编辑态时自动聚焦）。
+  final FocusNode _editingFocus = FocusNode();
+
+  /// 用户保存后的歌词（null 表示未编辑过，展示时回退到 result.lyricDraft）。
+  String? _editedLyric;
 
   /// 4 种曲风选项。
   static const List<_StyleOption> _styleOptions = [
@@ -81,6 +100,8 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
   void dispose() {
     _storyController.dispose();
     _storyFocus.dispose();
+    _editingController.dispose();
+    _editingFocus.dispose();
     super.dispose();
   }
 
@@ -90,13 +111,18 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
   /// 这里仍用 try/catch + _errorHint 作为最后保险，避免任何边界情况导致页面卡死。
   Future<void> _generate() async {
     final story = _storyController.text.trim();
-    if (story.isEmpty || _loading) return;
+    // 编辑态时不允许重复生成，避免覆盖用户正在编辑的歌词
+    if (story.isEmpty || _loading || _isEditing) return;
     FocusScope.of(context).unfocus();
 
     setState(() {
       _loading = true;
       _errorHint = null;
       _result = null;
+      // 清空上一次的编辑状态
+      _isEditing = false;
+      _editedLyric = null;
+      _songPromptExpanded = false;
     });
 
     try {
@@ -120,6 +146,8 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
   }
 
   /// 重置：清空输入和结果，回到初始态。
+  ///
+  /// P4 第三批：同时清空编辑状态（_isEditing / _editedLyric / 编辑控制器）。
   void _reset() {
     setState(() {
       _storyController.clear();
@@ -127,6 +155,10 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
       _errorHint = null;
       _loading = false;
       _songPromptExpanded = false;
+      // 清空编辑状态
+      _isEditing = false;
+      _editedLyric = null;
+      _editingController.clear();
     });
   }
 
@@ -183,9 +215,11 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
 
           const SizedBox(height: 24),
 
-          // 生成按钮
+          // 生成按钮（P4 第三批：编辑态时禁用，避免覆盖正在编辑的歌词）
           FilledButton.icon(
-            onPressed: (_hasStory && !_loading) ? _generate : null,
+            onPressed: (_hasStory && !_loading && !_isEditing)
+                ? _generate
+                : null,
             icon: _loading
                 ? const SizedBox(
                     width: 18,
@@ -274,14 +308,20 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
     );
   }
 
-  /// 结果区：来源标记 + 解惑卡片 + 歌词卡片 + 后续提示 + 重置按钮。
+  /// 结果区：来源标记 + 解惑卡片 + 歌词卡片（可编辑）+ songPrompt + 后续提示 + 生成这首歌占位 + 重置按钮。
   ///
   /// P4 第二批优化：
   /// - 「温和解惑」→「给现在的你」（更像产品而非分析报告）
   /// - 「歌词草稿」→「写成歌的话」（更温柔、更产品化）
   /// - songPrompt 折叠弱化（默认收起，标题改为「后续生成参数」）
   /// - 显示场景标记（让用户感到"被听懂"）
+  ///
+  /// P4 第三批新增：
+  /// - 歌词卡片支持编辑/保存/取消（[_buildLyricCard]）
+  /// - 底部新增「生成这首歌（即将开放）」占位按钮（[_buildGenerateSongButton]）
   Widget _buildResult(ComfortLyricsResult result) {
+    // 展示歌词优先用用户编辑后保存的内容，否则用原始 result.lyricDraft
+    final displayLyric = _editedLyric ?? result.lyricDraft;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -304,20 +344,8 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
         ),
         const SizedBox(height: 14),
 
-        // 写成歌的话（歌词草稿）
-        _SectionCard(
-          icon: Icons.music_note_rounded,
-          title: '写成歌的话',
-          child: SelectableText(
-            result.lyricDraft,
-            style: const TextStyle(
-              fontSize: 14,
-              color: AppColors.textPrimary,
-              height: 1.85,
-              letterSpacing: 0.2,
-            ),
-          ),
-        ),
+        // 写成歌的话（歌词草稿，P4 第三批：可编辑）
+        _buildLyricCard(displayLyric),
         const SizedBox(height: 14),
 
         // songPrompt 折叠弱化（默认收起）
@@ -326,6 +354,10 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
 
         // 后续提示
         _buildNextStepHint(),
+        const SizedBox(height: 18),
+
+        // P4 第三批：生成这首歌占位按钮（不调用任何音乐 API）
+        _buildGenerateSongButton(),
         const SizedBox(height: 18),
 
         // 重置按钮
@@ -343,6 +375,290 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
           ),
         ),
       ],
+    );
+  }
+
+  /// 歌词卡片（P4 第三批：支持展示 / 编辑两种模式）。
+  ///
+  /// - 展示模式：SelectableText + 右上角「编辑歌词」按钮
+  /// - 编辑模式：多行 TextField + 字数提示 + 温和质量提醒 + 「保存歌词」/「取消编辑」
+  ///
+  /// 编辑态下歌词可被用户修改；保存后 [_editedLyric] 更新，取消则恢复编辑前内容。
+  /// [songPrompt] 保持原结果不变，不受歌词编辑影响。
+  Widget _buildLyricCard(String lyric) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.cardBg,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.cardBorder),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.cardShadow,
+            blurRadius: 12,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // 标题行：图标 + 「写成歌的话」 + 编辑按钮（仅展示态显示）
+          Row(
+            children: [
+              const Icon(
+                Icons.music_note_rounded,
+                size: 18,
+                color: AppColors.primary,
+              ),
+              const SizedBox(width: 8),
+              const Text(
+                '写成歌的话',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.textPrimary,
+                ),
+              ),
+              const Spacer(),
+              if (!_isEditing)
+                TextButton.icon(
+                  onPressed: () => _startEdit(lyric),
+                  icon: const Icon(Icons.edit_rounded, size: 14),
+                  label: const Text('编辑歌词', style: TextStyle(fontSize: 12)),
+                  style: TextButton.styleFrom(
+                    foregroundColor: AppColors.primary,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
+                    minimumSize: const Size(0, 28),
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 12),
+
+          // 内容区：展示态 vs 编辑态
+          if (_isEditing) ...[
+            // 编辑态：多行 TextField
+            TextField(
+              controller: _editingController,
+              focusNode: _editingFocus,
+              minLines: 6,
+              maxLines: 14,
+              style: const TextStyle(
+                fontSize: 14,
+                color: AppColors.textPrimary,
+                height: 1.85,
+                letterSpacing: 0.2,
+              ),
+              decoration: InputDecoration(
+                filled: true,
+                fillColor: AppColors.bgBlue,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: const BorderSide(
+                    color: AppColors.primary,
+                    width: 1.2,
+                  ),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: const BorderSide(
+                    color: AppColors.primary,
+                    width: 1.2,
+                  ),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: const BorderSide(
+                    color: AppColors.primary,
+                    width: 1.4,
+                  ),
+                ),
+                contentPadding: const EdgeInsets.all(14),
+                isDense: false,
+              ),
+            ),
+            const SizedBox(height: 8),
+
+            // 字数提示（实时显示当前字数，不强制限制）
+            ValueListenableBuilder<TextEditingValue>(
+              valueListenable: _editingController,
+              builder: (context, value, _) {
+                return Align(
+                  alignment: Alignment.centerRight,
+                  child: Text(
+                    '${value.text.length} 字',
+                    style: TextStyle(fontSize: 11, color: AppColors.textMuted),
+                  ),
+                );
+              },
+            ),
+            const SizedBox(height: 10),
+
+            // 温和质量提醒：建议保留主歌/副歌/尾声结构
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              decoration: BoxDecoration(
+                color: AppColors.lavender.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: AppColors.lavender.withValues(alpha: 0.2),
+                ),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(
+                    Icons.lightbulb_outline_rounded,
+                    size: 14,
+                    color: AppColors.lavender.withValues(alpha: 0.9),
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      '建议保留主歌、副歌、尾声结构，后续更适合生成歌曲。',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: AppColors.textSecondary,
+                        height: 1.5,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+
+            // 保存 / 取消 按钮
+            Row(
+              children: [
+                Expanded(
+                  child: FilledButton.icon(
+                    onPressed: _saveEdit,
+                    icon: const Icon(Icons.check_rounded, size: 16),
+                    label: const Text('保存歌词', style: TextStyle(fontSize: 13)),
+                    style: FilledButton.styleFrom(
+                      minimumSize: const Size.fromHeight(40),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _cancelEdit,
+                    icon: const Icon(Icons.close_rounded, size: 16),
+                    label: const Text('取消编辑', style: TextStyle(fontSize: 13)),
+                    style: OutlinedButton.styleFrom(
+                      minimumSize: const Size.fromHeight(40),
+                      foregroundColor: AppColors.textSecondary,
+                      side: const BorderSide(
+                        color: AppColors.cardBorder,
+                        width: 1,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ] else
+            // 展示态：SelectableText
+            SelectableText(
+              lyric,
+              style: const TextStyle(
+                fontSize: 14,
+                color: AppColors.textPrimary,
+                height: 1.85,
+                letterSpacing: 0.2,
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// 进入编辑态：把当前展示的歌词填入编辑控制器，并自动聚焦。
+  void _startEdit(String currentLyric) {
+    setState(() {
+      _isEditing = true;
+      _editingController.text = currentLyric;
+      _editingController.selection = TextSelection.fromPosition(
+        TextPosition(offset: currentLyric.length),
+      );
+    });
+    // 自动聚焦到编辑框（下一帧，避免 build 期间 requestFocus 报错）
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _editingFocus.requestFocus();
+    });
+  }
+
+  /// 保存编辑：把编辑控制器内容写入 [_editedLyric]，退出编辑态。
+  /// [songPrompt] 保持原结果不变，不受歌词编辑影响。
+  void _saveEdit() {
+    final text = _editingController.text;
+    setState(() {
+      _editedLyric = text;
+      _isEditing = false;
+    });
+    _editingFocus.unfocus();
+  }
+
+  /// 取消编辑：退出编辑态，不修改 [_editedLyric]（恢复编辑前展示内容）。
+  void _cancelEdit() {
+    setState(() {
+      _isEditing = false;
+    });
+    _editingFocus.unfocus();
+  }
+
+  /// 「生成这首歌」占位按钮（P4 第三批）。
+  ///
+  /// 当前行为：点击后弹出轻提示「歌曲生成正在准备中，当前版本先支持歌词确认。」
+  /// - ❌ 不调用任何音乐 API（MiniMax / Mureka）
+  /// - ❌ 不进入播放器
+  /// - ❌ 不产生费用
+  /// 编辑态时禁用（避免与歌词编辑冲突）。
+  Widget _buildGenerateSongButton() {
+    return FilledButton.icon(
+      onPressed: _isEditing ? null : _showGenerateSongHint,
+      icon: const Icon(Icons.music_note_rounded, size: 18),
+      label: const Padding(
+        padding: EdgeInsets.symmetric(vertical: 4),
+        child: Text(
+          '生成这首歌（即将开放）',
+          style: TextStyle(fontSize: 15, letterSpacing: 0.5),
+        ),
+      ),
+      style: FilledButton.styleFrom(
+        minimumSize: const Size.fromHeight(50),
+        backgroundColor: AppColors.lavender.withValues(alpha: 0.85),
+        foregroundColor: Colors.white,
+        disabledBackgroundColor: AppColors.lavender.withValues(alpha: 0.35),
+        disabledForegroundColor: Colors.white.withValues(alpha: 0.7),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      ),
+    );
+  }
+
+  /// 弹出轻提示：歌曲生成正在准备中。
+  void _showGenerateSongHint() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: const Text('歌曲生成正在准备中，当前版本先支持歌词确认。'),
+        duration: const Duration(seconds: 2),
+        behavior: SnackBarBehavior.floating,
+        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      ),
     );
   }
 
