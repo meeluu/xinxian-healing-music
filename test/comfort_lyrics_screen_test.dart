@@ -39,7 +39,8 @@ void main() {
     // 顶部说明文案可见
     expect(find.textContaining('把你最近遇到的一件事'), findsOneWidget);
     // 输入区标题可见
-    expect(find.text('写下你的困惑'), findsOneWidget);
+    // P4 前端结构调整第一批：标题从「写下你的困惑」改为「先说说卡住你的事」
+    expect(find.text('先说说卡住你的事'), findsOneWidget);
     // 曲风选择标题可见
     expect(find.text('期望曲风'), findsOneWidget);
     // 4 个曲风 chip 可见
@@ -416,8 +417,9 @@ void main() {
     await tester.pumpAndSettle();
 
     // 弹出 SnackBar 提示
+    // P4 第四批：文案从「当前版本先支持歌词确认」调整为「当前先支持歌词确认」
     expect(find.textContaining('歌曲生成正在准备中'), findsOneWidget);
-    expect(find.textContaining('当前版本先支持歌词确认'), findsOneWidget);
+    expect(find.textContaining('当前先支持歌词确认'), findsOneWidget);
 
     // 不应进入播放器，不应出现音频相关 UI
     expect(find.textContaining('播放'), findsNothing);

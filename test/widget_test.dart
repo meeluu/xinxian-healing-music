@@ -30,8 +30,9 @@ void main() {
     await tester.pump();
 
     // 主按钮可点击并触发跳转
-    expect(find.text('生成专属疗愈方案'), findsOneWidget);
-    await tester.tap(find.text('生成专属疗愈方案'));
+    // P4 前端结构调整第一批：按钮文案从「生成专属疗愈方案」改为「快速生成方案」
+    expect(find.text('快速生成方案'), findsOneWidget);
+    await tester.tap(find.text('快速生成方案'));
     // 推进分析页的 Future.delayed 链（总 ~2.25s）并触发导航到方案页
     await tester.pump(const Duration(milliseconds: 2500));
     // 方案页无循环动画，pumpAndSettle 可完成 stagger 入场动效
@@ -41,6 +42,60 @@ void main() {
     expect(find.text('音乐参数'), findsOneWidget);
     expect(find.text('BPM'), findsWidgets);
     expect(find.text('432Hz'), findsWidgets);
+  });
+
+  // ── P4 前端结构调整第一批：首页双主线结构测试 ──
+
+  testWidgets('P4 前端结构调整第一批：首页双主线可见（把困惑写成一首歌 + 快速舒缓一下）', (
+    WidgetTester tester,
+  ) async {
+    // 放大测试视口，确保首页全部内容可见
+    tester.view.physicalSize = const Size(800, 1400);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(const XinXianApp());
+    // 首页有呼吸光晕循环动画，不能用 pumpAndSettle；用 pump 推进一帧即可
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    // 第一主线：把困惑写成一首歌
+    expect(find.text('把困惑写成一首歌'), findsOneWidget);
+    expect(find.text('开始写歌'), findsOneWidget);
+
+    // 第二主线：快速舒缓一下
+    expect(find.text('快速舒缓一下'), findsOneWidget);
+    expect(find.text('快速生成方案'), findsOneWidget);
+
+    // 底部入口仍存在（设置/历史入口不回归）
+    expect(find.text('查看历史记录'), findsOneWidget);
+    expect(find.text('设置'), findsOneWidget);
+
+    // 页面不空白：品牌标题存在
+    expect(find.text('心弦'), findsOneWidget);
+  });
+
+  testWidgets('P4 前端结构调整第一批：点击开始写歌进入 ComfortLyricsScreen', (
+    WidgetTester tester,
+  ) async {
+    tester.view.physicalSize = const Size(800, 1400);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(const XinXianApp());
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    // 点击第一主线按钮「开始写歌」
+    await tester.tap(find.text('开始写歌'));
+    await tester.pumpAndSettle(const Duration(seconds: 1));
+
+    // 进入 ComfortLyricsScreen：输入区标题「先说说卡住你的事」可见
+    expect(find.text('先说说卡住你的事'), findsOneWidget);
+    // AppBar 标题「把困惑写成一首歌」仍可见（页面内）
+    expect(find.text('把困惑写成一首歌'), findsOneWidget);
   });
 
   test('MockMoodAnalyzer 关键词匹配命中"高压焦虑型"画像', () async {
@@ -76,11 +131,7 @@ void main() {
     final plan = await mockPipeline.run('最近备考压力很大，焦虑得睡不着');
 
     // 1) AnalysisScreen：plan 产出 → begin
-    recorder.begin(
-      sessionId: plan.sessionId,
-      moodText: '最近备考压力很大',
-      plan: plan,
-    );
+    recorder.begin(sessionId: plan.sessionId, moodText: '最近备考压力很大', plan: plan);
     // 2) PlayerScreen：dispose → updateListening
     recorder.updateListening(plan.sessionId, const Duration(seconds: 30));
     // 3) FeedbackScreen：提交 → attachFeedback

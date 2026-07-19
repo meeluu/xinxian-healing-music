@@ -28,15 +28,23 @@ OPENAI_BASE_URL = "https://api.deepseek.com"
 OPENAI_MODEL = "deepseek-v4-flash"
 ENABLE_LLM = "true"
 
-# P4.4-4 / P4.4-5: AI 音乐生成 provider 选择（非敏感，可入 wrangler.toml）
+# P4.4-4 / P4.4-5 / P4 第四批: AI 音乐生成 provider 选择（非敏感，可入 wrangler.toml）
 # 敏感凭证 MINIMAX_API_KEY / REPLICATE_API_TOKEN / STABLE_AUDIO_API_KEY 在 Dashboard Secret 管理
+#
+# 三重门保护（P4 第四批确立）：
+#   门1: MUSIC_GENERATION_PROVIDER = "minimax_music"（本文件）
+#   门2: MUSIC_GENERATION_REAL_CALLS_ENABLED = "true"（本文件，默认 false，仅手动测试时临时改 true）
+#   门3: 请求体 manualTest === true（curl 手动传入，前端默认不传）
+#   另：MINIMAX_API_KEY 必须在 Cloudflare Production Secret 中配置，否则 factory 降级为 mock
+# 只有四者同时满足才真实调用 MiniMax API，避免误扣费。
 MUSIC_GENERATION_PROVIDER = "minimax_music"
-MUSIC_GENERATION_REAL_CALLS_ENABLED = "true"
+# 默认 false：线上默认不真实调用；手动 curl 测试时临时改 true 并传 manualTest=true
+MUSIC_GENERATION_REAL_CALLS_ENABLED = "false"
 # P4.4-5: MiniMax Music-2.0 真实调用测试参数（非敏感）
 # - MINIMAX_MUSIC_MODEL：模型名（Music-2.0）
 # - MUSIC_GENERATION_MAX_DURATION_SECONDS：单次测试目标时长上限（120s = 2 分钟）
 # 注意：MiniMax Music-2.0 API 本身不强制 duration 参数，此处仅作内部约束，
-#       实际时长通过短 prompt / 不传 lyrics 控制。
+#       实际时长通过短 prompt + 不传 lyrics 控制。
 MINIMAX_MUSIC_MODEL = "music-2.0"
 MUSIC_GENERATION_MAX_DURATION_SECONDS = "120"
 

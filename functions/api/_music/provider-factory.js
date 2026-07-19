@@ -1,4 +1,4 @@
-// 心弦 · Provider 工厂（P4.4-5 provider adapter）
+// 心弦 · Provider 工厂（P4 第四批：MiniMax 歌曲生成灰度接入）
 //
 // 根据环境变量选择 music generation provider：
 //
@@ -10,15 +10,22 @@
 // "replicate_musicgen"      | REPLICATE_API_TOKEN 缺失 | —       | MockProvider（降级）
 // "replicate_musicgen"      | 有 Token              | false      | ReplicateMusicGenProvider 骨架（disabled）
 // "replicate_musicgen"      | 有 Token              | true       | ReplicateMusicGenProvider 骨架（not_implemented）
-// "minimax_music"           | MINIMAX_API_KEY 缺失  | —          | MockProvider（降级）
+// "minimax_music"           | MINIMAX_API_KEY 缺失  | —          | MockProvider（降级）← provider=mock 根因
 // "minimax_music"           | 有 Key                | false      | MiniMaxMusicProvider（disabled，不发请求）
-// "minimax_music"           | 有 Key                | true       | MiniMaxMusicProvider（受 manualTest 双重保护）
+// "minimax_music"           | 有 Key                | true       | MiniMaxMusicProvider（受 manualTest 第 3 道保护）
 // 未知值                     | —                     | —          | MockProvider + warning
 //
-// P4.4-5 MiniMax 真实调用双重保护：
-// 1) MUSIC_GENERATION_REAL_CALLS_ENABLED === "true"（环境变量，默认 false）
-// 2) 请求体 manualTest === true（手动 curl 测试时显式传入）
-// 只有两者同时为 true 时才真实调用 MiniMax API；否则返回 fallback，不发请求。
+// P4 第四批 MiniMax 真实调用三重门保护：
+// 门1: MUSIC_GENERATION_PROVIDER = "minimax_music"（wrangler.toml）
+// 门2: MUSIC_GENERATION_REAL_CALLS_ENABLED === "true"（wrangler.toml，默认 false）
+// 门3: 请求体 manualTest === true（curl 手动传入，前端默认不传）
+// 另：MINIMAX_API_KEY 必须在 Cloudflare Production Secret 配置，否则 factory 降级 MockProvider
+// 四者同时满足才真实调用 MiniMax API，避免误扣费。
+//
+// P4 第四批请求体新增字段（仅 manualTest=true 真实调用分支使用）：
+// - lyrics：用户编辑后的歌词（来自前端 _editedLyric ?? result.lyricDraft）
+// - songPrompt：LLM 生成的英文风格提示（来自前端 result.songPrompt）
+// - 不传用户原始困惑全文（storyText 不进入 MiniMax 请求）
 //
 // 环境变量管理：
 // - 非敏感变量（MUSIC_GENERATION_PROVIDER / MUSIC_GENERATION_REAL_CALLS_ENABLED / MINIMAX_MUSIC_MODEL / MUSIC_GENERATION_MAX_DURATION_SECONDS）→ wrangler.toml [vars]
@@ -27,6 +34,7 @@
 // 安全：
 // - 不打印 API Key / Token 值，只打印是否存在
 // - 降级时打印日志，便于排查
+// - /api/health diagnostics 返回 hasMinimaxKey: true/false（不返回 Key 值）
 
 import { MockProvider } from './providers/mock-provider.js';
 import { StableAudioProvider } from './providers/stable-audio-provider.js';
@@ -69,13 +77,18 @@ export function createProvider(env) {
 
   if (providerName === 'minimax_music') {
     if (!hasMinimaxKey) {
-      console.log('[provider-factory] minimax_music 请求但 MINIMAX_API_KEY 缺失，降级到 mock');
+      console.log('[provider-factory] minimax_music 请求但 MINIMAX_API_KEY 缺失，降级到 mock（provider=mock 根因）', {
+        hint: '请在 Cloudflare Dashboard → Pages → Settings → Environment variables 中配置 MINIMAX_API_KEY 为 Secret',
+        realCallsEnabled: realCalls,
+      });
       return new MockProvider(env);
     }
     if (!realCalls) {
-      console.log('[provider-factory] minimax_music + Key 已配置，但 MUSIC_GENERATION_REAL_CALLS_ENABLED≠true，返回 MiniMaxMusicProvider（disabled，不发请求）');
+      console.log('[provider-factory] minimax_music + Key 已配置，但 MUSIC_GENERATION_REAL_CALLS_ENABLED≠true，返回 MiniMaxMusicProvider（disabled，不发请求）', {
+        hint: '手动测试时临时将 wrangler.toml 中 MUSIC_GENERATION_REAL_CALLS_ENABLED 改为 "true" 并传 manualTest=true',
+      });
     } else {
-      console.log('[provider-factory] minimax_music + Key + REAL_CALLS=true，已启用真实调用分支（仍受 manualTest 双重保护，无 manualTest 不发请求）');
+      console.log('[provider-factory] minimax_music + Key + REAL_CALLS=true，已启用真实调用分支（仍受 manualTest 第 3 道保护，无 manualTest 不发请求）');
     }
     return new MiniMaxMusicProvider(env);
   }

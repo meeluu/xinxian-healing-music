@@ -1,4 +1,4 @@
-// 心弦 · Provider Adapter 验证脚本（P4.4-5）
+// 心弦 · Provider Adapter 验证脚本（P4 第四批：MiniMax 歌曲生成灰度接入）
 //
 // 用途：验证 provider factory + mock/stable_audio/replicate_musicgen/minimax_music provider 的选择逻辑和返回结构。
 // 不依赖 Cloudflare 运行时，可在 Node.js 18+ 直接运行。
@@ -6,7 +6,7 @@
 // 运行方式：
 //   node scripts/verify-provider-adapter.mjs
 //
-// 验证内容（31 项）：
+// 验证内容（含 P4 第四批新增）：
 // 1.  Provider factory 默认返回 mock
 // 2.  MUSIC_GENERATION_PROVIDER=mock → MockProvider
 // 3.  stable_audio 无 API Key → 降级 MockProvider
@@ -15,7 +15,7 @@
 // 6.  replicate_musicgen 有 Token + REAL_CALLS=false → disabled
 // 7.  replicate_musicgen 有 Token + REAL_CALLS=true → not_implemented
 // 8.  replicate_musicgen 有 Token + REAL_CALLS 未设置 → disabled
-// 9.  minimax_music 无 Key → 降级 MockProvider
+// 9.  minimax_music 无 Key → 降级 MockProvider（provider=mock 根因）
 // 10. minimax_music 有 Key + REAL_CALLS=false → disabled（不发请求）
 // 11. minimax_music 有 Key + REAL_CALLS=true + 无 manualTest → manual_test_required（不发请求）
 // 12. minimax_music 有 Key + REAL_CALLS=true + manualTest=true → 真实调用分支（mock fetch 注入）
@@ -39,10 +39,26 @@
 // 30. MiniMaxMusicProvider getStatus 返回 fallback
 // 31. MiniMaxMusicProvider 不打印 API Key（日志扫描）
 // 32. 真实调用分支 fetch URL 为 MiniMax endpoint
+// ── P4 第四批新增 ──
+// 33. validateInput 解析 lyrics 字段（用户编辑后的歌词）
+// 34. validateInput 解析 songPrompt 字段（LLM 生成的英文风格提示）
+// 35. validateInput lyrics 超长截断（>2000 字符）
+// 36. validateInput lyrics 含禁止关键词 → invalid_lyrics
+// 37. MiniMax 真实调用透传 lyrics 到 requestBody（mock fetch 验证 body.lyrics）
+// 38. MiniMax 真实调用透传 songPrompt 到 requestBody.prompt（mock fetch 验证 body.prompt）
+// 39. MiniMax 真实调用缺 lyrics 时 requestBody 不含 lyrics 字段
+// 40. MiniMax 真实调用缺 songPrompt 时回退到 PROMPTS_BY_TARGET_STATE
+// 41. MiniMax 真实调用不传用户原始困惑全文（requestBody 不含 storyText）
+// 42. MiniMax 真实调用日志不打印完整歌词（日志扫描）
+// 43. MiniMax 真实调用不调用 Mureka（fetch URL 不含 mureka）
+// 44. health buildDiagnostics 返回 hasMinimaxKey: true/false（不泄露 Key 值）
+// 45. health buildDiagnostics 返回 musicProvider / realCallsEnabled / buildLabel
+// 46. health buildDiagnostics 不包含任何 Key 值（日志扫描）
 
 import assert from 'assert';
 import { createProvider } from '../functions/api/_music/provider-factory.js';
 import { validateInput } from '../functions/api/_music/music-generation-utils.js';
+import { buildDiagnostics } from '../functions/api/health.js';
 
 var passed = 0;
 var failed = 0;
@@ -564,6 +580,328 @@ await test('真实调用分支 fetch URL 为 MiniMax endpoint', async () => {
   assert.strictEqual(lastFetchArgs[1].method, 'POST');
   assert.ok(lastFetchArgs[1].headers['Authorization'].indexOf('Bearer ') === 0, '应使用 Bearer 鉴权');
   // 不验证 Authorization 具体值（避免测试脚本中出现 key）
+});
+
+// ─── P4 第四批新增测试 ─────────────────────────────────────
+// 验证 lyrics + songPrompt 透传 / 不传困惑全文 / 不调用 Mureka / health 诊断不泄露 key
+console.log('\nP4 第四批：lyrics + songPrompt 透传与诊断:');
+
+// 测试 33: validateInput 解析 lyrics 字段
+await test('validateInput 解析 lyrics 字段（用户编辑后的歌词）', () => {
+  const v = validateInput({
+    sessionId: 'test-session',
+    targetState: 'sleep',
+    generationPrompt: 'ambient sleep music, instrumental, no vocals',
+    durationSeconds: 120,
+    manualTest: true,
+    lyrics: '【主歌】\n夜色慢慢盖下来\n【副歌】\n想哭也没关系，我在听',
+  });
+  assert.ok(v.ok, '校验应通过');
+  assert.strictEqual(v.lyrics, '【主歌】\n夜色慢慢盖下来\n【副歌】\n想哭也没关系，我在听');
+  assert.strictEqual(v.manualTest, true);
+});
+
+// 测试 34: validateInput 解析 songPrompt 字段
+await test('validateInput 解析 songPrompt 字段（LLM 生成的英文风格提示）', () => {
+  const v = validateInput({
+    sessionId: 'test-session',
+    targetState: 'sleep',
+    generationPrompt: 'ambient sleep music, instrumental, no vocals',
+    durationSeconds: 120,
+    manualTest: true,
+    songPrompt: 'gentle mandarin ballad, soft breathy vocal, fingerstyle guitar, slow tempo',
+  });
+  assert.ok(v.ok, '校验应通过');
+  assert.strictEqual(v.songPrompt, 'gentle mandarin ballad, soft breathy vocal, fingerstyle guitar, slow tempo');
+});
+
+// 测试 35: validateInput lyrics 超长截断
+await test('validateInput lyrics 超长截断（>2000 字符）', () => {
+  var longLyrics = 'a'.repeat(2500);
+  const v = validateInput({
+    sessionId: 'test-session',
+    targetState: 'sleep',
+    generationPrompt: 'ambient sleep music, instrumental, no vocals',
+    durationSeconds: 120,
+    manualTest: true,
+    lyrics: longLyrics,
+  });
+  assert.ok(v.ok, '校验应通过');
+  assert.strictEqual(v.lyrics.length, 2000, 'lyrics 应被截断到 2000 字符');
+});
+
+// 测试 36: validateInput lyrics 含禁止关键词 → invalid_lyrics
+await test('validateInput lyrics 含禁止关键词 → invalid_lyrics', () => {
+  const v = validateInput({
+    sessionId: 'test-session',
+    targetState: 'sleep',
+    generationPrompt: 'ambient sleep music, instrumental, no vocals',
+    durationSeconds: 120,
+    manualTest: true,
+    lyrics: 'this song will cure your pain and treat insomnia',
+  });
+  assert.strictEqual(v.ok, false);
+  assert.strictEqual(v.reason, 'invalid_lyrics');
+});
+
+// 测试 37: MiniMax 真实调用透传 lyrics 到 requestBody
+await test('MiniMax 真实调用透传 lyrics 到 requestBody（mock fetch 验证 body.lyrics）', async () => {
+  injectMockFetch(() => ({
+    ok: true,
+    json: async () => ({
+      base_resp: { status_code: 0, status_msg: 'success' },
+      data: { audio: 'deadbeef', music_duration: 45 },
+      trace_id: 'lyrics-trace',
+    }),
+  }));
+
+  const v = validateInput({
+    sessionId: 'test-session-lyrics',
+    targetState: 'sleep',
+    generationPrompt: 'ambient sleep music, instrumental, no vocals',
+    durationSeconds: 120,
+    manualTest: true,
+    lyrics: '【主歌】\n夜色慢慢盖下来\n【副歌】\n想哭也没关系，我在听',
+    songPrompt: 'gentle mandarin ballad, soft breathy vocal, slow tempo',
+  });
+  await minimaxReal.createJob(v);
+  restoreFetch();
+
+  assert.ok(lastFetchArgs, 'fetch 应被调用');
+  var body = JSON.parse(lastFetchArgs[1].body);
+  assert.strictEqual(body.lyrics, '【主歌】\n夜色慢慢盖下来\n【副歌】\n想哭也没关系，我在听', 'requestBody 应包含用户编辑后的歌词');
+});
+
+// 测试 38: MiniMax 真实调用透传 songPrompt 到 requestBody.prompt
+await test('MiniMax 真实调用透传 songPrompt 到 requestBody.prompt（mock fetch 验证 body.prompt）', async () => {
+  injectMockFetch(() => ({
+    ok: true,
+    json: async () => ({
+      base_resp: { status_code: 0, status_msg: 'success' },
+      data: { audio: 'deadbeef', music_duration: 45 },
+      trace_id: 'songprompt-trace',
+    }),
+  }));
+
+  const v = validateInput({
+    sessionId: 'test-session-songprompt',
+    targetState: 'sleep',
+    generationPrompt: 'ambient sleep music, instrumental, no vocals',
+    durationSeconds: 120,
+    manualTest: true,
+    lyrics: '歌词内容',
+    songPrompt: 'gentle mandarin ballad, soft breathy vocal, slow tempo',
+  });
+  await minimaxReal.createJob(v);
+  restoreFetch();
+
+  var body = JSON.parse(lastFetchArgs[1].body);
+  assert.strictEqual(body.prompt, 'gentle mandarin ballad, soft breathy vocal, slow tempo', 'requestBody.prompt 应使用 songPrompt');
+});
+
+// 测试 39: MiniMax 真实调用缺 lyrics 时 requestBody 不含 lyrics 字段
+await test('MiniMax 真实调用缺 lyrics 时 requestBody 不含 lyrics 字段', async () => {
+  injectMockFetch(() => ({
+    ok: true,
+    json: async () => ({
+      base_resp: { status_code: 0, status_msg: 'success' },
+      data: { audio: 'deadbeef', music_duration: 30 },
+      trace_id: 'no-lyrics-trace',
+    }),
+  }));
+
+  const v = validateInput({
+    sessionId: 'test-session-no-lyrics',
+    targetState: 'sleep',
+    generationPrompt: 'ambient sleep music, instrumental, no vocals',
+    durationSeconds: 120,
+    manualTest: true,
+    // 不传 lyrics
+  });
+  await minimaxReal.createJob(v);
+  restoreFetch();
+
+  var body = JSON.parse(lastFetchArgs[1].body);
+  assert.strictEqual(body.lyrics, undefined, '缺 lyrics 时 requestBody 不应包含 lyrics 字段');
+});
+
+// 测试 40: MiniMax 真实调用缺 songPrompt 时回退到 PROMPTS_BY_TARGET_STATE
+await test('MiniMax 真实调用缺 songPrompt 时回退到 PROMPTS_BY_TARGET_STATE', async () => {
+  injectMockFetch(() => ({
+    ok: true,
+    json: async () => ({
+      base_resp: { status_code: 0, status_msg: 'success' },
+      data: { audio: 'deadbeef', music_duration: 30 },
+      trace_id: 'preset-trace',
+    }),
+  }));
+
+  const v = validateInput({
+    sessionId: 'test-session-preset',
+    targetState: 'soothe',
+    generationPrompt: 'warm gentle melodies, no vocals',
+    durationSeconds: 120,
+    manualTest: true,
+    // 不传 songPrompt
+  });
+  await minimaxReal.createJob(v);
+  restoreFetch();
+
+  var body = JSON.parse(lastFetchArgs[1].body);
+  // soothe 对应的预置 prompt
+  assert.strictEqual(body.prompt, 'Warm gentle melodies, soft strings, comforting atmosphere, slow tempo, no vocals', '缺 songPrompt 时应回退到 PROMPTS_BY_TARGET_STATE.soothe');
+});
+
+// 测试 41: MiniMax 真实调用不传用户原始困惑全文
+await test('MiniMax 真实调用不传用户原始困惑全文（requestBody 不含 storyText）', async () => {
+  injectMockFetch(() => ({
+    ok: true,
+    json: async () => ({
+      base_resp: { status_code: 0, status_msg: 'success' },
+      data: { audio: 'deadbeef', music_duration: 30 },
+      trace_id: 'no-story-trace',
+    }),
+  }));
+
+  const v = validateInput({
+    sessionId: 'test-session-no-story',
+    targetState: 'sleep',
+    generationPrompt: 'ambient sleep music, instrumental, no vocals',
+    durationSeconds: 120,
+    manualTest: true,
+    lyrics: '歌词内容',
+    songPrompt: 'gentle ballad, slow tempo',
+    // 即使前端误传 storyText，validateInput 也不会透传
+    storyText: '用户原始困惑全文应该被丢弃',
+  });
+  await minimaxReal.createJob(v);
+  restoreFetch();
+
+  var body = JSON.parse(lastFetchArgs[1].body);
+  assert.strictEqual(body.storyText, undefined, 'requestBody 不应包含 storyText');
+  assert.ok(body.lyrics.indexOf('用户原始困惑全文') === -1, 'lyrics 不应包含用户原始困惑全文');
+});
+
+// 测试 42: MiniMax 真实调用日志不打印完整歌词
+await test('MiniMax 真实调用日志不打印完整歌词（日志扫描）', async () => {
+  captureLogs();
+
+  injectMockFetch(() => ({
+    ok: true,
+    json: async () => ({
+      base_resp: { status_code: 0, status_msg: 'success' },
+      data: { audio: 'deadbeef', music_duration: 30 },
+      trace_id: 'no-lyric-leak-trace',
+    }),
+  }));
+
+  const sensitiveLyricContent = '这是一段非常独特的歌词内容UNIQUE_LYRIC_MARKER_2026';
+  const v = validateInput({
+    sessionId: 'test-session-leak',
+    targetState: 'sleep',
+    generationPrompt: 'ambient sleep music, instrumental, no vocals',
+    durationSeconds: 120,
+    manualTest: true,
+    lyrics: sensitiveLyricContent,
+    songPrompt: 'gentle ballad, slow tempo',
+  });
+  await minimaxReal.createJob(v);
+  restoreFetch();
+  restoreLogs();
+
+  var lyricLeaked = false;
+  for (var i = 0; i < capturedLogs.length; i++) {
+    if (capturedLogs[i].indexOf('UNIQUE_LYRIC_MARKER_2026') !== -1) {
+      lyricLeaked = true;
+      break;
+    }
+  }
+  assert.strictEqual(lyricLeaked, false, '日志中不应包含完整歌词内容');
+});
+
+// 测试 43: MiniMax 真实调用不调用 Mureka
+await test('MiniMax 真实调用不调用 Mureka（fetch URL 不含 mureka）', async () => {
+  injectMockFetch(() => ({
+    ok: true,
+    json: async () => ({
+      base_resp: { status_code: 0, status_msg: 'success' },
+      data: { audio: 'deadbeef', music_duration: 30 },
+      trace_id: 'no-mureka-trace',
+    }),
+  }));
+
+  const v = validateInput({
+    sessionId: 'test-session-mureka',
+    targetState: 'sleep',
+    generationPrompt: 'ambient sleep music, instrumental, no vocals',
+    durationSeconds: 120,
+    manualTest: true,
+    lyrics: '歌词',
+  });
+  await minimaxReal.createJob(v);
+  restoreFetch();
+
+  assert.ok(lastFetchArgs, 'fetch 应被调用');
+  var fetchUrl = String(lastFetchArgs[0]);
+  assert.ok(fetchUrl.indexOf('mureka') === -1, 'fetch URL 不应包含 mureka');
+  assert.ok(fetchUrl.indexOf('minimax.chat') !== -1, 'fetch URL 应为 minimax.chat');
+});
+
+// ─── health buildDiagnostics 诊断字段测试 ───────────────────
+console.log('\nP4 第四批：health 诊断字段（不泄露 Key）:');
+
+// 测试 44: buildDiagnostics 返回 hasMinimaxKey: true/false
+await test('health buildDiagnostics 返回 hasMinimaxKey: true/false（不泄露 Key 值）', () => {
+  // 有 Key
+  const d1 = buildDiagnostics({
+    MUSIC_GENERATION_PROVIDER: 'minimax_music',
+    MINIMAX_API_KEY: 'mm-super-secret-key-12345',
+  });
+  assert.strictEqual(d1.hasMinimaxKey, true);
+
+  // 无 Key
+  const d2 = buildDiagnostics({
+    MUSIC_GENERATION_PROVIDER: 'minimax_music',
+  });
+  assert.strictEqual(d2.hasMinimaxKey, false);
+});
+
+// 测试 45: buildDiagnostics 返回 musicProvider / realCallsEnabled / buildLabel
+await test('health buildDiagnostics 返回 musicProvider / realCallsEnabled / buildLabel', () => {
+  const d = buildDiagnostics({
+    MUSIC_GENERATION_PROVIDER: 'minimax_music',
+    MUSIC_GENERATION_REAL_CALLS_ENABLED: 'true',
+    MINIMAX_API_KEY: 'mm-test',
+  });
+  assert.strictEqual(d.musicProvider, 'minimax_music');
+  assert.strictEqual(d.realCallsEnabled, true);
+  assert.strictEqual(typeof d.buildLabel, 'string');
+  assert.ok(d.buildLabel.length > 0, 'buildLabel 不应为空');
+  assert.ok(d.buildLabel.indexOf('P4-') === 0, 'buildLabel 应以 P4- 开头');
+
+  // 默认值
+  const dEmpty = buildDiagnostics({});
+  assert.strictEqual(dEmpty.musicProvider, 'mock', '默认 musicProvider 应为 mock');
+  assert.strictEqual(dEmpty.realCallsEnabled, false, '默认 realCallsEnabled 应为 false');
+});
+
+// 测试 46: buildDiagnostics 不包含任何 Key 值
+await test('health buildDiagnostics 不包含任何 Key 值（日志扫描）', () => {
+  const secretKey = 'mm-super-secret-key-UNIQUE_MARKER_2026';
+  const d = buildDiagnostics({
+    MUSIC_GENERATION_PROVIDER: 'minimax_music',
+    MUSIC_GENERATION_REAL_CALLS_ENABLED: 'true',
+    MINIMAX_API_KEY: secretKey,
+    REPLICATE_API_TOKEN: 'r8-another-secret-UNIQUE_MARKER_2026',
+    STABLE_AUDIO_API_KEY: 'sa-third-secret-UNIQUE_MARKER_2026',
+  });
+  const json = JSON.stringify(d);
+  assert.strictEqual(json.indexOf('UNIQUE_MARKER_2026'), -1, '诊断 JSON 不应包含任何 API Key 值');
+  assert.strictEqual(json.indexOf(secretKey), -1, '诊断 JSON 不应包含 MINIMAX_API_KEY 原值');
+  // 只应包含 hasXxxKey: true/false
+  assert.strictEqual(d.hasMinimaxKey, true);
+  assert.strictEqual(d.hasReplicateToken, true);
+  assert.strictEqual(d.hasStableAudioKey, true);
 });
 
 // ─── 总结 ─────────────────────────────────────────────────

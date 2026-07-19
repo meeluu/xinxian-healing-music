@@ -1,17 +1,23 @@
 // 心弦 · 健康检查端点（Cloudflare Pages Function）
 //
-// 职责：返回服务可用性 + 版本 + 时间戳，用于快速判断 Functions 是否正常部署。
-// 不访问 D1，不访问 LLM，不依赖环境变量。
+// 职责：返回服务可用性 + 版本 + 时间戳 + 非敏感诊断字段，用于快速判断 Functions 是否正常部署。
+// 不访问 D1，不访问 LLM；仅读取非敏感 env 变量用于诊断（不读取任何 API Key 值）。
 //
 // 设计：
-// - GET /api/health → 200 + { ok, service, version, timestamp }
+// - GET /api/health → 200 + { ok, service, version, timestamp, diagnostics }
 // - OPTIONS /api/health → 204（CORS 预检）
 // - 任何异常都返回 200 + ok:false，绝不返回 502
 //
-// 用途：
-// - Cloudflare 部署后快速验证 Functions 是否生效
-// - 运维监控 / 状态页探活
-// - 不暴露任何敏感信息（无 env / 无 D1 / 无 LLM）
+// P4 第四批新增 diagnostics 字段（用于排查 provider=mock 等问题）：
+// - musicProvider：env.MUSIC_GENERATION_PROVIDER || 'mock'
+// - realCallsEnabled：env.MUSIC_GENERATION_REAL_CALLS_ENABLED === 'true'
+// - hasMinimaxKey：!!env.MINIMAX_API_KEY（仅 true/false，不泄露 Key 值）
+// - buildLabel：与本文件常量同步（用于确认线上部署的代码版本）
+//
+// 安全：
+// - 不返回任何 API Key 值，只返回 hasXxxKey: true/false
+// - 不返回 env 中的其他敏感字段
+// - diagnostics 只用于排查 provider 选择 / 真实调用开关 / Key 配置状态
 
 // ─── CORS 白名单 ─────────────────────────────────────────────
 // 仅允许心弦自有域名与本地开发地址，避免被任意站点滥用。
@@ -32,6 +38,11 @@ function allowedOrigin(origin) {
 const SERVICE_NAME = 'xinxian-functions';
 const SERVICE_VERSION = 'v1';
 
+// P4 第四批：buildLabel 与前端 lib/config/app_version.dart 同步维护
+// 用于 /api/health 诊断：确认线上部署的代码版本
+// P4 前端结构调整第一批：同步更新为 P4-home-structure-1
+const BUILD_LABEL = 'P4-home-structure-1';
+
 // ─── 统一响应 helper ──────────────────────────────────────────
 function jsonResponse(payload, statusCode, origin) {
   const headers = {
@@ -49,10 +60,25 @@ function jsonResponse(payload, statusCode, origin) {
   });
 }
 
+/// 构造非敏感诊断字段（P4 第四批新增）
+/// 只读取 env 中的非敏感配置 + Key 是否存在（不读取 Key 值）
+/// 导出用于测试（verify-provider-adapter.mjs）
+export function buildDiagnostics(env) {
+  env = env || {};
+  return {
+    musicProvider: env.MUSIC_GENERATION_PROVIDER || 'mock',
+    realCallsEnabled: env.MUSIC_GENERATION_REAL_CALLS_ENABLED === 'true',
+    hasMinimaxKey: !!env.MINIMAX_API_KEY,
+    hasReplicateToken: !!env.REPLICATE_API_TOKEN,
+    hasStableAudioKey: !!env.STABLE_AUDIO_API_KEY,
+    buildLabel: BUILD_LABEL,
+  };
+}
+
 // ─── GET /api/health ─────────────────────────────────────────
-// 不访问 D1 / LLM / env，仅返回静态信息 + 时间戳。
+// 不访问 D1 / LLM；仅读取非敏感 env 用于诊断（不读取任何 API Key 值）
 export async function onRequestGet(context) {
-  const { request } = context;
+  const { request, env } = context;
   const origin = request.headers.get('Origin');
   try {
     return jsonResponse({
@@ -60,6 +86,7 @@ export async function onRequestGet(context) {
       service: SERVICE_NAME,
       version: SERVICE_VERSION,
       timestamp: new Date().toISOString(),
+      diagnostics: buildDiagnostics(env),
     }, 200, origin);
   } catch (err) {
     // 任何异常都返回 200 + ok:false，绝不 502
@@ -69,6 +96,7 @@ export async function onRequestGet(context) {
       service: SERVICE_NAME,
       version: SERVICE_VERSION,
       timestamp: new Date().toISOString(),
+      diagnostics: buildDiagnostics(env),
     }, 200, origin);
   }
 }

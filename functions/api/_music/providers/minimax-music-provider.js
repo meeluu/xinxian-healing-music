@@ -1,10 +1,18 @@
-// 心弦 · MiniMaxMusicProvider（P4.4-5 真实调用测试骨架）
+// 心弦 · MiniMaxMusicProvider（P4 第四批：MiniMax 歌曲生成灰度接入）
 //
 // 基于 MiniMax Music-2.0 模型。
-// 本批实现真实调用分支，但受双重开关保护：
+// 本批实现真实调用分支，但受三重门保护：
 //   1) MUSIC_GENERATION_REAL_CALLS_ENABLED === "true"（wrangler.toml 管理，默认 false）
-//   2) 请求体 manualTest === true（手动 curl 测试时显式传入）
-// 只有两者同时为 true 时才真实调用 MiniMax API。
+//   2) MINIMAX_API_KEY 存在（Cloudflare Secret，缺失则 factory 降级 MockProvider）
+//   3) 请求体 manualTest === true（手动 curl 测试时显式传入）
+// 只有三者同时为 true 时才真实调用 MiniMax API。
+//
+// P4 第四批新增：请求体支持 lyrics + songPrompt 透传
+// - lyrics：用户编辑后的歌词（来自前端 _editedLyric ?? result.lyricDraft）
+// - songPrompt：LLM 生成的英文风格提示（来自前端 result.songPrompt）
+// - 不传用户原始困惑全文（storyText 不进入 MiniMax 请求）
+// - 日志只记录 lyricsLength / songPromptLength，不打印完整内容
+// - 不返回完整 audioHex 到前端日志
 //
 // 环境变量：
 // - MINIMAX_API_KEY：MiniMax API Key（Cloudflare Secret，不写入 wrangler.toml / 代码 / README）
@@ -20,22 +28,26 @@
 // true       | 有值   | false/未传 | 返回 manual_test_required + fallback（不发请求）
 // true       | 有值   | true       | 真实 POST /v1/music_generation，返回 ok:true + 元数据
 //
+// 真实调用请求体（P4 第四批）：
+// - model: music-2.0
+// - prompt: 优先用 validated.songPrompt（LLM 生成的英文风格提示），回退到 PROMPTS_BY_TARGET_STATE
+// - lyrics: 如果 validated.lyrics 存在则传入（用户编辑后的歌词）
+// - audio_setting: mp3 / 44100 / 256000
+// - 不传用户原始困惑全文（storyText 不进入请求）
+// - 时长 < 2 分钟（通过短 prompt + lyrics 长度控制，不显式传 duration）
+//
 // 返回结果处理（真实调用成功时）：
 // - 返回 ok:true / provider:"minimax_music" / status:"succeeded"
 // - 返回 audioHexLength（不返回完整 hex，避免巨大响应）
 // - 返回 musicDuration / traceId / fallbackTrack
 // - 不返回 audioPreviewBase64（避免巨大响应）
-// - 日志只记录 audioHexLength / musicDuration / traceId，不记录完整 hex
+// - 日志只记录 audioHexLength / musicDuration / traceId / lyricsLength / songPromptLength
 //
 // 安全：
 // - 不打印 API Key 值，只打印 apiKeyConfigured: true/false
+// - 不打印完整歌词 / songPrompt 内容，只打印长度
 // - 不泄露 MiniMax 原始错误细节，统一映射为内部 errorCode
 // - 不保存生成音频到长期存储（D1 / R2 / 文件系统）
-//
-// 时长控制：
-// - MiniMax Music-2.0 API 本身不强制 duration 参数
-// - 通过短 prompt + 不传 lyrics 控制目标时长 < 2 分钟
-// - MUSIC_GENERATION_MAX_DURATION_SECONDS 仅作内部约束，不发送给 API
 
 import { getFallbackTrack } from '../music-generation-utils.js';
 
@@ -45,6 +57,7 @@ var DEFAULT_MAX_DURATION = 120;
 var REQUEST_TIMEOUT_MS = 55000; // Cloudflare Pages Function 限制（60s 留 5s 缓冲）
 
 // 按 targetState 预置短 prompt（非医疗化表达，纯音乐，控制时长）
+// 仅在 validated.songPrompt 缺失时作为回退使用
 var PROMPTS_BY_TARGET_STATE = {
   sleep: 'Soft ambient piano with slow tempo, gentle pads, no vocals, calming atmosphere for relaxation',
   regulate: 'Calm instrumental with steady rhythm, gentle acoustic guitar, peaceful mood, no vocals',
@@ -60,7 +73,7 @@ export class MiniMaxMusicProvider {
     this.realCallsEnabled = this.env.MUSIC_GENERATION_REAL_CALLS_ENABLED === 'true';
     this.musicModel = this.env.MINIMAX_MUSIC_MODEL || DEFAULT_MUSIC_MODEL;
     this.maxDurationSeconds = parseInt(this.env.MUSIC_GENERATION_MAX_DURATION_SECONDS, 10) || DEFAULT_MAX_DURATION;
-    // P4.4-5：真实调用已实现，受 realCallsEnabled + manualTest 双重保护
+    // P4 第四批：真实调用已实现，受 realCallsEnabled + apiKey + manualTest 三重保护
     this._realCallImplemented = true;
   }
 
@@ -73,7 +86,7 @@ export class MiniMaxMusicProvider {
   }
 
   /// 创建生成任务
-  /// 受 realCallsEnabled + manualTest 双重保护
+  /// 受 realCallsEnabled + apiKey + manualTest 三重保护
   async createJob(validated) {
     // 第 1 道保护：总开关
     if (!this.realCallsEnabled) {
@@ -112,14 +125,19 @@ export class MiniMaxMusicProvider {
       apiKeyConfigured: true,
       realCallsEnabled: true,
       manualTest: true,
+      // P4 第四批：只打印长度，不打印歌词/songPrompt 内容
+      lyricsLength: (validated.lyrics || '').length,
+      songPromptLength: (validated.songPrompt || '').length,
     });
 
     return await this._callMiniMax(validated);
   }
 
   /// 真实调用 MiniMax /v1/music_generation
+  /// P4 第四批：使用 validated.lyrics + validated.songPrompt（如果传入）
   async _callMiniMax(validated) {
     var prompt = this._buildPrompt(validated);
+    var lyrics = validated.lyrics || '';
 
     var requestBody = {
       model: this.musicModel,
@@ -130,8 +148,11 @@ export class MiniMaxMusicProvider {
         bitrate: 256000,
       },
     };
-    // 不传 lyrics：Music-2.0 lyrics 可选；为控制时长 < 2 分钟，不传歌词
-    // requestBody.lyrics = ...（不设置）
+    // P4 第四批：如果传入用户编辑后的歌词，加入 lyrics 字段
+    // 不传用户原始困惑全文（storyText 不进入请求）
+    if (lyrics.length > 0) {
+      requestBody.lyrics = lyrics;
+    }
 
     var controller = new AbortController();
     var timeoutId = setTimeout(function () { controller.abort(); }, REQUEST_TIMEOUT_MS);
@@ -140,10 +161,14 @@ export class MiniMaxMusicProvider {
       console.log('[minimax-music] POST ' + MINIMAX_API_ENDPOINT, {
         model: requestBody.model,
         promptLength: prompt.length,
+        // P4 第四批：只打印长度，不打印歌词/songPrompt 内容
+        lyricsLength: lyrics.length,
+        hasLyrics: lyrics.length > 0,
+        songPromptSource: (validated.songPrompt && validated.songPrompt.length > 0) ? 'user_song_prompt' : 'preset_by_target_state',
         audioFormat: requestBody.audio_setting.format,
         sampleRate: requestBody.audio_setting.sample_rate,
         bitrate: requestBody.audio_setting.bitrate,
-        // 不打印 apiKey
+        // 不打印 apiKey / prompt 内容 / lyrics 内容
       });
 
       var resp = await fetch(MINIMAX_API_ENDPOINT, {
@@ -192,7 +217,8 @@ export class MiniMaxMusicProvider {
         traceId: traceId,
         maxDurationSeconds: this.maxDurationSeconds,
         withinDurationLimit: musicDuration <= this.maxDurationSeconds,
-        // 不打印完整 audioHex
+        // P4 第四批：不打印完整 audioHex / 不打印歌词内容
+        lyricsLength: lyrics.length,
       });
 
       return {
@@ -203,11 +229,15 @@ export class MiniMaxMusicProvider {
         audioHexLength: audioHex.length,
         musicDuration: musicDuration,
         traceId: traceId,
+        // P4 第四批：返回请求摘要字段，便于排查
+        lyricsLength: lyrics.length,
+        songPromptSource: (validated.songPrompt && validated.songPrompt.length > 0) ? 'user_song_prompt' : 'preset_by_target_state',
         fallbackTrack: getFallbackTrack(validated.targetState),
         estimatedSeconds: Math.round(musicDuration) || 0,
         createdAt: new Date().toISOString(),
         // 不返回完整 audioHex，避免巨大响应
         // 不返回 audioPreviewBase64，避免巨大响应
+        // 不返回完整 lyrics / songPrompt 内容
         // 不保存到 D1 / R2 / 文件系统
       };
     } catch (err) {
@@ -217,7 +247,7 @@ export class MiniMaxMusicProvider {
       console.error('[minimax-music] 调用异常', {
         errorName: errName,
         errorMessage: errMessage,
-        // 不打印 apiKey
+        // 不打印 apiKey / 不打印歌词内容
       });
       if (errName === 'AbortError') {
         return this._fallbackResponse(validated, 'request_timeout', 'minimax_music_timeout');
@@ -226,8 +256,14 @@ export class MiniMaxMusicProvider {
     }
   }
 
-  /// 按 targetState 构建短 prompt（非医疗化表达）
+  /// 构建请求 prompt（P4 第四批：优先用 validated.songPrompt，回退到 PROMPTS_BY_TARGET_STATE）
+  /// 不传用户原始困惑全文
   _buildPrompt(validated) {
+    // 优先使用 LLM 生成的英文 songPrompt（来自前端 result.songPrompt）
+    if (validated.songPrompt && validated.songPrompt.length > 0) {
+      return validated.songPrompt;
+    }
+    // 回退：按 targetState 预置短 prompt（非医疗化表达）
     return PROMPTS_BY_TARGET_STATE[validated.targetState] || PROMPTS_BY_TARGET_STATE.sleep;
   }
 

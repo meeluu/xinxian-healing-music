@@ -233,21 +233,49 @@ class _HomeScreenState extends State<HomeScreen> {
               letterSpacing: 2,
             ),
           ),
-          const SizedBox(height: 36),
+          const SizedBox(height: 28),
 
-          // 输入区
+          // ── P4 前端结构调整第一批：首页双主线结构 ──
+          // 第一主线：把困惑写成一首歌（产品新主线，卡片突出）
+          // 第二主线：快速舒缓一下（原情绪配乐流程，朴素区域）
+          // 两条路径并列，让用户一进入首页就能清楚选择。
+
+          // ── 第一主入口：把困惑写成一首歌 ──
+          // 用带边框的卡片突出，lavender 色调与 ComfortLyricsScreen 生成按钮呼应。
+          _PrimaryEntryCard(
+            icon: Icons.lyrics_rounded,
+            title: '把困惑写成一首歌',
+            subtitle: '说说最近卡住你的事，让它先变成一段温和的歌词。',
+            buttonText: '开始写歌',
+            onTap: _goComfortLyrics,
+          ),
+
+          const SizedBox(height: 18),
+
+          // ── 第二主入口：快速舒缓一下 ──
+          // 朴素区域（无卡片背景），保留原有心境输入 + 示例 + 分析流程。
+          // 视觉权重低于第一主线，但不抢戏，保证可达性。
           const Text(
-            '描述你此刻的心境',
+            '快速舒缓一下',
             style: TextStyle(
               fontSize: 16,
               fontWeight: FontWeight.w600,
               color: AppColors.textPrimary,
             ),
           ),
+          const SizedBox(height: 6),
+          const Text(
+            '不想多说也可以，直接生成一段适合现在的舒缓音乐方案。',
+            style: TextStyle(
+              fontSize: 13,
+              color: AppColors.textSecondary,
+              height: 1.5,
+            ),
+          ),
           const SizedBox(height: 12),
           MoodInputField(controller: _controller, focusNode: _focus),
 
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
           Wrap(
             spacing: 8,
             runSpacing: 8,
@@ -265,54 +293,25 @@ class _HomeScreenState extends State<HomeScreen> {
             ],
           ),
 
-          const SizedBox(height: 32),
+          const SizedBox(height: 18),
           FilledButton.icon(
             onPressed: _hasText ? _goAnalyze : null,
             icon: const Icon(Icons.auto_awesome_rounded, size: 20),
             label: const Padding(
               padding: EdgeInsets.symmetric(vertical: 4),
               child: Text(
-                '生成专属疗愈方案',
+                '快速生成方案',
                 style: TextStyle(fontSize: 16, letterSpacing: 1),
               ),
             ),
             style: FilledButton.styleFrom(
-              minimumSize: const Size.fromHeight(52),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
-              ),
-            ),
-          ),
-          const SizedBox(height: 10),
-          // P4 新方向第一批：「把困惑写成一首歌」入口。
-          // 与"生成专属疗愈方案"（快速模式）并列，作为新主流程入口。
-          // 用 OutlinedButton 弱化视觉，避免喧宾夺主；但显眼可见，保证导航入口可达。
-          OutlinedButton.icon(
-            onPressed: _goComfortLyrics,
-            icon: const Icon(
-              Icons.lyrics_outlined,
-              size: 18,
-              color: AppColors.tealDeep,
-            ),
-            label: const Padding(
-              padding: EdgeInsets.symmetric(vertical: 4),
-              child: Text(
-                '把困惑写成一首歌',
-                style: TextStyle(
-                  fontSize: 14,
-                  letterSpacing: 1,
-                  color: AppColors.tealDeep,
-                ),
-              ),
-            ),
-            style: OutlinedButton.styleFrom(
-              minimumSize: const Size.fromHeight(46),
-              side: const BorderSide(color: AppColors.tealDeep, width: 1.2),
+              minimumSize: const Size.fromHeight(50),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(14),
               ),
             ),
           ),
+
           const SizedBox(height: 14),
           Text(
             _footerText,
@@ -678,6 +677,114 @@ class _SettingsTile extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// P4 前端结构调整第一批：第一主入口卡片「把困惑写成一首歌」。
+///
+/// 视觉权重高于第二主线（快速舒缓），用带边框的卡片 + lavender 色调突出。
+/// 卡片为单层结构（内部不再嵌套卡片），避免卡片套卡片。
+///
+/// 文案规范：不医疗化 / 不玄学化，文字用实色（无渐变 / 无 ShaderMask）。
+/// 按钮和图标保持静态（无浮动 / 呼吸动画），符合可读性与可点击性约束。
+class _PrimaryEntryCard extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final String buttonText;
+  final VoidCallback onTap;
+
+  const _PrimaryEntryCard({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.buttonText,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
+      decoration: BoxDecoration(
+        color: AppColors.cardBg,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: AppColors.lavender.withValues(alpha: 0.55),
+          width: 1.4,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.lavender.withValues(alpha: 0.12),
+            blurRadius: 16,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // 标题行：图标 + 标题
+          Row(
+            children: [
+              Container(
+                width: 38,
+                height: 38,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: AppColors.lavender.withValues(alpha: 0.22),
+                ),
+                child: Icon(icon, size: 20, color: AppColors.tealDeep),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.textPrimary,
+                    letterSpacing: 0.3,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          // 副文案
+          Text(
+            subtitle,
+            style: const TextStyle(
+              fontSize: 13,
+              color: AppColors.textSecondary,
+              height: 1.55,
+            ),
+          ),
+          const SizedBox(height: 14),
+          // 主按钮：lavender 色调，与 ComfortLyricsScreen 生成按钮呼应
+          FilledButton.icon(
+            onPressed: onTap,
+            icon: const Icon(Icons.edit_note_rounded, size: 18),
+            label: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: Text(
+                buttonText,
+                style: const TextStyle(fontSize: 15, letterSpacing: 1),
+              ),
+            ),
+            style: FilledButton.styleFrom(
+              minimumSize: const Size.fromHeight(48),
+              backgroundColor: AppColors.lavender.withValues(alpha: 0.9),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

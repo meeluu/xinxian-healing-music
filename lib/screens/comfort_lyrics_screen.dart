@@ -185,8 +185,10 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
           const SizedBox(height: 20),
 
           // 输入区
+          // P4 前端结构调整第一批：标题从「写下你的困惑」改为「先说说卡住你的事」，
+          // 更温和、更像产品体验，不像技术说明。
           const Text(
-            '写下你的困惑',
+            '先说说卡住你的事',
             style: TextStyle(
               fontSize: 15,
               fontWeight: FontWeight.w600,
@@ -620,12 +622,19 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
     _editingFocus.unfocus();
   }
 
-  /// 「生成这首歌」占位按钮（P4 第三批）。
+  /// 「生成这首歌」灰度入口按钮（P4 第三批占位 / P4 第四批保持灰度）。
   ///
-  /// 当前行为：点击后弹出轻提示「歌曲生成正在准备中，当前版本先支持歌词确认。」
+  /// P4 第四批状态：
+  /// - 后端已具备三重门真实调用能力（PROVIDER + REAL_CALLS + manualTest + Key）
+  /// - 前端按钮本批**保持灰度入口**，不调用 /api/generate-music
+  /// - 真实调用通过手动 curl 触发（传 manualTest=true + lyrics + songPrompt）
+  /// - 后续批次再考虑开放前端灰度开关（仅开发/测试可见）
+  ///
+  /// 当前行为：点击后弹出轻提示「歌曲生成正在准备中，当前先支持歌词确认。」
   /// - ❌ 不调用任何音乐 API（MiniMax / Mureka）
   /// - ❌ 不进入播放器
   /// - ❌ 不产生费用
+  /// - ❌ 不传 manualTest（前端默认不带灰度标记）
   /// 编辑态时禁用（避免与歌词编辑冲突）。
   Widget _buildGenerateSongButton() {
     return FilledButton.icon(
@@ -650,10 +659,14 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
   }
 
   /// 弹出轻提示：歌曲生成正在准备中。
+  ///
+  /// P4 第四批：文案调整为"当前先支持歌词确认"，与任务 3 要求一致。
+  /// 未来开放前端灰度开关后，此方法可改为调用 /api/generate-music，
+  /// 并在 provider disabled / fallback 时复用此温和提示。
   void _showGenerateSongHint() {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: const Text('歌曲生成正在准备中，当前版本先支持歌词确认。'),
+        content: const Text('歌曲生成正在准备中，当前先支持歌词确认。'),
         duration: const Duration(seconds: 2),
         behavior: SnackBarBehavior.floating,
         margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),

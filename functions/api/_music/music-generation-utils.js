@@ -73,6 +73,12 @@ export function isPromptForbidden(prompt) {
 }
 
 // ─── 输入校验 ─────────────────────────────────────────────────
+// P4 第四批：新增 lyrics / songPrompt 可选字段
+// - lyrics：用户编辑后的歌词（来自前端 _editedLyric ?? result.lyricDraft）
+//   仅在 manualTest=true 真实调用分支使用；不传则 provider 回退到短 prompt
+// - songPrompt：LLM 生成的英文风格提示（来自前端 result.songPrompt）
+//   仅在 manualTest=true 真实调用分支使用；不传则 provider 回退到 PROMPTS_BY_TARGET_STATE
+// 安全：lyrics / songPrompt 同样经过 isPromptForbidden 过滤，避免医疗化/玄学化表达
 export function validateInput(body) {
   if (!body || typeof body !== 'object') {
     return { ok: false, reason: 'invalid_payload' };
@@ -99,6 +105,31 @@ export function validateInput(body) {
   // P4.4-5: manualTest 字段透传（仅用于 MiniMax 真实调用测试双重保护）
   // 默认 false；前端正常请求不会携带此字段，只有手动 curl 测试时显式传入 true
   var manualTest = body.manualTest === true;
+
+  // P4 第四批：lyrics 可选字段（用户编辑后的歌词）
+  // 长度上限 2000 字符（约 100 行歌词），超过截断；空串视为未传
+  var lyrics = body.lyrics;
+  if (typeof lyrics === 'string' && lyrics.length > 0) {
+    if (lyrics.length > 2000) lyrics = lyrics.substring(0, 2000);
+    if (isPromptForbidden(lyrics)) {
+      return { ok: false, reason: 'invalid_lyrics' };
+    }
+  } else {
+    lyrics = '';
+  }
+
+  // P4 第四批：songPrompt 可选字段（LLM 生成的英文风格提示）
+  // 长度上限 500 字符（与 generationPrompt 一致），超过截断；空串视为未传
+  var songPrompt = body.songPrompt;
+  if (typeof songPrompt === 'string' && songPrompt.length > 0) {
+    if (songPrompt.length > 500) songPrompt = songPrompt.substring(0, 500);
+    if (isPromptForbidden(songPrompt)) {
+      return { ok: false, reason: 'invalid_song_prompt' };
+    }
+  } else {
+    songPrompt = '';
+  }
+
   return {
     ok: true,
     sessionId: sessionId,
@@ -106,6 +137,8 @@ export function validateInput(body) {
     prompt: prompt,
     durationSeconds: Math.round(durationSeconds),
     manualTest: manualTest,
+    lyrics: lyrics,
+    songPrompt: songPrompt,
   };
 }
 
