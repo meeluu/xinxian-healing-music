@@ -13,7 +13,7 @@ import 'package:xinxian_healing_music/screens/comfort_lyrics_screen.dart';
 /// - 歌词卡片支持编辑/保存/取消
 /// - 「编辑歌词」按钮可见，点击后出现可编辑文本框 + 字数提示 + 温和提醒 + 保存/取消
 /// - 保存后显示新歌词；取消后恢复旧歌词
-/// - 「生成这首歌（即将开放）」占位按钮可见，点击弹 SnackBar，不触发 API
+/// - 「生成这首歌（实验）」受控实验入口按钮可见，点击弹费用确认对话框，不触发 API
 /// - 编辑态时生成解惑按钮和占位按钮均禁用
 /// - 「再写一首」清空编辑状态
 ///
@@ -149,7 +149,7 @@ void main() {
     expect(find.text('温和解惑'), findsNothing);
     expect(find.text('歌词草稿'), findsNothing);
     // 后续提示
-    expect(find.textContaining('下一步将用于生成专属歌曲'), findsOneWidget);
+    expect(find.textContaining('下一步可以生成专属歌曲'), findsOneWidget);
     // 重置按钮
     expect(find.text('再写一首'), findsOneWidget);
   });
@@ -275,7 +275,7 @@ void main() {
     expect(find.text('给现在的你'), findsOneWidget);
     expect(find.text('写成歌的话'), findsOneWidget);
     expect(find.text('后续生成参数'), findsOneWidget);
-    expect(find.textContaining('下一步将用于生成专属歌曲'), findsOneWidget);
+    expect(find.textContaining('下一步可以生成专属歌曲'), findsOneWidget);
     expect(find.text('再写一首'), findsOneWidget);
   });
 
@@ -395,37 +395,39 @@ void main() {
     expect(find.text('取消编辑'), findsNothing);
   });
 
-  testWidgets('P4 第三批：「生成这首歌（即将开放）」按钮可见且点击弹 SnackBar 不触发 API', (
-    WidgetTester tester,
-  ) async {
-    await tester.pumpWidget(const MaterialApp(home: ComfortLyricsScreen()));
-    await tester.pumpAndSettle();
+  testWidgets(
+    'P4-generated-audio-playback-1：「生成这首歌（实验）」按钮可见且点击弹费用确认对话框不触发 API',
+    (WidgetTester tester) async {
+      await tester.pumpWidget(const MaterialApp(home: ComfortLyricsScreen()));
+      await tester.pumpAndSettle();
 
-    await tester.enterText(find.byType(TextField), '最近工作压力很大');
-    await tester.pump();
-    await tester.tap(find.text('生成解惑与歌词草稿'));
-    await tester.pump(const Duration(milliseconds: 500));
-    await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField), '最近工作压力很大');
+      await tester.pump();
+      await tester.tap(find.text('生成解惑与歌词草稿'));
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.pumpAndSettle();
 
-    // 占位按钮可见
-    expect(find.text('生成这首歌（即将开放）'), findsOneWidget);
+      // 受控实验入口按钮可见
+      expect(find.text('生成这首歌（实验）'), findsOneWidget);
 
-    // 点击占位按钮
-    await tester.ensureVisible(find.text('生成这首歌（即将开放）'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('生成这首歌（即将开放）'));
-    await tester.pumpAndSettle();
+      // 点击按钮
+      await tester.ensureVisible(find.text('生成这首歌（实验）'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('生成这首歌（实验）'));
+      await tester.pumpAndSettle();
 
-    // 弹出 SnackBar 提示
-    // P4 第四批：文案从「当前版本先支持歌词确认」调整为「当前先支持歌词确认」
-    expect(find.textContaining('歌曲生成正在准备中'), findsOneWidget);
-    expect(find.textContaining('当前先支持歌词确认'), findsOneWidget);
+      // 弹出费用确认对话框（不触发 API：未点击「确认生成」按钮）
+      // P4-generated-audio-playback-1：旧 SnackBar 占位提示已改为受控费用确认对话框
+      expect(find.text('生成这首歌'), findsOneWidget); // 对话框标题
+      expect(find.textContaining('这会发起一次 AI 音乐生成'), findsOneWidget);
+      expect(find.text('取消'), findsOneWidget);
+      expect(find.text('确认生成'), findsOneWidget);
 
-    // 不应进入播放器，不应出现音频相关 UI
-    expect(find.textContaining('播放'), findsNothing);
-    expect(find.textContaining('MiniMax'), findsNothing);
-    expect(find.textContaining('Mureka'), findsNothing);
-  });
+      // 不应进入播放器，不应出现音频相关 UI
+      expect(find.textContaining('MiniMax'), findsNothing);
+      expect(find.textContaining('Mureka'), findsNothing);
+    },
+  );
 
   testWidgets('P4 第三批：编辑态时「生成解惑与歌词草稿」按钮禁用', (WidgetTester tester) async {
     await tester.pumpWidget(const MaterialApp(home: ComfortLyricsScreen()));
@@ -469,10 +471,10 @@ void main() {
     await tester.tap(find.text('编辑歌词'));
     await tester.pumpAndSettle();
 
-    // 编辑态下，「生成这首歌（即将开放）」按钮应禁用
+    // 编辑态下，「生成这首歌（实验）」按钮应禁用
     final songBtn = tester.widget<FilledButton>(
       find.ancestor(
-        of: find.text('生成这首歌（即将开放）'),
+        of: find.text('生成这首歌（实验）'),
         matching: find.byType(FilledButton),
       ),
     );
@@ -573,8 +575,8 @@ void main() {
     expect(find.text('写成歌的话'), findsOneWidget);
     expect(find.text('编辑歌词'), findsOneWidget);
     expect(find.text('后续生成参数'), findsOneWidget);
-    expect(find.textContaining('下一步将用于生成专属歌曲'), findsOneWidget);
-    expect(find.text('生成这首歌（即将开放）'), findsOneWidget);
+    expect(find.textContaining('下一步可以生成专属歌曲'), findsOneWidget);
+    expect(find.text('生成这首歌（实验）'), findsOneWidget);
     expect(find.text('再写一首'), findsOneWidget);
   });
 }

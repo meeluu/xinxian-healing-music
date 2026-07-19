@@ -39,6 +39,20 @@ ENABLE_LLM = "true"
 # 只有四者同时满足才真实调用 MiniMax API，避免误扣费。
 MUSIC_GENERATION_PROVIDER = "minimax_music"
 # 默认 false：线上默认不真实调用；手动 curl 测试时临时改 true 并传 manualTest=true
+# ──────────────────────────────────────────────────────────────────────
+# P4 MiniMax 真实生成链路受控测试（P4-minimax-real-test-1）手动测试流程：
+# 1. 临时将本行改为 MUSIC_GENERATION_REAL_CALLS_ENABLED = "true"
+# 2. 执行 wrangler pages deploy build/web --project-name=xinxian-healing-music
+# 3. curl POST /api/generate-music（请求体必须包含 manualTest=true，详见 README 6.15.5）
+# 4. 测试完成后立即将本行改回 "false"
+# 5. 再次 wrangler pages deploy 重新部署
+# 6. curl GET /api/health 确认 realCallsEnabled=false / hasMinimaxKey=true
+# ──────────────────────────────────────────────────────────────────────
+# 重要：仓库默认必须保持 "false"，避免线上持续可被调用产生费用。
+#      测试期间的 "true" 状态只在本地或临时部署中存在，不应提交到 git。
+# ──────────────────────────────────────────────────────────────────────
+# P4-minimax-real-test-1 手动实测已完成（2026-07-19）：真实调用成功拿到 audioHex
+# 已恢复为 "false"，仓库默认安全
 MUSIC_GENERATION_REAL_CALLS_ENABLED = "false"
 # P4.4-5: MiniMax Music-2.0 真实调用测试参数（非敏感）
 # - MINIMAX_MUSIC_MODEL：模型名（Music-2.0）
@@ -56,3 +70,26 @@ MUSIC_GENERATION_MAX_DURATION_SECONDS = "120"
 binding = "xinxian_feedback"
 database_name = "xinxian-feedback"
 database_id = "a3019d62-a2d3-4eb5-9c34-b345858f81e2"
+
+# ─── P4-generated-audio-playback-1: Cloudflare R2 binding（AI 生成音频落地存储）───
+# 用途：MiniMax 同步接口返回 audio hex，后端将其转为 mp3 bytes 上传到 R2，
+#       再通过 /api/generated-music?key={storageKey} 代理读取并流式返回给前端播放。
+#       R2 bucket 为私有访问，不开放公开 URL，统一走 /api/generated-music 受控代理。
+#
+# 创建 bucket 命令（在 Cloudflare Dashboard 或本地 wrangler 执行）：
+#   npx wrangler r2 bucket create xinxian-generated-music
+#
+# object key 格式：generated-music/{yyyyMMdd}/{sessionId}-{traceId}.mp3
+# content-type：audio/mpeg
+#
+# 安全：
+# - 不在此处写入任何 secret（MINIMAX_API_KEY 在 Dashboard Secret 管理）
+# - R2 bucket 默认私有，不开启公开访问
+# - 前端不直接访问 R2，统一通过 /api/generated-music 代理（受 CORS 白名单保护）
+#
+# 注意：如果 R2 bucket 尚未创建，本 binding 不会生效，但不会导致部署失败。
+#       后端代码会检测 env.GENERATED_MUSIC_BUCKET 是否存在，缺失时返回 storageWarning: r2_not_configured。
+#       前端会提示"音频已生成，但播放地址还未配置"，不影响其他流程。
+[[r2_buckets]]
+binding = "GENERATED_MUSIC_BUCKET"
+bucket_name = "xinxian-generated-music"

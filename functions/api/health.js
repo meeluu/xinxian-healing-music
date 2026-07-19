@@ -14,10 +14,13 @@
 // - hasMinimaxKey：!!env.MINIMAX_API_KEY（仅 true/false，不泄露 Key 值）
 // - buildLabel：与本文件常量同步（用于确认线上部署的代码版本）
 //
+// P4-generated-audio-playback-1 新增 diagnostics 字段（用于排查 R2 落地问题）：
+// - hasR2Bucket：!!env.GENERATED_MUSIC_BUCKET（R2 binding 是否配置，不泄露 bucket 名）
+//
 // 安全：
 // - 不返回任何 API Key 值，只返回 hasXxxKey: true/false
 // - 不返回 env 中的其他敏感字段
-// - diagnostics 只用于排查 provider 选择 / 真实调用开关 / Key 配置状态
+// - diagnostics 只用于排查 provider 选择 / 真实调用开关 / Key 配置状态 / R2 配置状态
 
 // ─── CORS 白名单 ─────────────────────────────────────────────
 // 仅允许心弦自有域名与本地开发地址，避免被任意站点滥用。
@@ -40,8 +43,9 @@ const SERVICE_VERSION = 'v1';
 
 // P4 第四批：buildLabel 与前端 lib/config/app_version.dart 同步维护
 // 用于 /api/health 诊断：确认线上部署的代码版本
-// P4 前端结构调整第一批：同步更新为 P4-home-structure-1
-const BUILD_LABEL = 'P4-home-structure-1';
+// P4 MiniMax 真实生成链路受控测试：同步更新为 P4-minimax-real-test-1
+// P4 生成音频落地播放链路：同步更新为 P4-generated-audio-playback-1
+const BUILD_LABEL = 'P4-generated-audio-playback-1';
 
 // ─── 统一响应 helper ──────────────────────────────────────────
 function jsonResponse(payload, statusCode, origin) {
@@ -63,6 +67,7 @@ function jsonResponse(payload, statusCode, origin) {
 /// 构造非敏感诊断字段（P4 第四批新增）
 /// 只读取 env 中的非敏感配置 + Key 是否存在（不读取 Key 值）
 /// 导出用于测试（verify-provider-adapter.mjs）
+/// P4-generated-audio-playback-1：新增 hasR2Bucket 字段（R2 binding 是否配置）
 export function buildDiagnostics(env) {
   env = env || {};
   return {
@@ -71,6 +76,7 @@ export function buildDiagnostics(env) {
     hasMinimaxKey: !!env.MINIMAX_API_KEY,
     hasReplicateToken: !!env.REPLICATE_API_TOKEN,
     hasStableAudioKey: !!env.STABLE_AUDIO_API_KEY,
+    hasR2Bucket: !!env.GENERATED_MUSIC_BUCKET,
     buildLabel: BUILD_LABEL,
   };
 }

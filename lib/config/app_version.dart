@@ -47,8 +47,10 @@ class AppVersion {
   /// - `P{N}-lyrics-edit-{n}`：P 阶段第 n 批歌词确认/编辑 + 后续生成按钮占位
   /// - `P{N}-minimax-song-gray-{n}`：P 阶段第 n 批 MiniMax 歌曲生成灰度接入（三重门保护，默认不开放前端真实调用）
   /// - `P{N}-home-structure-{n}`：P 阶段第 n 批前端结构调整（首页/页面信息架构重构，只调前端不改后端）
+  /// - `P{N}-minimax-real-test-{n}`：P 阶段第 n 批 MiniMax 真实生成链路受控测试（手动 curl 真实调用，仓库默认 REAL_CALLS=false）
+  /// - `P{N}-generated-audio-playback-{n}`：P 阶段第 n 批 MiniMax 生成音频落地播放链路（audioHex → R2 → 前端播放闭环）
   /// - `P{N}-stable`：P 阶段收尾验收通过，正式发布
-  static const String buildLabel = 'P4-home-structure-1';
+  static const String buildLabel = 'P4-generated-audio-playback-1';
 
   /// 构建日期（YYYY-MM-DD），手动维护。
   static const String buildDate = '2026-07-19';

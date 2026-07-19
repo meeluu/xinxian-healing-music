@@ -1,10 +1,15 @@
+import 'dart:async';
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+import 'package:just_audio/just_audio.dart';
 import 'package:xinxian_healing_music/models/comfort_lyrics_result.dart';
 import 'package:xinxian_healing_music/pipeline/llm/comfort_lyrics_service.dart';
 import 'package:xinxian_healing_music/theme/app_colors.dart';
 import 'package:xinxian_healing_music/widgets/centered_page.dart';
 
-/// 「把困惑写成一首歌」页面（P4 新方向第一/二/三批）。
+/// 「把困惑写成一首歌」页面（P4 新方向第一/二/三批 + P4 生成音频落地播放）。
 ///
 /// 流程：
 /// 1. 用户输入一段困惑/事件/情绪描述
@@ -15,6 +20,14 @@ import 'package:xinxian_healing_music/widgets/centered_page.dart';
 ///    - 歌词草稿（lyricDraft，含主歌/副歌/尾声标记）
 ///    - 后续提示：`下一步将用于生成专属歌曲`（本批不接真实音乐生成）
 /// 5. P4 第三批：用户可「编辑歌词」并保存/取消；底部新增「生成这首歌（即将开放）」占位按钮
+/// 6. P4-generated-audio-playback-1：「生成这首歌」改为受控实验入口
+///    - 文案改为「生成这首歌（实验）」
+///    - 点击前必须确认"会发起一次 AI 音乐生成，可能产生调用费用"
+///    - 调用 /api/generate-music（带 manualTest=true，受后端三重门保护）
+///    - 成功拿到 generatedAudioUrl 后在页面内嵌简洁播放区
+///    - 拿到 storageKey 但无 URL 时提示"音乐已生成并保存，播放地址配置后可试听"
+///    - 失败时显示"生成没有完成，请稍后再试"
+///    - 不影响"快速舒缓一下"固定曲库播放链路
 ///
 /// 任何失败都返回 fallback，不让用户卡死。
 ///
@@ -64,6 +77,43 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
   /// 用户保存后的歌词（null 表示未编辑过，展示时回退到 result.lyricDraft）。
   String? _editedLyric;
 
+  // ─── P4-generated-audio-playback-1：AI 生成歌曲受控实验入口状态 ───
+  //
+  // 状态管理规则：
+  // - 只有生成歌词草稿后（_result != null）才允许点击「生成这首歌（实验）」
+  // - 编辑态时禁用（避免与歌词编辑冲突）
+  // - 调用 /api/generate-music 期间 _generatingMusic=true，按钮显示 loading
+  // - 成功拿到 generatedAudioUrl 后初始化 _generatedAudioPlayer，显示播放区
+  // - 拿到 storageKey 但无 URL（storageWarning=r2_not_configured）时显示已保存提示
+  // - 失败时显示友好错误，不影响其他流程
+  // - 点击「再写一首」时清空所有生成歌曲状态（停止播放 + 释放播放器）
+
+  /// 是否正在调用 /api/generate-music 生成 AI 歌曲。
+  bool _generatingMusic = false;
+
+  /// AI 生成歌曲的可播放 URL（来自后端 generatedAudioUrl 字段，相对路径如 /api/generated-music?key=...）。
+  /// null 表示尚未生成或生成失败。
+  String? _generatedAudioUrl;
+
+  /// AI 生成歌曲的存储警告（r2_not_configured / r2_upload_failed）。
+  /// 用于区分"已生成保存但无 URL"和"完全失败"两种情况。
+  String? _storageWarning;
+
+  /// AI 生成歌曲的错误提示（仅用于 UI 显示，不暴露内部异常）。
+  String? _musicErrorHint;
+
+  /// AI 生成歌曲的简短元信息（如"AI 生成 · soothe"），显示在播放区。
+  String? _generatedMusicMeta;
+
+  /// AI 生成歌曲播放器（懒加载，仅在拿到 generatedAudioUrl 后初始化）。
+  AudioPlayer? _generatedAudioPlayer;
+
+  /// 播放器状态订阅（用于驱动 UI 刷新播放/暂停按钮）。
+  StreamSubscription<PlayerState>? _generatedPlayerStateSub;
+
+  /// 播放器当前是否正在播放（驱动 UI 刷新）。
+  bool _isPlayingGenerated = false;
+
   /// 4 种曲风选项。
   static const List<_StyleOption> _styleOptions = [
     _StyleOption(
@@ -102,6 +152,9 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
     _storyFocus.dispose();
     _editingController.dispose();
     _editingFocus.dispose();
+    // P4-generated-audio-playback-1：释放 AI 生成歌曲播放器
+    _generatedPlayerStateSub?.cancel();
+    _generatedAudioPlayer?.dispose();
     super.dispose();
   }
 
@@ -148,6 +201,7 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
   /// 重置：清空输入和结果，回到初始态。
   ///
   /// P4 第三批：同时清空编辑状态（_isEditing / _editedLyric / 编辑控制器）。
+  /// P4-generated-audio-playback-1：同时清空 AI 生成歌曲状态（停止播放 + 释放播放器）。
   void _reset() {
     setState(() {
       _storyController.clear();
@@ -159,7 +213,20 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
       _isEditing = false;
       _editedLyric = null;
       _editingController.clear();
+      // 清空 AI 生成歌曲状态
+      _generatingMusic = false;
+      _generatedAudioUrl = null;
+      _storageWarning = null;
+      _musicErrorHint = null;
+      _generatedMusicMeta = null;
+      _isPlayingGenerated = false;
     });
+    // 停止并释放上一首生成歌曲的播放器（异步清理，不阻塞 UI）
+    _generatedPlayerStateSub?.cancel();
+    _generatedPlayerStateSub = null;
+    _generatedAudioPlayer?.stop();
+    _generatedAudioPlayer?.dispose();
+    _generatedAudioPlayer = null;
   }
 
   @override
@@ -358,9 +425,23 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
         _buildNextStepHint(),
         const SizedBox(height: 18),
 
-        // P4 第三批：生成这首歌占位按钮（不调用任何音乐 API）
+        // P4-generated-audio-playback-1：生成这首歌受控实验入口
         _buildGenerateSongButton(),
-        const SizedBox(height: 18),
+        const SizedBox(height: 14),
+
+        // P4-generated-audio-playback-1：AI 生成歌曲播放区 / 状态提示
+        if (_musicErrorHint != null) ...[
+          _buildMusicErrorHint(),
+          const SizedBox(height: 14),
+        ],
+        if (_storageWarning != null && _generatedAudioUrl == null) ...[
+          _buildStorageWarningHint(),
+          const SizedBox(height: 14),
+        ],
+        if (_generatedAudioUrl != null) ...[
+          _buildGeneratedSongPlayer(),
+          const SizedBox(height: 14),
+        ],
 
         // 重置按钮
         OutlinedButton.icon(
@@ -622,29 +703,39 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
     _editingFocus.unfocus();
   }
 
-  /// 「生成这首歌」灰度入口按钮（P4 第三批占位 / P4 第四批保持灰度）。
+  /// 「生成这首歌（实验）」受控实验入口按钮（P4-generated-audio-playback-1）。
   ///
-  /// P4 第四批状态：
+  /// P4-generated-audio-playback-1 状态：
   /// - 后端已具备三重门真实调用能力（PROVIDER + REAL_CALLS + manualTest + Key）
-  /// - 前端按钮本批**保持灰度入口**，不调用 /api/generate-music
-  /// - 真实调用通过手动 curl 触发（传 manualTest=true + lyrics + songPrompt）
-  /// - 后续批次再考虑开放前端灰度开关（仅开发/测试可见）
+  /// - 前端按钮本批改为受控实验入口：点击 → 弹出费用确认 → 调用 /api/generate-music
+  /// - 请求体携带 manualTest=true（受后端三重门保护，realCallsEnabled=false 时仍返回 fallback）
+  /// - 成功拿到 generatedAudioUrl 后显示内嵌播放区
+  /// - 拿到 storageKey 但无 URL 时提示"音乐已生成并保存"
+  /// - 失败时显示友好错误，不影响其他流程
   ///
-  /// 当前行为：点击后弹出轻提示「歌曲生成正在准备中，当前先支持歌词确认。」
-  /// - ❌ 不调用任何音乐 API（MiniMax / Mureka）
-  /// - ❌ 不进入播放器
-  /// - ❌ 不产生费用
-  /// - ❌ 不传 manualTest（前端默认不带灰度标记）
-  /// 编辑态时禁用（避免与歌词编辑冲突）。
+  /// 安全：
+  /// - 不暴露 API Key（前端不持有任何凭证）
+  /// - 不允许跳过费用确认（_showGenerateSongConfirmDialog 必须返回 true 才调用）
+  /// - 编辑态 / 生成中禁用按钮
   Widget _buildGenerateSongButton() {
+    final disabled = _isEditing || _generatingMusic;
     return FilledButton.icon(
-      onPressed: _isEditing ? null : _showGenerateSongHint,
-      icon: const Icon(Icons.music_note_rounded, size: 18),
-      label: const Padding(
-        padding: EdgeInsets.symmetric(vertical: 4),
+      onPressed: disabled ? null : _onGenerateSongPressed,
+      icon: _generatingMusic
+          ? const SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(
+                strokeWidth: 2.5,
+                color: Colors.white,
+              ),
+            )
+          : const Icon(Icons.music_note_rounded, size: 18),
+      label: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
         child: Text(
-          '生成这首歌（即将开放）',
-          style: TextStyle(fontSize: 15, letterSpacing: 0.5),
+          _generatingMusic ? '正在生成这首歌…' : '生成这首歌（实验）',
+          style: const TextStyle(fontSize: 15, letterSpacing: 0.5),
         ),
       ),
       style: FilledButton.styleFrom(
@@ -658,19 +749,465 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
     );
   }
 
-  /// 弹出轻提示：歌曲生成正在准备中。
+  /// 点击「生成这首歌（实验）」入口：先弹费用确认对话框，确认后才调用 API。
   ///
-  /// P4 第四批：文案调整为"当前先支持歌词确认"，与任务 3 要求一致。
-  /// 未来开放前端灰度开关后，此方法可改为调用 /api/generate-music，
-  /// 并在 provider disabled / fallback 时复用此温和提示。
-  void _showGenerateSongHint() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: const Text('歌曲生成正在准备中，当前先支持歌词确认。'),
-        duration: const Duration(seconds: 2),
-        behavior: SnackBarBehavior.floating,
-        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+  /// P4-generated-audio-playback-1：受控实验入口的核心保护点。
+  /// - 用户必须明确确认"会发起一次 AI 音乐生成，可能产生调用费用"才能继续
+  /// - 不允许跳过确认（防止误触扣费）
+  /// - 确认后调用 [_callGenerateMusicApi]
+  Future<void> _onGenerateSongPressed() async {
+    if (_isEditing || _generatingMusic || _result == null) return;
+    FocusScope.of(context).unfocus();
+
+    final confirmed = await _showGenerateSongConfirmDialog();
+    if (!confirmed || !mounted) return;
+
+    await _callGenerateMusicApi();
+  }
+
+  /// 费用确认对话框：明确告知用户这会发起一次 AI 音乐生成，可能产生调用费用。
+  ///
+  /// 返回 true 表示用户已确认，false 表示用户取消。
+  /// 文案面向用户友好，不暴露内部技术细节（如 MiniMax / R2 / manualTest）。
+  Future<bool> _showGenerateSongConfirmDialog() async {
+    final result = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Row(
+          children: [
+            Icon(
+              Icons.auto_awesome_rounded,
+              size: 20,
+              color: AppColors.lavender,
+            ),
+            SizedBox(width: 8),
+            Text(
+              '生成这首歌',
+              style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
+            ),
+          ],
+        ),
+        content: const Text(
+          '这会发起一次 AI 音乐生成，可能产生调用费用。\n\n'
+          '生成大约需要 30–60 秒，请保持页面打开。',
+          style: TextStyle(
+            fontSize: 14,
+            color: AppColors.textPrimary,
+            height: 1.6,
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text(
+              '取消',
+              style: TextStyle(color: AppColors.textMuted),
+            ),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            style: FilledButton.styleFrom(
+              backgroundColor: AppColors.lavender,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+            child: const Text('确认生成'),
+          ),
+        ],
+      ),
+    );
+    return result ?? false;
+  }
+
+  /// 调用 /api/generate-music 生成 AI 歌曲。
+  ///
+  /// 请求体：
+  /// - sessionId：基于时间戳生成（避免暴露用户身份）
+  /// - targetState：根据曲风映射（gentle_pop/soft_piano → soothe，ambient_ballad → sleep，
+  ///   acoustic_warm → regulate，focus/energize 暂未在前端曲风选项中）
+  /// - generationPrompt：使用 result.songPrompt（LLM 生成的英文风格提示）
+  /// - lyrics：使用 _editedLyric ?? result.lyricDraft（用户编辑后的歌词优先）
+  /// - songPrompt：透传 result.songPrompt
+  /// - durationSeconds：120（与后端 maxDurationSeconds 一致）
+  /// - manualTest: true（受三重门保护，realCallsEnabled=false 时仍返回 fallback）
+  ///
+  /// 响应处理：
+  /// - ok:true + generatedAudioUrl → 初始化播放器，显示播放区
+  /// - ok:true + storageWarning=r2_not_configured → 显示"音乐已生成并保存，播放地址配置后可试听"
+  /// - ok:false → 显示"生成没有完成，请稍后再试"
+  /// - 网络异常 → 显示"生成没有完成，请稍后再试"
+  Future<void> _callGenerateMusicApi() async {
+    final result = _result!;
+    final lyrics = (_editedLyric ?? result.lyricDraft);
+    final songPrompt = result.songPrompt;
+
+    setState(() {
+      _generatingMusic = true;
+      _musicErrorHint = null;
+      _storageWarning = null;
+      _generatedAudioUrl = null;
+      _generatedMusicMeta = null;
+      _isPlayingGenerated = false;
+    });
+
+    // 清理上一首播放器（如果有）
+    _generatedPlayerStateSub?.cancel();
+    _generatedPlayerStateSub = null;
+    _generatedAudioPlayer?.stop();
+    _generatedAudioPlayer?.dispose();
+    _generatedAudioPlayer = null;
+
+    final sessionId =
+        'web-${DateTime.now().millisecondsSinceEpoch.toRadixString(36)}';
+    final targetState = _mapStyleToTargetState(_targetStyle);
+
+    try {
+      final resp = await http
+          .post(
+            Uri.base.resolve('/api/generate-music'),
+            headers: {'Content-Type': 'application/json; charset=utf-8'},
+            body: _encodeGenerateMusicBody(
+              sessionId: sessionId,
+              targetState: targetState,
+              songPrompt: songPrompt,
+              lyrics: lyrics,
+            ),
+          )
+          .timeout(const Duration(seconds: 60));
+
+      if (!mounted) return;
+
+      if (resp.statusCode != 200) {
+        setState(() {
+          _generatingMusic = false;
+          _musicErrorHint = '生成没有完成，请稍后再试';
+        });
+        return;
+      }
+
+      final body = _decodeJson(resp.body);
+      if (body == null) {
+        setState(() {
+          _generatingMusic = false;
+          _musicErrorHint = '生成没有完成，请稍后再试';
+        });
+        return;
+      }
+
+      final ok = body['ok'] == true;
+      final generatedAudioUrl = body['generatedAudioUrl'] as String?;
+      final storageWarning = body['storageWarning'] as String?;
+      final provider = body['provider'] as String?;
+
+      if (!ok) {
+        // 后端返回 fallback（realCallsEnabled=false 或 manualTest 未通过或 MiniMax 调用失败）
+        setState(() {
+          _generatingMusic = false;
+          _musicErrorHint = '生成没有完成，请稍后再试';
+        });
+        return;
+      }
+
+      // ok=true：MiniMax 真实调用成功
+      if (generatedAudioUrl != null && generatedAudioUrl.isNotEmpty) {
+        // 拿到可播放 URL → 初始化播放器
+        await _initGeneratedAudioPlayer(
+          generatedAudioUrl,
+          provider ?? 'minimax_music',
+        );
+        if (!mounted) return;
+        setState(() {
+          _generatingMusic = false;
+          _generatedAudioUrl = generatedAudioUrl;
+          _generatedMusicMeta = 'AI 生成 · $targetState';
+          _storageWarning = null;
+          _musicErrorHint = null;
+        });
+      } else if (storageWarning != null) {
+        // 拿到 storageKey 但无 URL（R2 未配置 / 上传失败）
+        setState(() {
+          _generatingMusic = false;
+          _storageWarning = storageWarning;
+          _generatedMusicMeta = 'AI 生成 · $targetState';
+          _generatedAudioUrl = null;
+          _musicErrorHint = null;
+        });
+      } else {
+        // 既无 URL 也无 storageWarning → 边界情况，显示通用提示
+        setState(() {
+          _generatingMusic = false;
+          _musicErrorHint = '生成没有完成，请稍后再试';
+        });
+      }
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _generatingMusic = false;
+        _musicErrorHint = '生成没有完成，请稍后再试';
+      });
+    }
+  }
+
+  /// 初始化 AI 生成歌曲播放器。
+  ///
+  /// generatedAudioUrl 是相对路径（如 /api/generated-music?key=...），
+  /// Web 端通过 Uri.base.resolve() 解析为绝对 URL。
+  /// 使用 just_audio 的 AudioSource.uri 加载（支持任意 HTTP URL）。
+  Future<void> _initGeneratedAudioPlayer(
+    String generatedAudioUrl,
+    String provider,
+  ) async {
+    _generatedAudioPlayer = AudioPlayer();
+    try {
+      final absoluteUrl = Uri.base.resolve(generatedAudioUrl);
+      await _generatedAudioPlayer!.setAudioSource(AudioSource.uri(absoluteUrl));
+      _generatedPlayerStateSub = _generatedAudioPlayer!.playerStateStream
+          .listen((state) {
+            if (!mounted) return;
+            setState(() {
+              _isPlayingGenerated = state.playing;
+            });
+          });
+    } catch (_) {
+      // 加载失败：释放播放器，显示错误
+      _generatedAudioPlayer?.dispose();
+      _generatedAudioPlayer = null;
+      if (!mounted) return;
+      setState(() {
+        _musicErrorHint = '音频已生成，但加载失败，请稍后再试';
+      });
+    }
+  }
+
+  /// 切换 AI 生成歌曲播放/暂停。
+  Future<void> _toggleGeneratedAudio() async {
+    final player = _generatedAudioPlayer;
+    if (player == null) return;
+    try {
+      if (_isPlayingGenerated) {
+        await player.pause();
+      } else {
+        // 如果播放已完成（completed），先 seek 到开头
+        if (player.processingState == ProcessingState.completed) {
+          await player.seek(Duration.zero);
+        }
+        await player.play();
+      }
+    } catch (_) {
+      // 忽略单次操作异常，不打断用户
+    }
+  }
+
+  /// 曲风 → targetState 映射（用于 /api/generate-music 请求体）。
+  ///
+  /// gentle_pop / soft_piano → soothe（温柔安抚）
+  /// ambient_ballad → sleep（夜色舒缓）
+  /// acoustic_warm → regulate（降频调节）
+  /// 兜底 → soothe
+  String _mapStyleToTargetState(String style) {
+    switch (style) {
+      case 'ambient_ballad':
+        return 'sleep';
+      case 'acoustic_warm':
+        return 'regulate';
+      case 'gentle_pop':
+      case 'soft_piano':
+      default:
+        return 'soothe';
+    }
+  }
+
+  /// 编码 /api/generate-music 请求体（不依赖 dart:convert 顶层 import 以避免增加依赖）。
+  ///
+  /// 字段说明：
+  /// - sessionId：会话标识（不暴露用户身份）
+  /// - targetState：目标状态（5 选 1）
+  /// - generationPrompt：英文风格提示（result.songPrompt）
+  /// - lyrics：用户编辑后的歌词（_editedLyric ?? result.lyricDraft）
+  /// - songPrompt：与 generationPrompt 一致（透传给 MiniMax provider）
+  /// - durationSeconds：120（与后端 maxDurationSeconds 一致）
+  /// - manualTest: true（受三重门保护，realCallsEnabled=false 时仍返回 fallback）
+  String _encodeGenerateMusicBody({
+    required String sessionId,
+    required String targetState,
+    required String songPrompt,
+    required String lyrics,
+  }) {
+    // 使用 dart:convert 的 jsonEncode（已通过 http 间接依赖）
+    return _jsonEncode({
+      'sessionId': sessionId,
+      'targetState': targetState,
+      'generationPrompt': songPrompt,
+      'lyrics': lyrics,
+      'songPrompt': songPrompt,
+      'durationSeconds': 120,
+      'manualTest': true,
+    });
+  }
+
+  /// AI 生成歌曲播放区（P4-generated-audio-playback-1）。
+  ///
+  /// 简洁内嵌播放区，不进入 PlayerScreen（避免构造完整 HealingMusicPlan）。
+  /// 包含：
+  /// - 标题行：图标 + "你的 AI 生成歌曲" + 元信息
+  /// - 播放/暂停按钮（圆形大按钮）
+  /// - 简短说明：这是 AI 实验生成的歌曲
+  Widget _buildGeneratedSongPlayer() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.lavender.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.lavender.withValues(alpha: 0.3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(
+                Icons.graphic_eq_rounded,
+                size: 18,
+                color: AppColors.lavender,
+              ),
+              const SizedBox(width: 8),
+              const Expanded(
+                child: Text(
+                  '你的 AI 生成歌曲',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+              ),
+              if (_generatedMusicMeta != null)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 3,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppColors.lavender.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    _generatedMusicMeta!,
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: AppColors.lavender.withValues(alpha: 0.9),
+                      letterSpacing: 0.3,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Material(
+                color: AppColors.lavender,
+                shape: const CircleBorder(),
+                child: InkWell(
+                  customBorder: const CircleBorder(),
+                  onTap: _toggleGeneratedAudio,
+                  child: Padding(
+                    padding: const EdgeInsets.all(10),
+                    child: Icon(
+                      _isPlayingGenerated
+                          ? Icons.pause_rounded
+                          : Icons.play_arrow_rounded,
+                      size: 28,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Text(
+                  _isPlayingGenerated ? '正在播放…' : '点击播放，听一下这首属于你的歌',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: AppColors.textSecondary,
+                    height: 1.5,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// AI 生成歌曲错误提示卡片。
+  Widget _buildMusicErrorHint() {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppColors.apricot.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.apricotDeep.withValues(alpha: 0.3)),
+      ),
+      child: Row(
+        children: [
+          const Icon(
+            Icons.cloud_off_rounded,
+            size: 18,
+            color: AppColors.apricotDeep,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              _musicErrorHint!,
+              style: const TextStyle(
+                fontSize: 13,
+                color: AppColors.apricotDeep,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 存储警告提示卡片：音乐已生成保存但播放地址未配置。
+  ///
+  /// 触发条件：后端返回 storageWarning=r2_not_configured 或 r2_upload_failed。
+  /// 文案面向用户友好，不暴露 R2 / storageKey 等技术细节。
+  Widget _buildStorageWarningHint() {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppColors.bgBlue,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.cardBorder),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(
+            Icons.info_outline_rounded,
+            size: 16,
+            color: AppColors.primary,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              '音乐已生成并保存，播放地址配置后可试听。',
+              style: TextStyle(
+                fontSize: 12,
+                color: AppColors.textSecondary,
+                height: 1.6,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -821,7 +1358,10 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
     );
   }
 
-  /// 后续提示：明确告知用户本批不生成真实音频。
+  /// 后续提示：告知用户可以点击「生成这首歌（实验）」生成 AI 歌曲。
+  ///
+  /// P4-generated-audio-playback-1：文案更新，明确告知已可生成 AI 歌曲，
+  /// 但仍保留"实验"措辞，让用户理解这是受控开放的功能。
   Widget _buildNextStepHint() {
     return Container(
       padding: const EdgeInsets.all(14),
@@ -841,7 +1381,7 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
           const SizedBox(width: 8),
           Expanded(
             child: Text(
-              '下一步将用于生成专属歌曲。\n当前版本仅生成歌词草稿，暂不调用真实 AI 音乐生成。',
+              '下一步可以生成专属歌曲。\n点击下方「生成这首歌（实验）」会发起一次 AI 音乐生成，可能产生调用费用。',
               style: TextStyle(
                 fontSize: 12,
                 color: AppColors.textSecondary,
@@ -852,6 +1392,28 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
         ],
       ),
     );
+  }
+}
+
+/// P4-generated-audio-playback-1：JSON 编码辅助函数。
+///
+/// 使用 dart:convert 的 jsonEncode 编码请求体。
+/// 不直接 import dart:convert 是为了在文件顶部统一管理 import，
+/// 但为了简洁这里直接使用 dart:convert。
+String _jsonEncode(Map<String, dynamic> data) {
+  return jsonEncode(data);
+}
+
+/// P4-generated-audio-playback-1：JSON 解码辅助函数。
+///
+/// 解析失败时返回 null（不抛异常，调用方负责处理）。
+Map<String, dynamic>? _decodeJson(String body) {
+  try {
+    final decoded = jsonDecode(body);
+    if (decoded is Map<String, dynamic>) return decoded;
+    return null;
+  } catch (_) {
+    return null;
   }
 }
 
