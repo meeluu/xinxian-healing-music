@@ -2672,7 +2672,7 @@ P4-song-result-experience-1 已部署上线并验收通过（`buildLabel=P4-song
 - `lib/main.dart`（`bootstrapServices` 第 9 步装配 + 自检汇总）
 - `lib/screens/comfort_lyrics_screen.dart`（额度字段 / initState / `_refreshQuotaState` / 两个 guard / `_buildGenerateSongButton` / `_buildQuotaHint` / 成功分支计数 / `_buildSongActionButtons` 重新生成禁用）
 - `lib/config/app_version.dart` / `functions/api/health.js` / `scripts/verify-provider-adapter.mjs`（版本号同步 + 测试断言）
-- `test/comfort_lyrics_screen_test.dart`（文件头注释补 P6 说明）
+- `test/comfort_lyrics_screen_test.dart`（文件头注释补 P6 说明 + 额度 UI widget 测试 3 项：可用时「今日还可生成 1 首」+ 按钮可用 / 用完时「今日体验次数已用完」+ 按钮禁用 / 未装配 permissive 降级）
 - `README.md`（定向更新 + 本章节）
 - `docs/mureka-api-integration-plan.md`（历史标注）
 

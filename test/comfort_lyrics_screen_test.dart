@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:xinxian_healing_music/pipeline/local/local_generation_quota_service.dart';
+import 'package:xinxian_healing_music/pipeline/local/preferences_port.dart';
+import 'package:xinxian_healing_music/pipeline/services.dart';
 import 'package:xinxian_healing_music/screens/comfort_lyrics_screen.dart';
 
 /// ComfortLyricsScreen 页面测试（P4 新方向第一批 / 第二批 / 第三批）。
@@ -24,12 +27,15 @@ import 'package:xinxian_healing_music/screens/comfort_lyrics_screen.dart';
 /// - 以上两个区域仅在 `_generatedAudioUrl != null`（成功）或 `_musicErrorHint != null`（失败）时渲染，
 ///   测试环境无真实后端不会触发，故现有断言不受影响
 ///
-/// P6-quota-guard-1 新增（额度保护，service 层已覆盖，UI 集成未纳入 widget 测试）：
+/// P6-quota-guard-1 新增（额度保护）：
 /// - 额度逻辑（每日 1 次 / 计数 / 跨天重置 / 损坏容错 / key 隔离）由
 ///   `test/local_generation_quota_service_test.dart` 在 service 层完整覆盖。
-/// - 额度 UI 集成（按钮禁用 / 「今日还可生成 N 首」/「今日体验次数已用完」提示）
-///   需 mock 全局 `generationQuotaService` 并触发结果区（`_result != null`），
-///   与 P4 结果区测试同样依赖 API mock，本批留待后续。
+/// - 额度 UI（生成按钮入口）：预置全局 `generationQuotaService` 后触发歌词生成 fallback
+///   使结果区渲染，验证「今日还可生成 N 首」/「今日体验次数已用完」提示与按钮禁用态，
+///   见本文件 `P6-quota-guard-1：额度 UI` group（3 个测试）。
+/// - 结果区「重新生成」禁用 / 「重新播放」「编辑歌词」不受额度影响：需 mock
+///   /api/generate-music 成功响应并触发 just_audio AudioPlayer，widget test 环境
+///   AudioPlayer 会 MissingPluginException，留待后续集成测试。
 ///
 /// 验证：
 /// - 页面渲染不空白（关键元素可见）
@@ -593,4 +599,101 @@ void main() {
     expect(find.text('生成这首歌（实验）'), findsOneWidget);
     expect(find.text('再写一首'), findsOneWidget);
   });
+
+  // ─── P6-quota-guard-1：额度 UI widget 测试 ──────────────────────
+  //
+  // 覆盖 P6 成本保护的主要入口（「生成这首歌（实验）」按钮 + 额度提示）。
+  // 通过预置全局 [generationQuotaService] 后触发歌词生成 fallback（_result != null），
+  // 使结果区 [_buildGenerateSongButton] 渲染，验证额度提示文案与按钮禁用态。
+  //
+  // 未覆盖（需 mock /api/generate-music 成功响应 + 触发 just_audio AudioPlayer，
+  // widget test 环境 AudioPlayer 会 MissingPluginException，留待后续集成测试）：
+  // - 额度用完时「重新生成」按钮禁用
+  // - 「重新播放」「编辑歌词」不受额度影响
+  group('P6-quota-guard-1：额度 UI', () {
+    tearDown(() {
+      // 恢复全局默认（null），避免污染同文件其他测试
+      generationQuotaService = null;
+    });
+
+    /// 触发歌词生成（测试环境 http 快速 fallback 填充 _result），
+    /// 使结果区的「生成这首歌（实验）」按钮与额度提示渲染出来。
+    Future<void> generateLyrics(WidgetTester tester) async {
+      await tester.pumpWidget(const MaterialApp(home: ComfortLyricsScreen()));
+      await tester.pumpAndSettle(); // 让 initState 的 _refreshQuotaState 完成
+      await tester.enterText(find.byType(TextField), '最近工作压力很大');
+      await tester.pump();
+      await tester.tap(find.text('生成解惑与歌词草稿'));
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.pumpAndSettle();
+    }
+
+    /// 定位「生成这首歌（实验）」FilledButton（页面有多个 FilledButton，用文案定位）。
+    FilledButton findGenerateSongButton(WidgetTester tester) {
+      return tester.widget<FilledButton>(
+        find.ancestor(
+          of: find.text('生成这首歌（实验）'),
+          matching: find.byType(FilledButton),
+        ),
+      );
+    }
+
+    testWidgets('额度可用时显示「今日还可生成 1 首」且生成按钮可用', (tester) async {
+      // 预置额度可用：空存储 → count=0 → remaining=1
+      generationQuotaService = await LocalGenerationQuotaService.create(
+        _FakePreferencesPort(),
+      );
+
+      await generateLyrics(tester);
+
+      expect(find.text('今日还可生成 1 首'), findsOneWidget);
+      expect(findGenerateSongButton(tester).onPressed, isNotNull);
+    });
+
+    testWidgets('额度用完时显示「今日体验次数已用完」且生成按钮禁用', (tester) async {
+      // 预置额度用完：今日 count=1 → remaining=0
+      final fake = _FakePreferencesPort();
+      final today = DateTime.now().toIso8601String().substring(0, 10);
+      await fake.setString(
+        LocalGenerationQuotaService.key,
+        '{"date":"$today","count":1}',
+      );
+      generationQuotaService = await LocalGenerationQuotaService.create(fake);
+
+      await generateLyrics(tester);
+
+      expect(find.text('今日体验次数已用完'), findsOneWidget);
+      expect(findGenerateSongButton(tester).onPressed, isNull);
+    });
+
+    testWidgets('额度服务未装配时 permissive 降级：不显示额度提示且按钮可用', (tester) async {
+      // generationQuotaService 保持 null（默认），模拟存储全不可用的降级场景
+      await generateLyrics(tester);
+
+      expect(find.textContaining('今日还可生成'), findsNothing);
+      expect(find.text('今日体验次数已用完'), findsNothing);
+      expect(findGenerateSongButton(tester).onPressed, isNotNull);
+    });
+  });
+}
+
+/// 内存 Map 实现的 [PreferencesPort]，用于在 widget 测试中预置额度状态
+/// （与 `test/local_generation_quota_service_test.dart` 中的实现一致，因私有而各自定义）。
+class _FakePreferencesPort implements PreferencesPort {
+  final Map<String, String> _store = {};
+
+  @override
+  String? getString(String key) => _store[key];
+
+  @override
+  Future<bool> setString(String key, String value) async {
+    _store[key] = value;
+    return true;
+  }
+
+  @override
+  Future<bool> remove(String key) async {
+    _store.remove(key);
+    return true;
+  }
 }
