@@ -90,9 +90,13 @@ database_id = "a3019d62-a2d3-4eb5-9c34-b345858f81e2"
 # - R2 bucket 默认私有，不开启公开访问
 # - 前端不直接访问 R2，统一通过 /api/generated-music 代理（受 CORS 白名单保护）
 #
-# 注意：如果 R2 bucket 尚未创建，本 binding 不会生效，但不会导致部署失败。
-#       后端代码会检测 env.GENERATED_MUSIC_BUCKET 是否存在，缺失时返回 storageWarning: r2_not_configured。
-#       前端会提示"音频已生成，但播放地址还未配置"，不影响其他流程。
-[[r2_buckets]]
-binding = "GENERATED_MUSIC_BUCKET"
-bucket_name = "xinxian-generated-music"
+# 注意：如果 R2 bucket 尚未创建，Cloudflare 部署时会校验 bucket 是否存在并导致部署失败。
+# P4-temp-audio-playback-1（2026-07-23）：本批暂不依赖 R2，临时注释掉 R2 binding。
+#   - 后端代码会检测 env.GENERATED_MUSIC_BUCKET 是否存在，缺失时走 audioDataUrl 临时播放路径
+#   - 前端通过 audioDataUrl（base64 dataUrl）直接播放，不需要 R2
+#   - 将来做 P4 持久化批次（历史歌曲/分享链接）时，先创建 bucket 再取消注释：
+#       npx wrangler r2 bucket create xinxian-generated-music
+#       然后取消下方 [[r2_buckets]] 段的注释
+# [[r2_buckets]]
+# binding = "GENERATED_MUSIC_BUCKET"
+# bucket_name = "xinxian-generated-music"
