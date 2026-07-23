@@ -137,6 +137,21 @@ const SYSTEM_PROMPT = [
   '8. 如果用户输入含自伤/自杀线索，safetyNotes 标注，解惑文本温和引导寻求专业帮助',
   '9. 输出必须是纯 JSON 对象，不要代码块标记，不要任何解释文字',
   '',
+  '──────── 多轮对话上下文（P4-conversation-song-flow-1）────────',
+  '如果用户输入中包含「追问回答 / 希望这首歌带来的感觉 / 此刻更想」等上下文：',
+  '1. lyricDraft 必须吸收追问回答中的具体细节，让这首歌看得出是为这个用户这件事写的',
+  '   · 不要泛泛写「别难过，会过去」「加油」「一切都会好的」',
+  '   · 把用户提到的具体场景/物件/关系转化为歌词意象（如「没发出去的消息」「没关的屏幕」）',
+  '   · 隐私保护：不过度复述敏感细节，用意象化处理代替直白复述',
+  '2. 歌词结构建议（可灵活，但要清晰）：',
+  '   · 第一段（主歌）：承接用户具体困境，用具象画面开场',
+  '   · 第二段（主歌或桥段）：温和转念，不否定痛苦',
+  '   · 副歌：给一句能记住的陪伴话（hook），可重复 1-2 句',
+  '   · 结尾（尾声）：回到平静或继续生活，不强行升华',
+  '3. 若用户提供「希望这首歌带来的感觉」（安慰/释怀/力量），副歌 hook 应贴合该方向',
+  '4. 若用户提供「此刻更想」（被理解/平静下来），解惑文本与歌词语气应贴合该方向',
+  '5. comfortInterpretation 也可使用多轮上下文，但保持温和、具体、克制，不鸡汤不说教',
+  '',
   '──────── 场景识别指引 ────────',
   '根据 storyText 自动选择叙事角度：',
   '- 学业场景：侧重「目标暂时没达到 ≠ 你这个人不行」，意象可用书本 / 走廊 / 模拟卷 / 录取通知',
@@ -173,12 +188,48 @@ export function validateInput(body) {
   if (typeof language !== 'string' || language.length === 0) {
     language = 'zh-CN';
   }
+
+  // P4-conversation-song-flow-1：多轮对话上下文（可选，用于歌词增强）
+  // - followUpAnswers：字符串数组，每项 ≤500 字，总长度 ≤2000，最多 5 条
+  // - desiredFeeling：字符串 ≤50（安慰/释怀/力量 等）
+  // - comfortDirection：字符串 ≤50（被理解/平静下来 等）
+  var followUpAnswers = body.followUpAnswers;
+  if (!Array.isArray(followUpAnswers)) {
+    followUpAnswers = [];
+  } else {
+    // 过滤非字符串项并截断超长项
+    followUpAnswers = followUpAnswers
+      .filter(function (a) { return typeof a === 'string'; })
+      .slice(0, 5)
+      .map(function (a) { return a.slice(0, 500); });
+    // 总长度保护
+    var totalLen = followUpAnswers.reduce(function (sum, a) { return sum + a.length; }, 0);
+    if (totalLen > 2000) {
+      followUpAnswers = followUpAnswers.slice(0, 2);
+    }
+  }
+  var desiredFeeling = body.desiredFeeling;
+  if (typeof desiredFeeling !== 'string') {
+    desiredFeeling = '';
+  } else {
+    desiredFeeling = desiredFeeling.slice(0, 50);
+  }
+  var comfortDirection = body.comfortDirection;
+  if (typeof comfortDirection !== 'string') {
+    comfortDirection = '';
+  } else {
+    comfortDirection = comfortDirection.slice(0, 50);
+  }
+
   return {
     ok: true,
     storyText: storyText,
     sessionId: sessionId,
     targetStyle: targetStyle,
     language: language,
+    followUpAnswers: followUpAnswers,
+    desiredFeeling: desiredFeeling,
+    comfortDirection: comfortDirection,
   };
 }
 
@@ -354,11 +405,30 @@ function isTimeoutError(err) {
 
 // ─── LLM 调用（原生 fetch + AbortController 超时）────────────────
 // 解惑 + 歌词生成需要更长超时（比 analyze-mood 的 8s 更长）
-async function callLlm(config, userText, targetStyle) {
+//
+// P4-conversation-song-flow-1：新增 ctx 参数（多轮对话上下文），用于让歌词
+// 吸收用户追问回答中的具体细节，更贴合用户困境。ctx 结构：
+//   { followUpAnswers: [String], desiredFeeling: String, comfortDirection: String }
+async function callLlm(config, userText, targetStyle, ctx) {
   const controller = new AbortController();
   const timeoutId = setTimeout(function () { controller.abort(); }, 15000);
   try {
     var userContent = '用户困惑：' + userText + '\n（期望曲风：' + targetStyle + '）';
+    // P4-conversation-song-flow-1：融入多轮对话上下文
+    if (ctx) {
+      if (Array.isArray(ctx.followUpAnswers) && ctx.followUpAnswers.length > 0) {
+        var answersText = ctx.followUpAnswers
+          .map(function (a, i) { return '  ' + (i + 1) + '. ' + a; })
+          .join('\n');
+        userContent += '\n追问回答：\n' + answersText;
+      }
+      if (ctx.desiredFeeling) {
+        userContent += '\n希望这首歌带来的感觉：' + ctx.desiredFeeling;
+      }
+      if (ctx.comfortDirection) {
+        userContent += '\n此刻更想：' + ctx.comfortDirection;
+      }
+    }
     const resp = await fetch(config.baseURL + '/chat/completions', {
       method: 'POST',
       headers: {
@@ -595,8 +665,15 @@ export async function onRequestPost(context) {
     }
 
     // 调用 LLM
+    // P4-conversation-song-flow-1：把多轮对话上下文组装为 ctx 传给 callLlm，
+    // 让歌词吸收追问回答中的具体细节。
     try {
-      const rawResult = await callLlm(config, validation.storyText, validation.targetStyle);
+      const ctx = {
+        followUpAnswers: validation.followUpAnswers,
+        desiredFeeling: validation.desiredFeeling,
+        comfortDirection: validation.comfortDirection,
+      };
+      const rawResult = await callLlm(config, validation.storyText, validation.targetStyle, ctx);
       const result = normalizeResult(rawResult);
       if (!result) {
         console.error('[comfort-lyrics] LLM 返回数据无法规范化');

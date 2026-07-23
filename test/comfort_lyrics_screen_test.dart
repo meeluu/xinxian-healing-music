@@ -17,39 +17,147 @@ import 'package:xinxian_healing_music/screens/comfort_lyrics_screen.dart';
 /// - 「编辑歌词」按钮可见，点击后出现可编辑文本框 + 字数提示 + 温和提醒 + 保存/取消
 /// - 保存后显示新歌词；取消后恢复旧歌词
 /// - 「生成这首歌（实验）」受控实验入口按钮可见，点击弹费用确认对话框，不触发 API
-/// - 编辑态时生成解惑按钮和占位按钮均禁用
 /// - 「再写一首」清空编辑状态
 ///
+/// P4-conversation-song-flow-1 更新（多轮困惑理解）：
+/// - input 阶段按钮文案从「生成解惑与歌词草稿」改为「开始理解」
+/// - 点击「开始理解」不再直接生成，而是进入 followUp 阶段（3 轮温和追问）
+/// - followUp 阶段可「跳过追问，直接生成」或回答完 3 轮后自动生成
+/// - 多轮数据（initialConcern / followUpAnswers / desiredFeeling / comfortDirection）只存页面 state
+/// - 测试通过 [generateLyrics] 辅助函数统一走「开始理解 → 跳过追问，直接生成」流程触发生成
+///
 /// P4-song-result-experience-1 新增（未纳入 widget 测试，需 API mock 才能触发）：
-/// - 生成成功结果区 `_buildSongResultSection`：歌曲标题（本地规则生成）+ 副文案 + 试听这首歌 +
-///   歌词展示 + 状态「已生成，可直接试听」+ 操作按钮（重新播放 / 编辑歌词 / 重新生成）
+/// - 生成成功结果区 `_buildSongResultSection`：歌曲标题 + 试听 + 歌词 + 操作按钮 + 快速舒缓 CTA
 /// - 生成失败区 `_buildMusicErrorSection`：温和错误 + 重试生成 / 编辑歌词
-/// - 以上两个区域仅在 `_generatedAudioUrl != null`（成功）或 `_musicErrorHint != null`（失败）时渲染，
+/// - 以上两个区域仅在 `_generatedAudioUrl != null` 或 `_musicErrorHint != null` 时渲染，
 ///   测试环境无真实后端不会触发，故现有断言不受影响
 ///
 /// P6-quota-guard-1 新增（额度保护）：
-/// - 额度逻辑（每日 1 次 / 计数 / 跨天重置 / 损坏容错 / key 隔离）由
-///   `test/local_generation_quota_service_test.dart` 在 service 层完整覆盖。
+/// - 额度逻辑由 `test/local_generation_quota_service_test.dart` 在 service 层覆盖
 /// - 额度 UI（生成按钮入口）：预置全局 `generationQuotaService` 后触发歌词生成 fallback
-///   使结果区渲染，验证「今日还可生成 N 首」/「今日体验次数已用完」提示与按钮禁用态，
-///   见本文件 `P6-quota-guard-1：额度 UI` group（3 个测试）。
-/// - 结果区「重新生成」禁用 / 「重新播放」「编辑歌词」不受额度影响：需 mock
-///   /api/generate-music 成功响应并触发 just_audio AudioPlayer，widget test 环境
-///   AudioPlayer 会 MissingPluginException，留待后续集成测试。
+///   使结果区渲染，验证额度提示与按钮禁用态，见本文件 `P6-quota-guard-1：额度 UI` group
 ///
 /// 验证：
 /// - 页面渲染不空白（关键元素可见）
 /// - 标题「把困惑写成一首歌」可见
 /// - 输入框可见
 /// - 4 个曲风 chip 可见
-/// - 生成按钮初始禁用（无文本时）
+/// - 「开始理解」按钮初始禁用（无文本时）
 /// - 输入文本后按钮可点击
+/// - 点击「开始理解」进入 followUp 阶段
+/// - followUp 阶段可跳过直接生成
+/// - followUp 阶段回答 3 轮后自动生成
 /// - 生成后结果显示新标题「给现在的你」「写成歌的话」
 /// - songPrompt 默认收起，点击「后续生成参数」可展开
 /// - 场景标记可见
 /// - 「再写一首」重置回初始态
 /// - 歌词编辑/保存/取消/占位按钮行为正确
 void main() {
+  /// P4-conversation-song-flow-1：触发生成的完整流程。
+  ///
+  /// input 阶段输入困惑 → 点击「开始理解」→ followUp 阶段点击「跳过追问，直接生成」→ 等待 fallback 完成。
+  /// 测试环境 http 快速 fallback，结果区会渲染。
+  Future<void> generateLyrics(
+    WidgetTester tester, {
+    String story = '最近工作压力很大',
+  }) async {
+    await tester.pumpWidget(const MaterialApp(home: ComfortLyricsScreen()));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), story);
+    await tester.pump();
+    await tester.tap(find.text('开始理解'));
+    await tester.pumpAndSettle();
+    // followUp 阶段：点击「跳过追问，直接生成」
+    await tester.ensureVisible(find.text('跳过追问，直接生成'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('跳过追问，直接生成'));
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pumpAndSettle();
+  }
+
+  // ─── P4-conversation-song-flow-1：多轮对话流程测试 ──────────────────────
+
+  testWidgets('P4-conversation-song-flow-1：input 阶段显示「开始理解」按钮', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(const MaterialApp(home: ComfortLyricsScreen()));
+    await tester.pumpAndSettle();
+
+    expect(find.text('开始理解'), findsOneWidget);
+    // 旧文案不应出现
+    expect(find.text('生成解惑与歌词草稿'), findsNothing);
+  });
+
+  testWidgets('P4-conversation-song-flow-1：点击「开始理解」进入 followUp 阶段', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(const MaterialApp(home: ComfortLyricsScreen()));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField), '最近工作压力很大');
+    await tester.pump();
+    await tester.tap(find.text('开始理解'));
+    await tester.pumpAndSettle();
+
+    // 进入 followUp 阶段：显示第 1 个追问 + 跳过按钮
+    expect(find.textContaining('最让你放不下'), findsOneWidget);
+    expect(find.text('跳过追问，直接生成'), findsOneWidget);
+    // 进度提示
+    expect(find.textContaining('第 1 / 3'), findsOneWidget);
+  });
+
+  testWidgets('P4-conversation-song-flow-1：followUp 阶段可跳过直接生成', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(const MaterialApp(home: ComfortLyricsScreen()));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField), '最近工作压力很大');
+    await tester.pump();
+    await tester.tap(find.text('开始理解'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('跳过追问，直接生成'));
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pumpAndSettle();
+
+    // 跳过后直接生成结果
+    expect(find.text('给现在的你'), findsOneWidget);
+  });
+
+  testWidgets('P4-conversation-song-flow-1：followUp 阶段回答 3 轮后自动生成', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(const MaterialApp(home: ComfortLyricsScreen()));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField), '最近工作压力很大');
+    await tester.pump();
+    await tester.tap(find.text('开始理解'));
+    await tester.pumpAndSettle();
+
+    // Q1（开放式）：输入回答 → 点「继续」
+    await tester.enterText(find.byType(TextField), '最放不下的是没发出去的消息');
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('继续'));
+    await tester.pumpAndSettle();
+
+    // Q2（有选项：安慰/释怀/给我一点力量）：点选项 chip 直接推进
+    expect(find.textContaining('希望它更像安慰'), findsOneWidget);
+    await tester.tap(find.text('安慰'));
+    await tester.pumpAndSettle();
+
+    // Q3（有选项：想被理解/想慢慢平静下来）：点选项 chip 直接推进并生成
+    expect(find.textContaining('更想被理解'), findsOneWidget);
+    await tester.tap(find.text('想慢慢平静下来'));
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pumpAndSettle();
+
+    // 3 轮回答后自动生成结果
+    expect(find.text('给现在的你'), findsOneWidget);
+  });
+
+  // ─── 基础渲染与交互测试 ──────────────────────────────────────────────
+
   testWidgets('页面渲染不空白，关键元素可见', (WidgetTester tester) async {
     await tester.pumpWidget(const MaterialApp(home: ComfortLyricsScreen()));
     await tester.pumpAndSettle();
@@ -59,7 +167,6 @@ void main() {
     // 顶部说明文案可见
     expect(find.textContaining('把你最近遇到的一件事'), findsOneWidget);
     // 输入区标题可见
-    // P4 前端结构调整第一批：标题从「写下你的困惑」改为「先说说卡住你的事」
     expect(find.text('先说说卡住你的事'), findsOneWidget);
     // 曲风选择标题可见
     expect(find.text('期望曲风'), findsOneWidget);
@@ -68,28 +175,25 @@ void main() {
     expect(find.text('氛围民谣'), findsOneWidget);
     expect(find.text('暖意指弹'), findsOneWidget);
     expect(find.text('柔光钢琴'), findsOneWidget);
-    // 生成按钮可见
-    expect(find.text('生成解惑与歌词草稿'), findsOneWidget);
+    // P4-conversation-song-flow-1：生成按钮文案改为「开始理解」
+    expect(find.text('开始理解'), findsOneWidget);
   });
 
-  testWidgets('无输入时生成按钮禁用（onPressed 为 null）', (WidgetTester tester) async {
+  testWidgets('无输入时「开始理解」按钮禁用（onPressed 为 null）', (WidgetTester tester) async {
     await tester.pumpWidget(const MaterialApp(home: ComfortLyricsScreen()));
     await tester.pumpAndSettle();
 
-    // 找到 FilledButton
     final filledButton = tester.widget<FilledButton>(find.byType(FilledButton));
     expect(filledButton.onPressed, isNull);
   });
 
-  testWidgets('输入文本后生成按钮可点击', (WidgetTester tester) async {
+  testWidgets('输入文本后「开始理解」按钮可点击', (WidgetTester tester) async {
     await tester.pumpWidget(const MaterialApp(home: ComfortLyricsScreen()));
     await tester.pumpAndSettle();
 
-    // 在输入框中输入文本
     await tester.enterText(find.byType(TextField), '最近工作压力很大，睡不着');
     await tester.pump();
 
-    // 此时 FilledButton 应可点击
     final filledButton = tester.widget<FilledButton>(find.byType(FilledButton));
     expect(filledButton.onPressed, isNotNull);
   });
@@ -98,108 +202,60 @@ void main() {
     await tester.pumpWidget(const MaterialApp(home: ComfortLyricsScreen()));
     await tester.pumpAndSettle();
 
-    // 默认选中「温柔流行」
     expect(find.text('温柔流行'), findsOneWidget);
 
-    // 点击「柔光钢琴」
     await tester.tap(find.text('柔光钢琴'));
     await tester.pumpAndSettle();
 
-    // 切换后仍能找到所有 4 个 chip（页面未崩溃）
     expect(find.text('温柔流行'), findsOneWidget);
     expect(find.text('氛围民谣'), findsOneWidget);
     expect(find.text('暖意指弹'), findsOneWidget);
     expect(find.text('柔光钢琴'), findsOneWidget);
   });
 
-  testWidgets('点击生成按钮后显示加载状态', (WidgetTester tester) async {
+  testWidgets('点击「开始理解」后进入 followUp 阶段（不空白）', (WidgetTester tester) async {
     await tester.pumpWidget(const MaterialApp(home: ComfortLyricsScreen()));
     await tester.pumpAndSettle();
 
-    // 输入文本
     await tester.enterText(find.byType(TextField), '最近工作压力很大');
     await tester.pump();
+    await tester.tap(find.text('开始理解'));
+    await tester.pumpAndSettle();
 
-    // 点击生成按钮
-    await tester.tap(find.text('生成解惑与歌词草稿'));
-    await tester.pump();
-
-    // 按钮区域不空白（测试环境 http 快速 fallback，可能已进入结果态，
-    // 此时页面含生成解惑按钮 + 生成这首歌占位按钮，故用 findsWidgets）
+    // followUp 阶段应显示追问卡片（不空白）
+    expect(find.text('跳过追问，直接生成'), findsOneWidget);
     expect(find.byType(FilledButton), findsWidgets);
   });
 
   testWidgets('页面不暴露内部异常字符串', (WidgetTester tester) async {
-    await tester.pumpWidget(const MaterialApp(home: ComfortLyricsScreen()));
-    await tester.pumpAndSettle();
+    await generateLyrics(tester);
 
-    // 输入并触发生成
-    await tester.enterText(find.byType(TextField), '最近工作压力很大');
-    await tester.pump();
-    await tester.tap(find.text('生成解惑与歌词草稿'));
-
-    // 等待 fallback 完成（测试环境会快速 fallback）
-    await tester.pump(const Duration(milliseconds: 500));
-    await tester.pumpAndSettle();
-
-    // 不应暴露 Exception 等内部异常字符串
     expect(find.textContaining('Exception'), findsNothing);
     expect(find.textContaining('llm_network_error'), findsNothing);
   });
 
-  testWidgets('生成完成后显示结果区（P4 第二批：新标题「给现在的你」「写成歌的话」）', (
+  testWidgets('生成完成后显示结果区（新标题「给现在的你」「写成歌的话」）', (
     WidgetTester tester,
   ) async {
-    await tester.pumpWidget(const MaterialApp(home: ComfortLyricsScreen()));
-    await tester.pumpAndSettle();
+    await generateLyrics(tester);
 
-    // 输入并触发生成
-    await tester.enterText(find.byType(TextField), '最近工作压力很大');
-    await tester.pump();
-    await tester.tap(find.text('生成解惑与歌词草稿'));
-
-    // 等待 fallback 完成
-    await tester.pump(const Duration(milliseconds: 500));
-    await tester.pumpAndSettle();
-
-    // P4 第二批：结果区应显示新标题
     expect(find.text('给现在的你'), findsOneWidget);
     expect(find.text('写成歌的话'), findsOneWidget);
-    // 旧标题不应再出现
     expect(find.text('温和解惑'), findsNothing);
     expect(find.text('歌词草稿'), findsNothing);
-    // 后续提示
     expect(find.textContaining('下一步可以生成专属歌曲'), findsOneWidget);
-    // 重置按钮
     expect(find.text('再写一首'), findsOneWidget);
   });
 
   testWidgets('生成完成后显示来源标记（fallback）', (WidgetTester tester) async {
-    await tester.pumpWidget(const MaterialApp(home: ComfortLyricsScreen()));
-    await tester.pumpAndSettle();
+    await generateLyrics(tester);
 
-    await tester.enterText(find.byType(TextField), '最近工作压力很大');
-    await tester.pump();
-    await tester.tap(find.text('生成解惑与歌词草稿'));
-    await tester.pump(const Duration(milliseconds: 500));
-    await tester.pumpAndSettle();
-
-    // 测试环境无真实后端，应显示 fallback 标记
     expect(find.textContaining('本地模板'), findsOneWidget);
   });
 
   testWidgets('P4 第二批：生成完成后显示场景标记', (WidgetTester tester) async {
-    await tester.pumpWidget(const MaterialApp(home: ComfortLyricsScreen()));
-    await tester.pumpAndSettle();
+    await generateLyrics(tester, story: '最近工作压力很大，天天加班');
 
-    // 输入工作压力场景文本
-    await tester.enterText(find.byType(TextField), '最近工作压力很大，天天加班');
-    await tester.pump();
-    await tester.tap(find.text('生成解惑与歌词草稿'));
-    await tester.pump(const Duration(milliseconds: 500));
-    await tester.pumpAndSettle();
-
-    // 应显示场景标记之一（5 种场景标签）
     final sceneLabels = ['学业受挫', '关系摩擦', '压力疲惫', '愧疚后悔', '此刻心境'];
     bool foundScene = false;
     for (final label in sceneLabels) {
@@ -214,84 +270,46 @@ void main() {
   testWidgets('P4 第二批：songPrompt 默认收起，标题为「后续生成参数」', (
     WidgetTester tester,
   ) async {
-    await tester.pumpWidget(const MaterialApp(home: ComfortLyricsScreen()));
-    await tester.pumpAndSettle();
+    await generateLyrics(tester);
 
-    await tester.enterText(find.byType(TextField), '最近工作压力很大');
-    await tester.pump();
-    await tester.tap(find.text('生成解惑与歌词草稿'));
-    await tester.pump(const Duration(milliseconds: 500));
-    await tester.pumpAndSettle();
-
-    // 「后续生成参数」标题可见（songPrompt 折叠弱化）
     expect(find.text('后续生成参数'), findsOneWidget);
-    // songPrompt 默认收起，应显示下箭头
     expect(find.byIcon(Icons.keyboard_arrow_down_rounded), findsOneWidget);
   });
 
   testWidgets('P4 第二批：点击「后续生成参数」可展开 songPrompt', (WidgetTester tester) async {
-    await tester.pumpWidget(const MaterialApp(home: ComfortLyricsScreen()));
-    await tester.pumpAndSettle();
+    await generateLyrics(tester);
 
-    await tester.enterText(find.byType(TextField), '最近工作压力很大');
-    await tester.pump();
-    await tester.tap(find.text('生成解惑与歌词草稿'));
-    await tester.pump(const Duration(milliseconds: 500));
-    await tester.pumpAndSettle();
-
-    // 滚动到「后续生成参数」可见
     await tester.ensureVisible(find.text('后续生成参数'));
     await tester.pumpAndSettle();
-
-    // 点击「后续生成参数」展开
     await tester.tap(find.text('后续生成参数'));
     await tester.pumpAndSettle();
 
-    // 展开后应显示上箭头
     expect(find.byIcon(Icons.keyboard_arrow_up_rounded), findsOneWidget);
   });
 
   testWidgets('点击「再写一首」重置回初始态', (WidgetTester tester) async {
-    await tester.pumpWidget(const MaterialApp(home: ComfortLyricsScreen()));
-    await tester.pumpAndSettle();
+    await generateLyrics(tester);
 
-    await tester.enterText(find.byType(TextField), '最近工作压力很大');
-    await tester.pump();
-    await tester.tap(find.text('生成解惑与歌词草稿'));
-    await tester.pump(const Duration(milliseconds: 500));
-    await tester.pumpAndSettle();
-
-    // 结果区已显示（P4 第二批新标题）
     expect(find.text('给现在的你'), findsOneWidget);
 
-    // 「再写一首」按钮可能在视口下方，需先滚动到可见
     await tester.ensureVisible(find.text('再写一首'));
     await tester.pumpAndSettle();
-
-    // 点击「再写一首」
     await tester.tap(find.text('再写一首'));
     await tester.pumpAndSettle();
 
-    // 结果区应消失
+    // 结果区应消失，回到 input 阶段
     expect(find.text('给现在的你'), findsNothing);
     expect(find.text('写成歌的话'), findsNothing);
-    // 输入框应被清空（按钮恢复禁用）
+    // 「开始理解」按钮重新出现且禁用（输入框已清空）
+    expect(find.text('开始理解'), findsOneWidget);
     final filledButton = tester.widget<FilledButton>(find.byType(FilledButton));
     expect(filledButton.onPressed, isNull);
   });
 
   testWidgets('P4 第二批：页面不空白，结果区含完整结构', (WidgetTester tester) async {
-    await tester.pumpWidget(const MaterialApp(home: ComfortLyricsScreen()));
-    await tester.pumpAndSettle();
+    await generateLyrics(tester);
 
-    await tester.enterText(find.byType(TextField), '最近工作压力很大');
-    await tester.pump();
-    await tester.tap(find.text('生成解惑与歌词草稿'));
-    await tester.pump(const Duration(milliseconds: 500));
-    await tester.pumpAndSettle();
-
-    // 结果区完整结构：来源标记 + 场景标记 + 给现在的你 + 写成歌的话 + 后续生成参数 + 后续提示 + 再写一首
-    expect(find.textContaining('本地模板'), findsOneWidget); // 来源标记
+    expect(find.textContaining('本地模板'), findsOneWidget);
     expect(find.text('给现在的你'), findsOneWidget);
     expect(find.text('写成歌的话'), findsOneWidget);
     expect(find.text('后续生成参数'), findsOneWidget);
@@ -302,115 +320,68 @@ void main() {
   // ─── P4 第三批：歌词编辑与占位按钮测试 ──────────────────────
 
   testWidgets('P4 第三批：结果页出现「编辑歌词」按钮', (WidgetTester tester) async {
-    await tester.pumpWidget(const MaterialApp(home: ComfortLyricsScreen()));
-    await tester.pumpAndSettle();
+    await generateLyrics(tester);
 
-    await tester.enterText(find.byType(TextField), '最近工作压力很大');
-    await tester.pump();
-    await tester.tap(find.text('生成解惑与歌词草稿'));
-    await tester.pump(const Duration(milliseconds: 500));
-    await tester.pumpAndSettle();
-
-    // 滚动到歌词卡片可见
     await tester.ensureVisible(find.text('写成歌的话'));
     await tester.pumpAndSettle();
 
-    // 「编辑歌词」按钮可见
     expect(find.text('编辑歌词'), findsOneWidget);
   });
 
   testWidgets('P4 第三批：点击「编辑歌词」后出现可编辑文本框 + 保存/取消 + 温和提示', (
     WidgetTester tester,
   ) async {
-    await tester.pumpWidget(const MaterialApp(home: ComfortLyricsScreen()));
-    await tester.pumpAndSettle();
-
-    await tester.enterText(find.byType(TextField), '最近工作压力很大');
-    await tester.pump();
-    await tester.tap(find.text('生成解惑与歌词草稿'));
-    await tester.pump(const Duration(milliseconds: 500));
-    await tester.pumpAndSettle();
+    await generateLyrics(tester);
 
     await tester.ensureVisible(find.text('编辑歌词'));
     await tester.pumpAndSettle();
-
-    // 点击「编辑歌词」
     await tester.tap(find.text('编辑歌词'));
     await tester.pumpAndSettle();
 
-    // 出现「保存歌词」「取消编辑」按钮
     expect(find.text('保存歌词'), findsOneWidget);
     expect(find.text('取消编辑'), findsOneWidget);
-    // 温和质量提醒
     expect(find.textContaining('建议保留主歌、副歌、尾声结构'), findsOneWidget);
-    // 编辑态下有两个 TextField：故事输入框 + 歌词编辑框
-    expect(find.byType(TextField), findsNWidgets(2));
-    // 字数提示可见
+    // 编辑态下有一个 TextField（歌词编辑框）；input 阶段的故事输入框已不可见
+    expect(find.byType(TextField), findsOneWidget);
     expect(find.textContaining('字'), findsWidgets);
   });
 
   testWidgets('P4 第三批：编辑后点击「保存歌词」显示新歌词', (WidgetTester tester) async {
-    await tester.pumpWidget(const MaterialApp(home: ComfortLyricsScreen()));
-    await tester.pumpAndSettle();
-
-    await tester.enterText(find.byType(TextField), '最近工作压力很大');
-    await tester.pump();
-    await tester.tap(find.text('生成解惑与歌词草稿'));
-    await tester.pump(const Duration(milliseconds: 500));
-    await tester.pumpAndSettle();
+    await generateLyrics(tester);
 
     await tester.ensureVisible(find.text('编辑歌词'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('编辑歌词'));
     await tester.pumpAndSettle();
 
-    // 在歌词编辑框（第二个 TextField）中输入新内容
     const newLyric = '这是测试编辑后的独特歌词内容XYZ';
-    await tester.enterText(find.byType(TextField).at(1), newLyric);
+    await tester.enterText(find.byType(TextField), newLyric);
     await tester.pumpAndSettle();
-
-    // 点击「保存歌词」
     await tester.tap(find.text('保存歌词'));
     await tester.pumpAndSettle();
 
-    // 展示态应显示新歌词内容
     expect(find.text(newLyric), findsOneWidget);
-    // 「编辑歌词」按钮重新出现（退出编辑态）
     expect(find.text('编辑歌词'), findsOneWidget);
-    // 「保存歌词」「取消编辑」按钮消失
     expect(find.text('保存歌词'), findsNothing);
     expect(find.text('取消编辑'), findsNothing);
   });
 
   testWidgets('P4 第三批：编辑后点击「取消编辑」恢复旧歌词', (WidgetTester tester) async {
-    await tester.pumpWidget(const MaterialApp(home: ComfortLyricsScreen()));
-    await tester.pumpAndSettle();
-
-    await tester.enterText(find.byType(TextField), '最近工作压力很大');
-    await tester.pump();
-    await tester.tap(find.text('生成解惑与歌词草稿'));
-    await tester.pump(const Duration(milliseconds: 500));
-    await tester.pumpAndSettle();
+    await generateLyrics(tester);
 
     await tester.ensureVisible(find.text('编辑歌词'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('编辑歌词'));
     await tester.pumpAndSettle();
 
-    // 在歌词编辑框中输入新内容
     const newLyric = '这是不应该被保留的临时内容ABC';
-    await tester.enterText(find.byType(TextField).at(1), newLyric);
+    await tester.enterText(find.byType(TextField), newLyric);
     await tester.pumpAndSettle();
-
-    // 点击「取消编辑」
     await tester.tap(find.text('取消编辑'));
     await tester.pumpAndSettle();
 
-    // 新内容不应出现在展示态
     expect(find.text(newLyric), findsNothing);
-    // 「编辑歌词」按钮重新出现（退出编辑态）
     expect(find.text('编辑歌词'), findsOneWidget);
-    // 「保存歌词」「取消编辑」按钮消失
     expect(find.text('保存歌词'), findsNothing);
     expect(find.text('取消编辑'), findsNothing);
   });
@@ -418,80 +389,33 @@ void main() {
   testWidgets(
     'P4-generated-audio-playback-1：「生成这首歌（实验）」按钮可见且点击弹费用确认对话框不触发 API',
     (WidgetTester tester) async {
-      await tester.pumpWidget(const MaterialApp(home: ComfortLyricsScreen()));
-      await tester.pumpAndSettle();
+      await generateLyrics(tester);
 
-      await tester.enterText(find.byType(TextField), '最近工作压力很大');
-      await tester.pump();
-      await tester.tap(find.text('生成解惑与歌词草稿'));
-      await tester.pump(const Duration(milliseconds: 500));
-      await tester.pumpAndSettle();
-
-      // 受控实验入口按钮可见
       expect(find.text('生成这首歌（实验）'), findsOneWidget);
 
-      // 点击按钮
       await tester.ensureVisible(find.text('生成这首歌（实验）'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('生成这首歌（实验）'));
       await tester.pumpAndSettle();
 
-      // 弹出费用确认对话框（不触发 API：未点击「确认生成」按钮）
-      // P4-generated-audio-playback-1：旧 SnackBar 占位提示已改为受控费用确认对话框
-      expect(find.text('生成这首歌'), findsOneWidget); // 对话框标题
+      expect(find.text('生成这首歌'), findsOneWidget);
       expect(find.textContaining('这会发起一次 AI 音乐生成'), findsOneWidget);
       expect(find.text('取消'), findsOneWidget);
       expect(find.text('确认生成'), findsOneWidget);
 
-      // 不应进入播放器，不应出现音频相关 UI
       expect(find.textContaining('MiniMax'), findsNothing);
       expect(find.textContaining('Mureka'), findsNothing);
     },
   );
 
-  testWidgets('P4 第三批：编辑态时「生成解惑与歌词草稿」按钮禁用', (WidgetTester tester) async {
-    await tester.pumpWidget(const MaterialApp(home: ComfortLyricsScreen()));
-    await tester.pumpAndSettle();
-
-    await tester.enterText(find.byType(TextField), '最近工作压力很大');
-    await tester.pump();
-    await tester.tap(find.text('生成解惑与歌词草稿'));
-    await tester.pump(const Duration(milliseconds: 500));
-    await tester.pumpAndSettle();
-
-    await tester.ensureVisible(find.text('编辑歌词'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('编辑歌词'));
-    await tester.pumpAndSettle();
-
-    // 编辑态下，「生成解惑与歌词草稿」按钮应禁用（onPressed 为 null）
-    // 注意：此时页面有多个 FilledButton（生成解惑 + 保存歌词 + 生成这首歌），
-    // 用文案定位生成解惑按钮
-    final generateBtn = tester.widget<FilledButton>(
-      find.ancestor(
-        of: find.text('生成解惑与歌词草稿'),
-        matching: find.byType(FilledButton),
-      ),
-    );
-    expect(generateBtn.onPressed, isNull);
-  });
-
   testWidgets('P4 第三批：编辑态时「生成这首歌」占位按钮禁用', (WidgetTester tester) async {
-    await tester.pumpWidget(const MaterialApp(home: ComfortLyricsScreen()));
-    await tester.pumpAndSettle();
-
-    await tester.enterText(find.byType(TextField), '最近工作压力很大');
-    await tester.pump();
-    await tester.tap(find.text('生成解惑与歌词草稿'));
-    await tester.pump(const Duration(milliseconds: 500));
-    await tester.pumpAndSettle();
+    await generateLyrics(tester);
 
     await tester.ensureVisible(find.text('编辑歌词'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('编辑歌词'));
     await tester.pumpAndSettle();
 
-    // 编辑态下，「生成这首歌（实验）」按钮应禁用
     final songBtn = tester.widget<FilledButton>(
       find.ancestor(
         of: find.text('生成这首歌（实验）'),
@@ -502,15 +426,8 @@ void main() {
   });
 
   testWidgets('P4 第三批：「再写一首」清空编辑状态，再生成显示原歌词', (WidgetTester tester) async {
-    await tester.pumpWidget(const MaterialApp(home: ComfortLyricsScreen()));
-    await tester.pumpAndSettle();
-
     // 第一次生成
-    await tester.enterText(find.byType(TextField), '最近工作压力很大');
-    await tester.pump();
-    await tester.tap(find.text('生成解惑与歌词草稿'));
-    await tester.pump(const Duration(milliseconds: 500));
-    await tester.pumpAndSettle();
+    await generateLyrics(tester);
 
     // 编辑并保存新歌词
     await tester.ensureVisible(find.text('编辑歌词'));
@@ -518,11 +435,10 @@ void main() {
     await tester.tap(find.text('编辑歌词'));
     await tester.pumpAndSettle();
     const editedLyric = '这是第一次编辑保存的内容';
-    await tester.enterText(find.byType(TextField).at(1), editedLyric);
+    await tester.enterText(find.byType(TextField), editedLyric);
     await tester.pumpAndSettle();
     await tester.tap(find.text('保存歌词'));
     await tester.pumpAndSettle();
-    // 确认编辑内容已保存
     expect(find.text(editedLyric), findsOneWidget);
 
     // 点击「再写一首」重置
@@ -531,32 +447,19 @@ void main() {
     await tester.tap(find.text('再写一首'));
     await tester.pumpAndSettle();
 
-    // 结果区应消失，编辑内容也应消失
     expect(find.text(editedLyric), findsNothing);
     expect(find.text('给现在的你'), findsNothing);
 
-    // 重新生成
-    await tester.enterText(find.byType(TextField), '和妈妈吵架了');
-    await tester.pump();
-    await tester.tap(find.text('生成解惑与歌词草稿'));
-    await tester.pump(const Duration(milliseconds: 500));
-    await tester.pumpAndSettle();
+    // 重新生成（换一个故事）
+    await generateLyrics(tester, story: '和妈妈吵架了');
 
-    // 应显示新生成的原歌词，而非上一次编辑后的内容
     expect(find.text(editedLyric), findsNothing);
     expect(find.text('写成歌的话'), findsOneWidget);
     expect(find.text('编辑歌词'), findsOneWidget);
   });
 
   testWidgets('P4 第三批：保存歌词后再编辑，编辑框初始内容为上次保存的内容', (WidgetTester tester) async {
-    await tester.pumpWidget(const MaterialApp(home: ComfortLyricsScreen()));
-    await tester.pumpAndSettle();
-
-    await tester.enterText(find.byType(TextField), '最近工作压力很大');
-    await tester.pump();
-    await tester.tap(find.text('生成解惑与歌词草稿'));
-    await tester.pump(const Duration(milliseconds: 500));
-    await tester.pumpAndSettle();
+    await generateLyrics(tester);
 
     // 第一次编辑保存
     await tester.ensureVisible(find.text('编辑歌词'));
@@ -564,7 +467,7 @@ void main() {
     await tester.tap(find.text('编辑歌词'));
     await tester.pumpAndSettle();
     const firstEdit = '第一次编辑保存的歌词内容';
-    await tester.enterText(find.byType(TextField).at(1), firstEdit);
+    await tester.enterText(find.byType(TextField), firstEdit);
     await tester.pumpAndSettle();
     await tester.tap(find.text('保存歌词'));
     await tester.pumpAndSettle();
@@ -575,21 +478,13 @@ void main() {
     await tester.tap(find.text('编辑歌词'));
     await tester.pumpAndSettle();
 
-    final editField = tester.widget<TextField>(find.byType(TextField).at(1));
+    final editField = tester.widget<TextField>(find.byType(TextField));
     expect(editField.controller!.text, firstEdit);
   });
 
   testWidgets('P4 第三批：页面不空白，结果区含编辑按钮和占位按钮', (WidgetTester tester) async {
-    await tester.pumpWidget(const MaterialApp(home: ComfortLyricsScreen()));
-    await tester.pumpAndSettle();
+    await generateLyrics(tester);
 
-    await tester.enterText(find.byType(TextField), '最近工作压力很大');
-    await tester.pump();
-    await tester.tap(find.text('生成解惑与歌词草稿'));
-    await tester.pump(const Duration(milliseconds: 500));
-    await tester.pumpAndSettle();
-
-    // 完整结构：来源标记 + 给现在的你 + 写成歌的话 + 编辑歌词 + 后续生成参数 + 后续提示 + 生成这首歌 + 再写一首
     expect(find.textContaining('本地模板'), findsOneWidget);
     expect(find.text('给现在的你'), findsOneWidget);
     expect(find.text('写成歌的话'), findsOneWidget);
@@ -605,25 +500,24 @@ void main() {
   // 覆盖 P6 成本保护的主要入口（「生成这首歌（实验）」按钮 + 额度提示）。
   // 通过预置全局 [generationQuotaService] 后触发歌词生成 fallback（_result != null），
   // 使结果区 [_buildGenerateSongButton] 渲染，验证额度提示文案与按钮禁用态。
-  //
-  // 未覆盖（需 mock /api/generate-music 成功响应 + 触发 just_audio AudioPlayer，
-  // widget test 环境 AudioPlayer 会 MissingPluginException，留待后续集成测试）：
-  // - 额度用完时「重新生成」按钮禁用
-  // - 「重新播放」「编辑歌词」不受额度影响
   group('P6-quota-guard-1：额度 UI', () {
     tearDown(() {
-      // 恢复全局默认（null），避免污染同文件其他测试
       generationQuotaService = null;
     });
 
     /// 触发歌词生成（测试环境 http 快速 fallback 填充 _result），
     /// 使结果区的「生成这首歌（实验）」按钮与额度提示渲染出来。
-    Future<void> generateLyrics(WidgetTester tester) async {
+    /// P4-conversation-song-flow-1：走「开始理解 → 跳过追问，直接生成」流程。
+    Future<void> generateLyricsWithQuota(WidgetTester tester) async {
       await tester.pumpWidget(const MaterialApp(home: ComfortLyricsScreen()));
       await tester.pumpAndSettle(); // 让 initState 的 _refreshQuotaState 完成
       await tester.enterText(find.byType(TextField), '最近工作压力很大');
       await tester.pump();
-      await tester.tap(find.text('生成解惑与歌词草稿'));
+      await tester.tap(find.text('开始理解'));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('跳过追问，直接生成'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('跳过追问，直接生成'));
       await tester.pump(const Duration(milliseconds: 500));
       await tester.pumpAndSettle();
     }
@@ -639,19 +533,17 @@ void main() {
     }
 
     testWidgets('额度可用时显示「今日还可生成 1 首」且生成按钮可用', (tester) async {
-      // 预置额度可用：空存储 → count=0 → remaining=1
       generationQuotaService = await LocalGenerationQuotaService.create(
         _FakePreferencesPort(),
       );
 
-      await generateLyrics(tester);
+      await generateLyricsWithQuota(tester);
 
       expect(find.text('今日还可生成 1 首'), findsOneWidget);
       expect(findGenerateSongButton(tester).onPressed, isNotNull);
     });
 
     testWidgets('额度用完时显示「今日体验次数已用完」且生成按钮禁用', (tester) async {
-      // 预置额度用完：今日 count=1 → remaining=0
       final fake = _FakePreferencesPort();
       final today = DateTime.now().toIso8601String().substring(0, 10);
       await fake.setString(
@@ -660,15 +552,14 @@ void main() {
       );
       generationQuotaService = await LocalGenerationQuotaService.create(fake);
 
-      await generateLyrics(tester);
+      await generateLyricsWithQuota(tester);
 
       expect(find.text('今日体验次数已用完'), findsOneWidget);
       expect(findGenerateSongButton(tester).onPressed, isNull);
     });
 
     testWidgets('额度服务未装配时 permissive 降级：不显示额度提示且按钮可用', (tester) async {
-      // generationQuotaService 保持 null（默认），模拟存储全不可用的降级场景
-      await generateLyrics(tester);
+      await generateLyricsWithQuota(tester);
 
       expect(find.textContaining('今日还可生成'), findsNothing);
       expect(find.text('今日体验次数已用完'), findsNothing);

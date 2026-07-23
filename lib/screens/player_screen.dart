@@ -8,6 +8,7 @@ import 'package:xinxian_healing_music/theme/app_colors.dart';
 import 'package:xinxian_healing_music/utils/audio_asset_uri.dart';
 import 'package:xinxian_healing_music/utils/recommendation_reason.dart';
 import 'package:xinxian_healing_music/widgets/centered_page.dart';
+import 'package:xinxian_healing_music/widgets/sleep_timer_button.dart';
 
 /// 播放页：使用 just_audio 播放本地音频，浅色疗愈风。
 ///
@@ -279,6 +280,12 @@ class _PlayerScreenState extends State<PlayerScreen>
 
           // 进度条 + 时长（柔和蓝绿）
           _ProgressSection(player: _player, fmt: _fmt, enabled: !_error),
+
+          // P4-conversation-song-flow-1：定时关闭（轻量，不挤压播放按钮）
+          if (!_error) ...[
+            const SizedBox(height: 12),
+            Center(child: SleepTimerButton(player: _player)),
+          ],
 
           const SizedBox(height: 28),
 

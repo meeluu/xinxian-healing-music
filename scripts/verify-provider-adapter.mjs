@@ -930,7 +930,7 @@ await test('health buildDiagnostics 返回 musicProvider / realCallsEnabled / bu
   assert.strictEqual(d.realCallsEnabled, true);
   assert.strictEqual(typeof d.buildLabel, 'string');
   assert.ok(d.buildLabel.length > 0, 'buildLabel 不应为空');
-  assert.ok(d.buildLabel.indexOf('P6-') === 0, 'buildLabel 应以 P6- 开头');
+  assert.ok(d.buildLabel.indexOf('P4-') === 0, 'buildLabel 应以 P4- 开头');
 
   // 默认值
   const dEmpty = buildDiagnostics({});
@@ -1431,11 +1431,11 @@ await test('health buildDiagnostics 返回 hasR2Bucket 字段（不泄露 bucket
   assert.strictEqual(JSON.stringify(d3).indexOf('xinxian-generated-music'), -1, '诊断 JSON 不应包含 bucket 名');
 });
 
-// 测试 63: buildLabel 已更新为 P6-quota-guard-1
-// P6-quota-guard-1：本地额度保护与成本安全（浏览器每日生成次数限制，realCallsEnabled 保持 false）
-await test('buildLabel 已更新为 P6-quota-guard-1', () => {
+// 测试 63: buildLabel 已更新为 P4-conversation-song-flow-1
+// P4-conversation-song-flow-1：多轮困惑理解 + 更贴合困境的歌词 + 纯音乐本地舒缓 + 定时关闭（realCallsEnabled 保持 false）
+await test('buildLabel 已更新为 P4-conversation-song-flow-1', () => {
   var d = buildDiagnostics({});
-  assert.strictEqual(d.buildLabel, 'P6-quota-guard-1');
+  assert.strictEqual(d.buildLabel, 'P4-conversation-song-flow-1');
 });
 
 // ─── P4 临时音频播放闭环（P4-temp-audio-playback-1）新增测试 ──

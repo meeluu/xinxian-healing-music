@@ -32,6 +32,12 @@ class ComfortLyricsService {
   /// - [sessionId]：会话 ID（可选，后端会兜底空串）
   /// - [targetStyle]：期望曲风（gentle_pop / ambient_ballad / acoustic_warm / soft_piano）
   /// - [language]：语言（默认 zh-CN）
+  /// - [followUpAnswers]：多轮追问的回答（P4-conversation-song-flow-1 新增，可选）
+  /// - [desiredFeeling]：希望这首歌带来的感觉（安慰/释怀/力量，可选）
+  /// - [comfortDirection]：此刻更想被理解还是平静下来（可选）
+  ///
+  /// 多轮上下文仅传给后端 LLM 路径用于歌词增强；本地 fallback 不依赖这些字段，
+  /// 保证网络不可达时仍有兜底文案。
   ///
   /// 任何异常都返回本地 fallback，绝不抛异常。
   Future<ComfortLyricsResult> generate({
@@ -39,6 +45,9 @@ class ComfortLyricsService {
     String sessionId = '',
     String targetStyle = 'gentle_pop',
     String language = 'zh-CN',
+    List<String> followUpAnswers = const [],
+    String desiredFeeling = '',
+    String comfortDirection = '',
   }) async {
     final http.Response resp;
     try {
@@ -51,6 +60,9 @@ class ComfortLyricsService {
               'sessionId': sessionId,
               'targetStyle': targetStyle,
               'language': language,
+              'followUpAnswers': followUpAnswers,
+              'desiredFeeling': desiredFeeling,
+              'comfortDirection': comfortDirection,
             }),
           )
           .timeout(const Duration(seconds: 20));

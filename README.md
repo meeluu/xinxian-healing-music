@@ -5,7 +5,7 @@
 心弦是一款基于 Flutter Web 的情绪陪伴 Demo。用户输入当下心境后，系统通过 LLM 生成情绪画像与音乐参数，并播放匹配的本地音频素材，形成「自然语言 → AI 情绪解析 → 音乐方案 → 音频体验 → 用户反馈」的完整闭环。
 
 - **正式体验地址**：[https://xinxian-music.xyz](https://xinxian-music.xyz)
-- **当前版本**：`v1.0.0 · P4-song-result-experience-1 · Cloudflare Pages`
+- **当前版本**：`v1.0.0 · P4-conversation-song-flow-1 · Cloudflare Pages`
 - **定位**：辅助情绪调节、睡前舒缓、正念陪伴、温和充能的轻量化工具，**不提供医疗诊断或治疗**，不替代专业心理咨询与医疗建议（详见[第十二章 免责声明](#十二免责声明)）
 
 ---
@@ -32,6 +32,7 @@
 6.16. [P4 生成音频落地播放链路](#六点十六p4-生成音频落地播放链路)
 6.17. [P4 临时音频播放闭环](#六点十七p4-临时音频播放闭环)
 6.18. [P6-quota-guard-1：本地额度保护 + 文档整理](#六点十八p6-quota-guard-1本地额度保护--文档整理)
+6.19. [P4-conversation-song-flow-1：多轮困惑理解 + 歌词增强 + 纯音乐本地舒缓 + 定时关闭](#六点十九p4-conversation-song-flow-1多轮困惑理解--歌词增强--纯音乐本地舒缓--定时关闭)
 7. [数据与隐私](#七数据与隐私)
 8. [环境变量与部署](#八环境变量与部署)
 9. [本地开发与验证](#九本地开发与验证)
@@ -82,11 +83,11 @@
 
 ### 2.1 当前阶段
 
-- **阶段**：`P6-Quota-v1.0 / P6-quota-guard-1（本地额度保护与成本安全首批；P4 歌曲生成链路已打通并上线，默认 REAL_CALLS=false）`
-- **版本号**：`v1.0.0 · P6-quota-guard-1 · Cloudflare Pages`（首页底部显示 `心弦 v1.0.0 · P6-quota-guard-1 · Cloudflare Pages`）
+- **阶段**：`P4-AI-Music-v1.0 / P4-conversation-song-flow-1（多轮困惑理解 + 更贴合困境的歌词 + 纯音乐本地舒缓 + 定时关闭；P4 歌曲生成链路已打通并上线，默认 REAL_CALLS=false）`
+- **版本号**：`v1.0.0 · P4-conversation-song-flow-1 · Cloudflare Pages`（首页底部显示 `心弦 v1.0.0 · P4-conversation-song-flow-1 · Cloudflare Pages`）
 - **构建日期**：2026-07-23
 - **部署目标**：Cloudflare Pages
-- **上一阶段**：P4-AI-Music-v1.0 已完成（`P4-song-result-experience-1`，2026-07-23 上线验收通过）；P3-Web-v1.0 已完成（`P3-data-3`）；P2-Web-v1.0 已完成（`P2-stable`）
+- **上一阶段**：P6-quota-guard-1 已完成（本地额度保护与文档整理，2026-07-23）；P4-song-result-experience-1 已上线（2026-07-23）；P3-Web-v1.0 已完成（`P3-data-3`）；P2-Web-v1.0 已完成（`P2-stable`）
 
 ### 2.2 当前部署架构
 
@@ -2660,6 +2661,8 @@ P4-song-result-experience-1 已部署上线并验收通过（`buildLabel=P4-song
 - `wrangler.toml` 中 `MUSIC_GENERATION_REAL_CALLS_ENABLED` 保持 `"false"`。
 - 不打开真实调用，不移除 `manualTest=true` 保护，不新增任何自动调用 MiniMax 的逻辑，不做后台轮询，不做付费，不做用户系统，不做 R2，不做 4090 部署。
 
+> **本地额度的定位（重要）**：P6 的浏览器本地额度只是**早期内测 / 误点保护**，**不是商业级防刷**——用户清除站点数据、更换浏览器、更换设备后即可绕过重置，不适合作为正式付费系统的唯一额度依据。后续商业化需要：云端用户系统 + 服务端额度校验 + 订单 / 支付记录 + 失败不扣次数 + 风控与异常请求限制。在云端额度核销上线前，真正的成本控制仍依赖 `MUSIC_GENERATION_REAL_CALLS_ENABLED=false` 这道后端总开关。
+
 #### 6.18.5 新增 / 修改文件清单
 
 新增：
@@ -2707,6 +2710,109 @@ P4-song-result-experience-1 已部署上线并验收通过（`buildLabel=P4-song
 #### 6.18.8 验证
 
 `flutter analyze` / `flutter test`（含新 service 单元测试）/ `flutter build web --release` / `node scripts/verify-provider-adapter.mjs`（含 `buildLabel=P6-quota-guard-1` 断言）。本批不部署上线。
+
+---
+
+### 6.19 P4-conversation-song-flow-1：多轮困惑理解 + 歌词增强 + 纯音乐本地舒缓 + 定时关闭（2026-07-23）
+
+#### 6.19.1 定位
+
+优化核心产品体验：不要只让用户输入一次，而是通过多轮温和对话更详细理解用户心情和处境，再生成更贴合困境的歌词。AI 歌曲生成后，用户可以选择是否进入「快速舒缓一下」的本地纯音乐播放。纯音乐以后不走 AI 音乐生成，只调用本地已有音乐。播放页新增定时关闭。
+
+#### 6.19.2 多轮困惑理解
+
+「把困惑写成一首歌」流程改为多轮理解：
+
+- **input 阶段**：用户输入困惑 + 选择期望曲风 → 点击「开始理解」（原「生成解惑与歌词草稿」）
+- **followUp 阶段**：2-3 轮温和追问（不立即调用 LLM）
+  - Q1：`这件事里，最让你放不下的是哪一部分？`（开放式）
+  - Q2：`如果这首歌只陪你说一句话，你希望它更像安慰、释怀，还是给你一点力量？`（带快速选项）
+  - Q3：`你现在更想被理解，还是更想慢慢平静下来？`（带快速选项）
+  - 每轮问题短、自然、低压力，不像心理测评问卷，不医疗化，不诊断
+  - 用户可随时「跳过追问，直接生成」
+- **done 阶段**：收集完多轮上下文后调用 LLM 生成
+
+多轮数据结构（只存页面 state，不做长期保存）：
+
+- `initialConcern`：原始困惑
+- `followUpAnswers`：Q1 追问回答列表
+- `desiredFeeling`：Q2 期望感觉（安慰/释怀/力量）
+- `comfortDirection`：Q3 陪伴方向（被理解/平静下来）
+
+**本批不做长期保存**：多轮数据只存在 ComfortLyricsScreen 的 state 中，页面销毁即丢失，不写入本地存储/云端。
+
+#### 6.19.3 「给现在的你」部分
+
+保持原结构，使用多轮对话上下文，但不大改。保持温和、具体、克制，不改成鸡汤或说教，不使用「治疗 / 治愈 / 诊断 / 疗法」等表达。
+
+#### 6.19.4 「写成歌的话」歌词增强
+
+歌词基于多轮上下文增强，更贴合用户困境：
+
+- 歌词必须吸收用户多轮回答中的具体细节
+- 不泛泛写「别难过，会过去」
+- 把用户提到的具体场景/物件/关系转化为歌词意象（如「没发出去的消息」「没关的屏幕」）
+- 隐私保护：不过度复述敏感细节，用意象化处理代替直白复述
+- 歌词结构建议：
+  - 第一段（主歌）：承接用户具体困境，用具象画面开场
+  - 第二段（主歌或桥段）：温和转念，不否定痛苦
+  - 副歌：给一句能记住的陪伴话（hook），可重复 1-2 句
+  - 结尾（尾声）：回到平静或继续生活，不强行升华
+- 歌词仍允许用户编辑和保存，后续 MiniMax 生成歌曲时使用编辑后的歌词
+
+实现：`ComfortLyricsService.generate()` 新增 `followUpAnswers` / `desiredFeeling` / `comfortDirection` 参数；`functions/api/comfort-lyrics.js` 的 `validateInput` 新增多轮字段校验，`callLlm` 融入多轮上下文到 userContent，`SYSTEM_PROMPT` 增补歌词结构与意象化要求。
+
+#### 6.19.5 纯音乐「快速舒缓一下」调整
+
+- **纯音乐以后不走 AI 音乐生成**：「快速舒缓一下」只调用本地已有音乐 assets（`AudioAssetCatalog`），不走 `/api/generate-music`，不调用 MiniMax，不产生音乐生成费用
+- **删除纯音乐 AI 生成入口**：`plan_screen.dart` 的「生成专属音乐（实验）」按钮已删除，`music_generation_screen.dart` 及其测试文件已删除
+- **不删除 provider adapter**：「把困惑写成一首歌」的 MiniMax 歌曲生成功能保留，provider adapter 仍需要
+- **AI 生成只用于「把困惑写成一首歌」**，「快速舒缓一下」使用本地纯音乐库
+- **可扩展**：后续增加本地纯音乐只需在 `AudioAssetCatalog.assets` 列表添加新条目
+
+#### 6.19.6 AI 歌曲后引导纯音乐
+
+用户听完 AI 生成歌曲后，结果区末尾展示温和 CTA：
+
+- 文案：`还想再安静一会儿吗？`
+- 说明：`可以听一段不带歌词的纯音乐，让情绪慢慢落下来。`
+- 按钮：`快速舒缓一下`
+- 点击后跳转 `AnalysisScreen`，带默认心境文本（根据 `desiredFeeling` / `comfortDirection` 拼接），走现有「快速舒缓一下」本地纯音乐流程
+- 不触发 MiniMax，不扣额度（额度只约束 AI 歌曲生成）
+
+#### 6.19.7 播放页定时关闭
+
+新增 `SleepTimerButton` 共享组件（`lib/widgets/sleep_timer_button.dart`），接入 `PlayerScreen` 和 ComfortLyricsScreen 的 AI 生成歌曲播放区：
+
+- 定时选项：关闭、5 分钟、10 分钟、15 分钟、30 分钟、播放完当前音频
+- 到时间后自动暂停播放
+- UI 轻量（PopupMenuButton + 小图标），不挤压播放按钮
+- 定时状态显示：`定时关闭：10 分钟` / `本曲结束后关闭` / `定时关闭`
+- 用户可随时取消定时关闭（选「关闭」）
+- 定时只控制播放，不影响生成；不新增后台任务；页面销毁时清理 timer
+
+#### 6.19.8 额度与成本安全
+
+- 保留 P6-quota-guard-1 的本地额度保护（`LocalGenerationQuotaService`）
+- 额度只限制 AI 歌曲生成，不限制本地纯音乐
+- 重新播放 AI 歌曲不计数
+- 快速舒缓本地音乐不计数
+- `wrangler.toml` 中 `MUSIC_GENERATION_REAL_CALLS_ENABLED` 保持 `"false"`
+- 不打开真实调用，不部署真实试听，不移除 `manualTest=true` 保护
+
+#### 6.19.9 本批不做
+
+- R2 持久化存储
+- 历史歌曲列表
+- 分享链接
+- 付费系统
+- 用户系统
+- 4090 部署
+- 真实 MiniMax 测试
+
+#### 6.19.10 验证
+
+`flutter analyze` / `flutter test`（含多轮对话流程测试）/ `flutter build web --release` / `node scripts/verify-provider-adapter.mjs`（含 `buildLabel=P4-conversation-song-flow-1` 断言）。realCallsEnabled 保持 false / manualTest 保护保留 / 不部署上线。
 
 ---
 
@@ -3062,6 +3168,7 @@ Web 与 Android 的构建链路相互独立：Android 的 Gradle 配置不参与
 | 日期 | 版本 | 阶段 | 摘要 |
 |---|---|---|---|
 | 2026-07-23 | v1.0.0 / P6-quota-guard-1 | P6 首批 | 本地额度保护与成本安全 + 文档整理：新增 `LocalGenerationQuotaService`（每日 1 次成功生成上限 / 同步方法 / 时钟注入 / JSON 持久化 / 损坏容错）+ service 单元测试（9 项）；`services.dart` 注册 nullable 全局变量 + `main.dart` 第 9 步装配（独立 try/catch + 自检）；`comfort_lyrics_screen.dart` 额度 UI 集成（`_quotaRemaining` 字段 / initState / `_refreshQuotaState` / 两个 guard / `_buildGenerateSongButton` Column 重写 / `_buildQuotaHint` / 成功分支计数 / `_buildSongActionButtons` 重新生成禁用）；版本号同步 `app_version.dart`(`milestone=P6-Quota-v1.0` / `buildLabel=P6-quota-guard-1`) + `health.js` + `verify-provider-adapter.mjs`(测试 45/63)；新增 `docs/ROADMAP.md`；README 定向更新（2.1 / 2.3 / 6.18 / 十 / 十一 / 十三 / 目录）；`docs/mureka-api-integration-plan.md` 历史标注。realCallsEnabled 保持 false / manualTest 保护保留 / 不部署上线 / 不做 R2/付费/用户系统/4090 / 不使用医疗化表达 |
+| 2026-07-23 | v1.0.0 / P4-conversation-song-flow-1 | P4 多轮流程 | 多轮困惑理解 + 歌词增强 + 纯音乐本地舒缓 + 定时关闭：`comfort_lyrics_screen.dart` 改为 input→followUp→done 三阶段多轮对话流程（3 轮温和追问 + 跳过 + state 字段 `initialConcern`/`followUpAnswers`/`desiredFeeling`/`comfortDirection`，只存页面 state 不做长期保存）；`comfort_lyrics_service.dart` + `functions/api/comfort-lyrics.js` 多轮上下文校验 + LLM prompt 增强（歌词吸收具体细节 + 结构化要求 + 意象化隐私保护）；`plan_screen.dart` 删除「生成专属音乐（实验）」入口 + 删除 `music_generation_screen.dart` 及测试；新增「快速舒缓一下」CTA（跳转 AnalysisScreen 走本地纯音乐，不触发 MiniMax 不扣额度）；新增 `lib/widgets/sleep_timer_button.dart` 共享定时关闭组件（关闭/5/10/15/30 分钟/播放完当前音频）接入 PlayerScreen + ComfortLyricsScreen AI 歌曲播放区；版本号同步 `app_version.dart`(`milestone=P4-AI-Music-v1.0` / `buildLabel=P4-conversation-song-flow-1`) + `health.js` + `verify-provider-adapter.mjs`；测试文件全面更新适配多轮流程 + 新增 4 个多轮对话测试。realCallsEnabled 保持 false / manualTest 保护保留 / P6 额度保护保留 / 不部署上线 / 不做 R2/历史歌曲/分享/付费/用户系统/4090/真实 MiniMax 测试 / 不使用医疗化表达 |
 
 ### 13.7 项目结构
 

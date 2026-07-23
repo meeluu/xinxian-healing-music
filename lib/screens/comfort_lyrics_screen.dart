@@ -7,8 +7,10 @@ import 'package:just_audio/just_audio.dart';
 import 'package:xinxian_healing_music/models/comfort_lyrics_result.dart';
 import 'package:xinxian_healing_music/pipeline/llm/comfort_lyrics_service.dart';
 import 'package:xinxian_healing_music/pipeline/services.dart';
+import 'package:xinxian_healing_music/screens/analysis_screen.dart';
 import 'package:xinxian_healing_music/theme/app_colors.dart';
 import 'package:xinxian_healing_music/widgets/centered_page.dart';
+import 'package:xinxian_healing_music/widgets/sleep_timer_button.dart';
 
 /// 「把困惑写成一首歌」页面（P4 新方向第一/二/三批 + P4 生成音频落地播放 + P4 临时音频播放闭环）。
 ///
@@ -124,6 +126,39 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
   // 计数规则：只有 /api/generate-music 返回成功且拿到可播放音频时才计数（_callGenerateMusicApi 成功分支）。
   int? _quotaRemaining;
 
+  // ─── P4-conversation-song-flow-1：多轮困惑理解状态 ───
+  //
+  // 流程：input（输入困惑+选曲风）→ followUp（2-3 轮温和追问）→ done（生成结果）
+  // 多轮数据只存在页面 state，不做长期保存（_reset 清空，不写入本地存储/云端）。
+  //
+  // 状态字段对应后端 /api/comfort-lyrics 的多轮上下文：
+  // - _initialConcern：原始困惑（input 阶段填入）
+  // - _followUpAnswers：Q1 追问回答列表
+  // - _desiredFeeling：Q2 期望感觉（安慰/释怀/力量）
+  // - _comfortDirection：Q3 陪伴方向（被理解/平静下来）
+  _ConversationPhase _phase = _ConversationPhase.input;
+
+  /// 当前追问轮次 0..2。
+  int _followUpIndex = 0;
+
+  /// 追问输入控制器。
+  final TextEditingController _followUpController = TextEditingController();
+
+  /// 追问输入焦点。
+  final FocusNode _followUpFocus = FocusNode();
+
+  /// 原始困惑（input 阶段填入，done 阶段作为 storyText 传给 service）。
+  String _initialConcern = '';
+
+  /// Q1 追问回答列表（每轮一个条目）。
+  List<String> _followUpAnswers = [];
+
+  /// Q2 期望感觉。
+  String _desiredFeeling = '';
+
+  /// Q3 陪伴方向。
+  String _comfortDirection = '';
+
   /// 4 种曲风选项。
   static const List<_StyleOption> _styleOptions = [
     _StyleOption(
@@ -148,6 +183,29 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
     ),
   ];
 
+  /// P4-conversation-song-flow-1：3 轮温和追问问题。
+  ///
+  /// 文案短、自然、低压力，不像心理测评问卷。
+  /// Q1 开放式；Q2/Q3 带快速选项（也可自由输入）。
+  /// 用户可随时「跳过追问，直接生成」。
+  static const List<_FollowUpQuestion> _followUpQuestions = [
+    _FollowUpQuestion(
+      prompt: '这件事里，最让你放不下的是哪一部分？',
+      hint: '可以简单写几个字，也可以不写',
+      options: [],
+    ),
+    _FollowUpQuestion(
+      prompt: '如果这首歌只陪你说一句话，你希望它更像安慰、释怀，还是给你一点力量？',
+      hint: '可以直接选一个，也可以自己写',
+      options: ['安慰', '释怀', '给我一点力量'],
+    ),
+    _FollowUpQuestion(
+      prompt: '你现在更想被理解，还是更想慢慢平静下来？',
+      hint: '可以直接选一个，也可以自己写',
+      options: ['想被理解', '想慢慢平静下来'],
+    ),
+  ];
+
   bool get _hasStory => _storyController.text.trim().isNotEmpty;
 
   @override
@@ -164,6 +222,9 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
     _storyFocus.dispose();
     _editingController.dispose();
     _editingFocus.dispose();
+    // P4-conversation-song-flow-1：释放追问控制器
+    _followUpController.dispose();
+    _followUpFocus.dispose();
     // P4-generated-audio-playback-1：释放 AI 生成歌曲播放器
     _generatedPlayerStateSub?.cancel();
     _generatedAudioPlayer?.dispose();
@@ -194,13 +255,15 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
 
   /// 触发生成：调用 [ComfortLyricsService]。
   ///
+  /// P4-conversation-song-flow-1：storyText 改为 [_initialConcern]（input 阶段填入），
+  /// 并传入多轮对话上下文（followUpAnswers / desiredFeeling / comfortDirection），
+  /// 让后端 LLM 生成更贴合用户困境的歌词。
+  ///
   /// 任何异常都被 Service 兜底为 fallback，前端不会再 catch 到异常。
   /// 这里仍用 try/catch + _errorHint 作为最后保险，避免任何边界情况导致页面卡死。
   Future<void> _generate() async {
-    final story = _storyController.text.trim();
-    // 编辑态时不允许重复生成，避免覆盖用户正在编辑的歌词
-    if (story.isEmpty || _loading || _isEditing) return;
-    FocusScope.of(context).unfocus();
+    final story = _initialConcern;
+    if (story.isEmpty || _loading) return;
 
     setState(() {
       _loading = true;
@@ -216,6 +279,9 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
       final result = await _service.generate(
         storyText: story,
         targetStyle: _targetStyle,
+        followUpAnswers: _followUpAnswers,
+        desiredFeeling: _desiredFeeling,
+        comfortDirection: _comfortDirection,
       );
       if (!mounted) return;
       setState(() {
@@ -230,6 +296,81 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
         _errorHint = '生成失败，请稍后再试';
       });
     }
+  }
+
+  /// P4-conversation-song-flow-1：从 input 阶段进入 followUp 阶段。
+  ///
+  /// 记录原始困惑为 [_initialConcern]，重置多轮状态，进入第 0 个追问。
+  /// 不立即调用 LLM（先收集 2-3 轮追问上下文）。
+  void _startFollowUp() {
+    final story = _storyController.text.trim();
+    if (story.isEmpty || _loading) return;
+    FocusScope.of(context).unfocus();
+    setState(() {
+      _initialConcern = story;
+      _phase = _ConversationPhase.followUp;
+      _followUpIndex = 0;
+      _followUpAnswers = [];
+      _desiredFeeling = '';
+      _comfortDirection = '';
+      _followUpController.clear();
+      _errorHint = null;
+      _result = null;
+      _isEditing = false;
+      _editedLyric = null;
+      _songPromptExpanded = false;
+    });
+    // 自动聚焦到追问输入框
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _followUpFocus.requestFocus();
+    });
+  }
+
+  /// P4-conversation-song-flow-1：记录当前追问回答并推进到下一轮或生成。
+  ///
+  /// - index 0 → 计入 [_followUpAnswers]
+  /// - index 1 → 计入 [_desiredFeeling]
+  /// - index 2 → 计入 [_comfortDirection]
+  /// - 最后一轮记录后进入 done 阶段并调用 [_generate]
+  /// - 非最后一轮推进 [_followUpIndex] 并聚焦下一题输入框
+  void _recordAnswerAndAdvance(String answer) {
+    FocusScope.of(context).unfocus();
+    final lastIndex = _followUpQuestions.length - 1;
+    setState(() {
+      if (_followUpIndex == 0) {
+        _followUpAnswers = [..._followUpAnswers, answer];
+      } else if (_followUpIndex == 1) {
+        _desiredFeeling = answer;
+      } else if (_followUpIndex == 2) {
+        _comfortDirection = answer;
+      }
+      _followUpController.clear();
+      if (_followUpIndex < lastIndex) {
+        _followUpIndex += 1;
+      } else {
+        _phase = _ConversationPhase.done;
+      }
+    });
+    if (_phase == _ConversationPhase.done) {
+      _generate();
+    } else {
+      // 聚焦下一题输入框
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _followUpFocus.requestFocus();
+      });
+    }
+  }
+
+  /// P4-conversation-song-flow-1：跳过追问，直接进入 done 阶段生成。
+  ///
+  /// 已收集的回答保留，未回答的字段保持空串。低压力出口，始终可用。
+  void _skipAndGenerate() {
+    FocusScope.of(context).unfocus();
+    setState(() {
+      _phase = _ConversationPhase.done;
+      _followUpController.clear();
+    });
+    _generate();
   }
 
   /// 重置：清空输入和结果，回到初始态。
@@ -253,6 +394,14 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
       _storageWarning = null;
       _musicErrorHint = null;
       _isPlayingGenerated = false;
+      // P4-conversation-song-flow-1：清空多轮对话状态，回到 input 阶段
+      _phase = _ConversationPhase.input;
+      _followUpIndex = 0;
+      _initialConcern = '';
+      _followUpAnswers = [];
+      _desiredFeeling = '';
+      _comfortDirection = '';
+      _followUpController.clear();
     });
     // 停止并释放上一首生成歌曲的播放器（异步清理，不阻塞 UI）
     _generatedPlayerStateSub?.cancel();
@@ -273,79 +422,71 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // 顶部说明
-          const Text(
-            '把你最近遇到的一件事、一个困惑，或者一段心情写下来。\n心弦会陪你把它重新看一遍，并写成一首属于你的歌。',
-            style: TextStyle(
-              fontSize: 13,
-              color: AppColors.textSecondary,
-              height: 1.7,
-            ),
-          ),
-          const SizedBox(height: 20),
-
-          // 输入区
-          // P4 前端结构调整第一批：标题从「写下你的困惑」改为「先说说卡住你的事」，
-          // 更温和、更像产品体验，不像技术说明。
-          const Text(
-            '先说说卡住你的事',
-            style: TextStyle(
-              fontSize: 15,
-              fontWeight: FontWeight.w600,
-              color: AppColors.textPrimary,
-            ),
-          ),
-          const SizedBox(height: 10),
-          _StoryInputField(
-            controller: _storyController,
-            focusNode: _storyFocus,
-          ),
-
-          const SizedBox(height: 18),
-
-          // 曲风选择
-          const Text(
-            '期望曲风',
-            style: TextStyle(
-              fontSize: 15,
-              fontWeight: FontWeight.w600,
-              color: AppColors.textPrimary,
-            ),
-          ),
-          const SizedBox(height: 10),
-          _buildStyleSelector(),
-
-          const SizedBox(height: 24),
-
-          // 生成按钮（P4 第三批：编辑态时禁用，避免覆盖正在编辑的歌词）
-          FilledButton.icon(
-            onPressed: (_hasStory && !_loading && !_isEditing)
-                ? _generate
-                : null,
-            icon: _loading
-                ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2.5,
-                      color: Colors.white,
-                    ),
-                  )
-                : const Icon(Icons.auto_awesome_rounded, size: 20),
-            label: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 4),
-              child: Text(
-                _loading ? '正在生成…' : '生成解惑与歌词草稿',
-                style: const TextStyle(fontSize: 16, letterSpacing: 1),
+          // 顶部说明（followUp 阶段隐藏，避免与追问卡片视觉冲突）
+          if (_phase != _ConversationPhase.followUp) ...[
+            const Text(
+              '把你最近遇到的一件事、一个困惑，或者一段心情写下来。\n心弦会陪你把它重新看一遍，并写成一首属于你的歌。',
+              style: TextStyle(
+                fontSize: 13,
+                color: AppColors.textSecondary,
+                height: 1.7,
               ),
             ),
-            style: FilledButton.styleFrom(
-              minimumSize: const Size.fromHeight(52),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
+            const SizedBox(height: 20),
+          ],
+
+          // ── input 阶段：故事输入 + 曲风 + 开始理解 ──
+          if (_phase == _ConversationPhase.input) ...[
+            // P4 前端结构调整第一批：标题从「写下你的困惑」改为「先说说卡住你的事」
+            const Text(
+              '先说说卡住你的事',
+              style: TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w600,
+                color: AppColors.textPrimary,
               ),
             ),
-          ),
+            const SizedBox(height: 10),
+            _StoryInputField(
+              controller: _storyController,
+              focusNode: _storyFocus,
+            ),
+            const SizedBox(height: 18),
+            // 曲风选择
+            const Text(
+              '期望曲风',
+              style: TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w600,
+                color: AppColors.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 10),
+            _buildStyleSelector(),
+            const SizedBox(height: 24),
+            // P4-conversation-song-flow-1：生成按钮文案改为「开始理解」，
+            // 点击后进入多轮追问，不立即调用 LLM。
+            FilledButton.icon(
+              onPressed: (_hasStory && !_loading) ? _startFollowUp : null,
+              icon: const Icon(Icons.auto_awesome_rounded, size: 20),
+              label: const Padding(
+                padding: EdgeInsets.symmetric(vertical: 4),
+                child: Text(
+                  '开始理解',
+                  style: TextStyle(fontSize: 16, letterSpacing: 1),
+                ),
+              ),
+              style: FilledButton.styleFrom(
+                minimumSize: const Size.fromHeight(52),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+              ),
+            ),
+          ],
+
+          // ── followUp 阶段：多轮追问卡片 ──
+          if (_phase == _ConversationPhase.followUp) ...[_buildFollowUpCard()],
 
           // 错误态
           if (_errorHint != null) ...[
@@ -353,13 +494,270 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
             _buildErrorHint(),
           ],
 
-          // 结果区
-          if (_result != null) ...[
-            const SizedBox(height: 28),
-            _buildResult(_result!),
+          // ── done 阶段：加载中 / 结果区 ──
+          if (_phase == _ConversationPhase.done) ...[
+            if (_loading)
+              _buildLoadingHint()
+            else if (_result != null) ...[
+              const SizedBox(height: 28),
+              _buildResult(_result!),
+            ],
           ],
         ],
       ),
+    );
+  }
+
+  /// P4-conversation-song-flow-1：done 阶段加载提示。
+  ///
+  /// 多轮追问收集完成后，调用 LLM 生成解惑 + 歌词期间显示。
+  /// 文案温和、不医疗化，告诉用户正在基于完整上下文生成。
+  Widget _buildLoadingHint() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 40),
+      child: Column(
+        children: const [
+          SizedBox(
+            width: 28,
+            height: 28,
+            child: CircularProgressIndicator(
+              strokeWidth: 2.5,
+              color: AppColors.lavender,
+            ),
+          ),
+          SizedBox(height: 16),
+          Text(
+            '正在陪你把这件事重新看一遍…',
+            style: TextStyle(
+              fontSize: 14,
+              color: AppColors.textSecondary,
+              letterSpacing: 0.5,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// P4-conversation-song-flow-1：多轮追问卡片。
+  ///
+  /// 结构：
+  /// - 原始困惑回显（compact，让用户感到"被听见"）
+  /// - 进度提示（第 N/3 个问题，可跳过）
+  /// - 问题卡片：问题文案 + 输入框 + 快速选项（Q2/Q3）+ 跳过/继续按钮
+  ///
+  /// 文案短、自然、低压力，不像心理测评问卷。用户可随时跳过直接生成。
+  Widget _buildFollowUpCard() {
+    final q = _followUpQuestions[_followUpIndex];
+    final isLast = _followUpIndex == _followUpQuestions.length - 1;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // 原始困惑回显
+        Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: AppColors.bgBlue,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: AppColors.cardBorder),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: const [
+                  Icon(
+                    Icons.format_quote_rounded,
+                    size: 14,
+                    color: AppColors.textMuted,
+                  ),
+                  SizedBox(width: 6),
+                  Text(
+                    '你刚才说',
+                    style: TextStyle(fontSize: 11, color: AppColors.textMuted),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Text(
+                _initialConcern,
+                style: const TextStyle(
+                  fontSize: 13,
+                  color: AppColors.textSecondary,
+                  height: 1.6,
+                ),
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 18),
+        // 进度提示
+        Text(
+          '第 ${_followUpIndex + 1} / ${_followUpQuestions.length} 个问题 · 可以只写几个字，也可以跳过',
+          style: const TextStyle(
+            fontSize: 11,
+            color: AppColors.textMuted,
+            height: 1.5,
+          ),
+        ),
+        const SizedBox(height: 10),
+        // 问题卡片
+        Container(
+          padding: const EdgeInsets.all(18),
+          decoration: BoxDecoration(
+            color: AppColors.cardBg,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: AppColors.lavender.withValues(alpha: 0.4),
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: AppColors.cardShadow,
+                blurRadius: 12,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(
+                    Icons.hearing_rounded,
+                    size: 18,
+                    color: AppColors.lavender,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      q.prompt,
+                      style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.textPrimary,
+                        height: 1.5,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Text(
+                q.hint,
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: AppColors.textMuted,
+                  height: 1.5,
+                ),
+              ),
+              const SizedBox(height: 14),
+              // 追问输入框
+              TextField(
+                controller: _followUpController,
+                focusNode: _followUpFocus,
+                minLines: 2,
+                maxLines: 5,
+                style: const TextStyle(
+                  fontSize: 15,
+                  color: AppColors.textPrimary,
+                  height: 1.6,
+                ),
+                decoration: InputDecoration(
+                  hintText: '写几个字就好，也可以不写',
+                  hintStyle: const TextStyle(
+                    color: AppColors.textMuted,
+                    height: 1.6,
+                  ),
+                  filled: true,
+                  fillColor: AppColors.bgBlue,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: const BorderSide(color: AppColors.cardBorder),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: const BorderSide(color: AppColors.cardBorder),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: const BorderSide(
+                      color: AppColors.primary,
+                      width: 1.4,
+                    ),
+                  ),
+                  contentPadding: const EdgeInsets.all(14),
+                ),
+              ),
+              // 快速选项（Q2/Q3）
+              if (q.options.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    for (final opt in q.options)
+                      _FollowUpOptionChip(
+                        label: opt,
+                        onTap: () => _recordAnswerAndAdvance(opt),
+                      ),
+                  ],
+                ),
+              ],
+              const SizedBox(height: 16),
+              // 跳过 + 继续/生成
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: _skipAndGenerate,
+                      icon: const Icon(Icons.skip_next_rounded, size: 16),
+                      label: const Text(
+                        '跳过追问，直接生成',
+                        style: TextStyle(fontSize: 13),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        minimumSize: const Size.fromHeight(42),
+                        foregroundColor: AppColors.textSecondary,
+                        side: const BorderSide(color: AppColors.cardBorder),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: FilledButton.icon(
+                      onPressed: () => _recordAnswerAndAdvance(
+                        _followUpController.text.trim(),
+                      ),
+                      icon: const Icon(Icons.arrow_forward_rounded, size: 16),
+                      label: Text(
+                        isLast ? '生成歌词' : '继续',
+                        style: const TextStyle(fontSize: 13),
+                      ),
+                      style: FilledButton.styleFrom(
+                        minimumSize: const Size.fromHeight(42),
+                        backgroundColor: AppColors.lavender.withValues(
+                          alpha: 0.9,
+                        ),
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 
@@ -1350,8 +1748,89 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
 
           // 操作按钮
           _buildSongActionButtons(),
+
+          // P4-conversation-song-flow-1：AI 歌曲后引导纯音乐舒缓 CTA
+          _buildSootheCta(),
         ],
       ),
+    );
+  }
+
+  /// P4-conversation-song-flow-1：AI 歌曲后引导纯音乐 CTA。
+  ///
+  /// 文案温和，引导用户进入本地纯音乐舒缓（不触发 MiniMax，不扣额度）。
+  /// 点击后跳转 AnalysisScreen，带默认心境文本，走现有「快速舒缓一下」流程。
+  Widget _buildSootheCta() {
+    return Container(
+      margin: const EdgeInsets.only(top: 16),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.bgBlue,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.cardBorder),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: const [
+              Icon(Icons.spa_rounded, size: 16, color: AppColors.primary),
+              SizedBox(width: 8),
+              Text(
+                '还想再安静一会儿吗？',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.textPrimary,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            '可以听一段不带歌词的纯音乐，让情绪慢慢落下来。',
+            style: TextStyle(
+              fontSize: 12,
+              color: AppColors.textSecondary,
+              height: 1.6,
+            ),
+          ),
+          const SizedBox(height: 12),
+          OutlinedButton.icon(
+            onPressed: _goToSoothe,
+            icon: const Icon(Icons.music_note_rounded, size: 16),
+            label: const Text('快速舒缓一下', style: TextStyle(fontSize: 13)),
+            style: OutlinedButton.styleFrom(
+              minimumSize: const Size.fromHeight(42),
+              foregroundColor: AppColors.primary,
+              side: BorderSide(color: AppColors.primary.withValues(alpha: 0.5)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// P4-conversation-song-flow-1：跳转本地纯音乐舒缓流程。
+  ///
+  /// 根据用户多轮对话中选择的 desiredFeeling / comfortDirection 构造温和心境文本，
+  /// 跳转 AnalysisScreen 走现有「快速舒缓一下」流程。
+  /// 不触发 MiniMax，不扣额度（额度只约束 AI 歌曲生成）。
+  void _goToSoothe() {
+    // 停止 AI 生成歌曲播放，避免两路音频叠加
+    _generatedAudioPlayer?.pause();
+    final parts = <String>['听完这首歌，想再安静一会儿'];
+    if (_comfortDirection.isNotEmpty) {
+      parts.add(_comfortDirection);
+    } else if (_desiredFeeling.isNotEmpty) {
+      parts.add('想要一点$_desiredFeeling');
+    }
+    final moodText = parts.join('，');
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => AnalysisScreen(moodText: moodText)),
     );
   }
 
@@ -1402,6 +1881,14 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
             ),
           ],
         ),
+        // P4-conversation-song-flow-1：定时关闭（轻量，仅在播放器已初始化时显示）
+        if (_generatedAudioPlayer != null) ...[
+          const SizedBox(height: 10),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: SleepTimerButton(player: _generatedAudioPlayer!),
+          ),
+        ],
       ],
     );
   }
@@ -1862,6 +2349,59 @@ class _StoryInputField extends StatelessWidget {
           borderSide: const BorderSide(color: AppColors.primary, width: 1.4),
         ),
         contentPadding: const EdgeInsets.all(16),
+      ),
+    );
+  }
+}
+
+/// P4-conversation-song-flow-1：多轮对话阶段。
+enum _ConversationPhase { input, followUp, done }
+
+/// P4-conversation-song-flow-1：追问问题数据。
+class _FollowUpQuestion {
+  final String prompt;
+  final String hint;
+  final List<String> options;
+
+  const _FollowUpQuestion({
+    required this.prompt,
+    required this.hint,
+    this.options = const [],
+  });
+}
+
+/// P4-conversation-song-flow-1：追问快速选项 chip。
+class _FollowUpOptionChip extends StatelessWidget {
+  final String label;
+  final VoidCallback onTap;
+
+  const _FollowUpOptionChip({required this.label, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: AppColors.lavender.withValues(alpha: 0.08),
+      borderRadius: BorderRadius.circular(10),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(10),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: AppColors.lavender.withValues(alpha: 0.3),
+            ),
+          ),
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 13,
+              color: AppColors.lavender.withValues(alpha: 0.9),
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ),
       ),
     );
   }
