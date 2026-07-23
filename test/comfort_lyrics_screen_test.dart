@@ -17,6 +17,13 @@ import 'package:xinxian_healing_music/screens/comfort_lyrics_screen.dart';
 /// - 编辑态时生成解惑按钮和占位按钮均禁用
 /// - 「再写一首」清空编辑状态
 ///
+/// P4-song-result-experience-1 新增（未纳入 widget 测试，需 API mock 才能触发）：
+/// - 生成成功结果区 `_buildSongResultSection`：歌曲标题（本地规则生成）+ 副文案 + 试听这首歌 +
+///   歌词展示 + 状态「已生成，可直接试听」+ 操作按钮（重新播放 / 编辑歌词 / 重新生成）
+/// - 生成失败区 `_buildMusicErrorSection`：温和错误 + 重试生成 / 编辑歌词
+/// - 以上两个区域仅在 `_generatedAudioUrl != null`（成功）或 `_musicErrorHint != null`（失败）时渲染，
+///   测试环境无真实后端不会触发，故现有断言不受影响
+///
 /// 验证：
 /// - 页面渲染不空白（关键元素可见）
 /// - 标题「把困惑写成一首歌」可见

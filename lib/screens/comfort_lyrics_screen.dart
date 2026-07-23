@@ -103,9 +103,6 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
   /// AI 生成歌曲的错误提示（仅用于 UI 显示，不暴露内部异常）。
   String? _musicErrorHint;
 
-  /// AI 生成歌曲的简短元信息（如"AI 生成 · soothe"），显示在播放区。
-  String? _generatedMusicMeta;
-
   /// AI 生成歌曲播放器（懒加载，仅在拿到 generatedAudioUrl 后初始化）。
   AudioPlayer? _generatedAudioPlayer;
 
@@ -219,7 +216,6 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
       _generatedAudioUrl = null;
       _storageWarning = null;
       _musicErrorHint = null;
-      _generatedMusicMeta = null;
       _isPlayingGenerated = false;
     });
     // 停止并释放上一首生成歌曲的播放器（异步清理，不阻塞 UI）
@@ -426,21 +422,22 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
         _buildNextStepHint(),
         const SizedBox(height: 18),
 
-        // P4-generated-audio-playback-1：生成这首歌受控实验入口
-        _buildGenerateSongButton(),
-        const SizedBox(height: 14),
-
-        // P4-generated-audio-playback-1：AI 生成歌曲播放区 / 状态提示
-        if (_musicErrorHint != null) ...[
-          _buildMusicErrorHint(),
+        // P4-song-result-experience-1：生成歌曲结果区 / 失败区 / 入口按钮
+        // 生成成功 → 显示完整结果区（标题+播放+歌词+操作按钮）
+        // 生成失败 → 显示失败区（错误提示+重试/编辑按钮）
+        // 存储警告 → 极端边界提示
+        // 未生成 / 生成中 → 显示入口按钮（生成中为 loading 态）
+        if (_generatedAudioUrl != null) ...[
+          _buildSongResultSection(),
           const SizedBox(height: 14),
-        ],
-        if (_storageWarning != null && _generatedAudioUrl == null) ...[
+        ] else if (_musicErrorHint != null) ...[
+          _buildMusicErrorSection(),
+          const SizedBox(height: 14),
+        ] else if (_storageWarning != null) ...[
           _buildStorageWarningHint(),
           const SizedBox(height: 14),
-        ],
-        if (_generatedAudioUrl != null) ...[
-          _buildGeneratedSongPlayer(),
+        ] else ...[
+          _buildGenerateSongButton(),
           const SizedBox(height: 14),
         ],
 
@@ -852,7 +849,6 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
       _musicErrorHint = null;
       _storageWarning = null;
       _generatedAudioUrl = null;
-      _generatedMusicMeta = null;
       _isPlayingGenerated = false;
     });
 
@@ -936,7 +932,6 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
         setState(() {
           _generatingMusic = false;
           _generatedAudioUrl = playableUrl;
-          _generatedMusicMeta = 'AI 生成 · $targetState';
           // 有可播放音频时清空 storageWarning，避免显示"无法播放"提示
           _storageWarning = null;
           _musicErrorHint = null;
@@ -948,7 +943,6 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
         setState(() {
           _generatingMusic = false;
           _generatedAudioUrl = null;
-          _generatedMusicMeta = 'AI 生成 · $targetState';
           _storageWarning = storageWarning;
           _musicErrorHint = (storageWarning != null)
               ? null
@@ -1043,6 +1037,78 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
     }
   }
 
+  /// P4-song-result-experience-1：根据 targetState 本地生成歌曲标题。
+  ///
+  /// 不新增 LLM 调用，用简单规则生成温和、非医疗化的标题。
+  /// 后续可以让 LLM 返回 title 字段替换此规则。
+  String _generateSongTitle(String targetState) {
+    switch (targetState) {
+      case 'sleep':
+        return '今晚先慢下来';
+      case 'soothe':
+        return '把心放轻一点';
+      case 'focus':
+        return '慢慢回到这里';
+      case 'regulate':
+        return '让心绪落下来';
+      default:
+        return '写给现在的你';
+    }
+  }
+
+  /// P4-song-result-experience-1：重新播放当前生成歌曲（不扣费）。
+  ///
+  /// 从头播放，不再次调用 MiniMax API。
+  /// 如果播放器已释放（极端情况），给用户友好提示。
+  Future<void> _replayGeneratedSong() async {
+    final player = _generatedAudioPlayer;
+    if (player == null) {
+      // 播放器已释放，提示用户重新生成
+      if (!mounted) return;
+      setState(() {
+        _musicErrorHint = '播放器已释放，请重新生成这首歌';
+      });
+      return;
+    }
+    try {
+      await player.seek(Duration.zero);
+      await player.play();
+    } catch (_) {
+      // 忽略单次操作异常
+    }
+  }
+
+  /// P4-song-result-experience-1：返回编辑歌词（不丢失当前歌词）。
+  ///
+  /// 进入编辑态，编辑控制器初始化为当前展示的歌词。
+  /// 不清空生成歌曲状态（用户可以编辑后再重新生成）。
+  void _returnToEditLyrics() {
+    final currentLyric = _editedLyric ?? _result?.lyricDraft ?? '';
+    _editingController.text = currentLyric;
+    setState(() {
+      _isEditing = true;
+    });
+    // 自动聚焦到编辑框
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _editingFocus.requestFocus();
+    });
+  }
+
+  /// P4-song-result-experience-1：重新生成 / 重试生成（需再次费用确认）。
+  ///
+  /// 无论上次成功还是失败，重新生成都必须再次弹出费用确认对话框，
+  /// 因为会真实调用 MiniMax API 并可能产生费用。
+  /// 不允许跳过确认（防止误触扣费）。
+  Future<void> _onRegenerateSongPressed() async {
+    if (_isEditing || _generatingMusic || _result == null) return;
+    FocusScope.of(context).unfocus();
+
+    final confirmed = await _showGenerateSongConfirmDialog();
+    if (!confirmed || !mounted) return;
+
+    await _callGenerateMusicApi();
+  }
+
   /// 编码 /api/generate-music 请求体（不依赖 dart:convert 顶层 import 以避免增加依赖）。
   ///
   /// 字段说明：
@@ -1071,127 +1137,317 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
     });
   }
 
-  /// AI 生成歌曲播放区（P4-generated-audio-playback-1）。
+  /// P4-song-result-experience-1：生成歌曲成功结果区。
   ///
-  /// 简洁内嵌播放区，不进入 PlayerScreen（避免构造完整 HealingMusicPlan）。
-  /// 包含：
-  /// - 标题行：图标 + "你的 AI 生成歌曲" + 元信息
-  /// - 播放/暂停按钮（圆形大按钮）
-  /// - 简短说明：这是 AI 实验生成的歌曲
-  Widget _buildGeneratedSongPlayer() {
+  /// 完整结果区，包含：
+  /// - 歌曲标题（本地规则生成，根据 targetState）
+  /// - 副文案（根据你刚才写下的内容生成，适合现在慢慢听一遍）
+  /// - 试听这首歌（播放控件：圆形播放/暂停按钮 + 状态文案）
+  /// - 歌词展示（当前展示的歌词）
+  /// - 状态信息（已生成，可直接试听）
+  /// - 操作按钮：重新播放（不扣费）/ 返回编辑歌词 / 重新生成（需费用确认）
+  Widget _buildSongResultSection() {
+    final targetState = _mapStyleToTargetState(_targetStyle);
+    final songTitle = _generateSongTitle(targetState);
+    final displayLyric = _editedLyric ?? _result?.lyricDraft ?? '';
+
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: AppColors.lavender.withValues(alpha: 0.06),
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(18),
         border: Border.all(color: AppColors.lavender.withValues(alpha: 0.3)),
       ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Row(
-            children: [
-              const Icon(
-                Icons.graphic_eq_rounded,
-                size: 18,
-                color: AppColors.lavender,
+          // 歌曲标题
+          Text(
+            songTitle,
+            style: const TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.w600,
+              color: AppColors.textPrimary,
+              letterSpacing: 1,
+            ),
+          ),
+          const SizedBox(height: 6),
+          // 副文案
+          Text(
+            '根据你刚才写下的内容生成，适合现在慢慢听一遍。',
+            style: TextStyle(
+              fontSize: 13,
+              color: AppColors.textSecondary,
+              height: 1.6,
+            ),
+          ),
+          const SizedBox(height: 18),
+
+          // 试听这首歌（播放控件）
+          _buildPlayControl(),
+          const SizedBox(height: 18),
+
+          // 歌词展示
+          const Text(
+            '歌词',
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: AppColors.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.5),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: SelectableText(
+              displayLyric,
+              style: TextStyle(
+                fontSize: 13,
+                color: AppColors.textPrimary,
+                height: 1.8,
               ),
-              const SizedBox(width: 8),
-              const Expanded(
-                child: Text(
-                  '你的 AI 生成歌曲',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.textPrimary,
-                  ),
-                ),
-              ),
-              if (_generatedMusicMeta != null)
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 3,
-                  ),
-                  decoration: BoxDecoration(
-                    color: AppColors.lavender.withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text(
-                    _generatedMusicMeta!,
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: AppColors.lavender.withValues(alpha: 0.9),
-                      letterSpacing: 0.3,
-                    ),
-                  ),
-                ),
-            ],
+            ),
           ),
           const SizedBox(height: 14),
+
+          // 状态信息
           Row(
             children: [
-              Material(
-                color: AppColors.lavender,
-                shape: const CircleBorder(),
-                child: InkWell(
-                  customBorder: const CircleBorder(),
-                  onTap: _toggleGeneratedAudio,
-                  child: Padding(
-                    padding: const EdgeInsets.all(10),
-                    child: Icon(
-                      _isPlayingGenerated
-                          ? Icons.pause_rounded
-                          : Icons.play_arrow_rounded,
-                      size: 28,
-                      color: Colors.white,
-                    ),
-                  ),
-                ),
+              Icon(
+                Icons.check_circle_outline_rounded,
+                size: 14,
+                color: AppColors.lavender.withValues(alpha: 0.8),
               ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Text(
-                  _isPlayingGenerated ? '正在播放…' : '点击播放，听一下这首属于你的歌',
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: AppColors.textSecondary,
-                    height: 1.5,
-                  ),
+              const SizedBox(width: 6),
+              Text(
+                '已生成，可直接试听',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: AppColors.lavender.withValues(alpha: 0.9),
                 ),
               ),
             ],
           ),
+          const SizedBox(height: 18),
+
+          // 操作按钮
+          _buildSongActionButtons(),
         ],
       ),
     );
   }
 
-  /// AI 生成歌曲错误提示卡片。
-  Widget _buildMusicErrorHint() {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: AppColors.apricot.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.apricotDeep.withValues(alpha: 0.3)),
-      ),
-      child: Row(
-        children: [
-          const Icon(
-            Icons.cloud_off_rounded,
-            size: 18,
-            color: AppColors.apricotDeep,
+  /// P4-song-result-experience-1：播放控件（试听这首歌）。
+  Widget _buildPlayControl() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          '试听这首歌',
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            color: AppColors.textPrimary,
           ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              _musicErrorHint!,
-              style: const TextStyle(
-                fontSize: 13,
-                color: AppColors.apricotDeep,
+        ),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            Material(
+              color: AppColors.lavender,
+              shape: const CircleBorder(),
+              child: InkWell(
+                customBorder: const CircleBorder(),
+                onTap: _toggleGeneratedAudio,
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Icon(
+                    _isPlayingGenerated
+                        ? Icons.pause_rounded
+                        : Icons.play_arrow_rounded,
+                    size: 30,
+                    color: Colors.white,
+                  ),
+                ),
               ),
             ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Text(
+                _isPlayingGenerated ? '正在播放…' : '点击播放，听一下这首属于你的歌',
+                style: TextStyle(
+                  fontSize: 13,
+                  color: AppColors.textSecondary,
+                  height: 1.5,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  /// P4-song-result-experience-1：操作按钮行（重新播放 / 返回编辑歌词 / 重新生成）。
+  ///
+  /// - 重新播放：从头播放当前歌曲，不扣费
+  /// - 返回编辑歌词：进入编辑态，不丢失歌词
+  /// - 重新生成：弹出费用确认，会真实调用 MiniMax（可能产生费用）
+  Widget _buildSongActionButtons() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // 重新播放（主按钮，不扣费）
+        FilledButton.icon(
+          onPressed: _replayGeneratedSong,
+          icon: const Icon(Icons.replay_rounded, size: 18),
+          label: const Text('重新播放', style: TextStyle(fontSize: 14)),
+          style: FilledButton.styleFrom(
+            minimumSize: const Size.fromHeight(44),
+            backgroundColor: AppColors.lavender.withValues(alpha: 0.85),
+            foregroundColor: Colors.white,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+          ),
+        ),
+        const SizedBox(height: 10),
+        // 返回编辑歌词 + 重新生成（并排）
+        Row(
+          children: [
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: _returnToEditLyrics,
+                icon: const Icon(Icons.edit_outlined, size: 16),
+                label: const Text('编辑歌词', style: TextStyle(fontSize: 13)),
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size.fromHeight(42),
+                  foregroundColor: AppColors.primary,
+                  side: BorderSide(
+                    color: AppColors.primary.withValues(alpha: 0.5),
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: _onRegenerateSongPressed,
+                icon: const Icon(Icons.refresh_rounded, size: 16),
+                label: const Text('重新生成', style: TextStyle(fontSize: 13)),
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size.fromHeight(42),
+                  foregroundColor: AppColors.apricotDeep,
+                  side: BorderSide(
+                    color: AppColors.apricotDeep.withValues(alpha: 0.4),
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  /// P4-song-result-experience-1：生成失败区（含温和错误提示 + 操作按钮）。
+  ///
+  /// 失败时不白屏，保留歌词，提供：
+  /// - 错误标题：这次音乐没有顺利生成
+  /// - 错误副文案：你可以稍后再试，或者先调整一下歌词。
+  /// - 操作按钮：重试生成（需费用确认）/ 返回编辑歌词
+  Widget _buildMusicErrorSection() {
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: AppColors.apricot.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: AppColors.apricotDeep.withValues(alpha: 0.25),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              const Icon(
+                Icons.cloud_off_rounded,
+                size: 18,
+                color: AppColors.apricotDeep,
+              ),
+              const SizedBox(width: 8),
+              const Expanded(
+                child: Text(
+                  '这次音乐没有顺利生成',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.apricotDeep,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            _musicErrorHint ?? '你可以稍后再试，或者先调整一下歌词。',
+            style: TextStyle(
+              fontSize: 12,
+              color: AppColors.textSecondary,
+              height: 1.6,
+            ),
+          ),
+          const SizedBox(height: 14),
+          // 操作按钮：重试生成 + 返回编辑歌词
+          Row(
+            children: [
+              Expanded(
+                child: FilledButton.icon(
+                  onPressed: _onRegenerateSongPressed,
+                  icon: const Icon(Icons.refresh_rounded, size: 16),
+                  label: const Text('重试生成', style: TextStyle(fontSize: 13)),
+                  style: FilledButton.styleFrom(
+                    minimumSize: const Size.fromHeight(42),
+                    backgroundColor: AppColors.apricotDeep.withValues(
+                      alpha: 0.85,
+                    ),
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: _returnToEditLyrics,
+                  icon: const Icon(Icons.edit_outlined, size: 16),
+                  label: const Text('编辑歌词', style: TextStyle(fontSize: 13)),
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size.fromHeight(42),
+                    foregroundColor: AppColors.primary,
+                    side: BorderSide(
+                      color: AppColors.primary.withValues(alpha: 0.5),
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ),
         ],
       ),
