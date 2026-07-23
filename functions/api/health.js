@@ -48,7 +48,8 @@ const SERVICE_VERSION = 'v1';
 // P4 临时音频播放闭环：同步更新为 P4-temp-audio-playback-1
 // P4 临时音频播放闭环代码审计清理：同步更新为 P4-temp-audio-playback-1-cleanup
 // P4 生成歌曲结果页体验优化：同步更新为 P4-song-result-experience-1
-const BUILD_LABEL = 'P4-song-result-experience-1';
+// P6 本地额度保护：同步更新为 P6-quota-guard-1
+const BUILD_LABEL = 'P6-quota-guard-1';
 
 // ─── 统一响应 helper ──────────────────────────────────────────
 function jsonResponse(payload, statusCode, origin) {

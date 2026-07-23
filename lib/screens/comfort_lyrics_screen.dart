@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import 'package:just_audio/just_audio.dart';
 import 'package:xinxian_healing_music/models/comfort_lyrics_result.dart';
 import 'package:xinxian_healing_music/pipeline/llm/comfort_lyrics_service.dart';
+import 'package:xinxian_healing_music/pipeline/services.dart';
 import 'package:xinxian_healing_music/theme/app_colors.dart';
 import 'package:xinxian_healing_music/widgets/centered_page.dart';
 
@@ -112,6 +113,17 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
   /// 播放器当前是否正在播放（驱动 UI 刷新）。
   bool _isPlayingGenerated = false;
 
+  // ─── P6-quota-guard-1：本地每日生成额度保护状态 ───
+  //
+  // 今日剩余可成功生成次数：
+  // - null  → 额度服务未装配（存储全不可用），降级：不限制、不显示提示
+  // - 0     → 今日体验次数已用完，禁用「生成这首歌（实验）」+「重新生成」
+  // - >0    → 还可生成，按钮可用
+  //
+  // 仅约束 AI 生成歌曲入口；不影响「快速舒缓一下」固定曲库。
+  // 计数规则：只有 /api/generate-music 返回成功且拿到可播放音频时才计数（_callGenerateMusicApi 成功分支）。
+  int? _quotaRemaining;
+
   /// 4 种曲风选项。
   static const List<_StyleOption> _styleOptions = [
     _StyleOption(
@@ -142,6 +154,8 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
   void initState() {
     super.initState();
     _storyController.addListener(() => setState(() {}));
+    // P6-quota-guard-1：加载今日额度状态（异步，不阻塞首帧）
+    _refreshQuotaState();
   }
 
   @override
@@ -154,6 +168,28 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
     _generatedPlayerStateSub?.cancel();
     _generatedAudioPlayer?.dispose();
     super.dispose();
+  }
+
+  /// P6-quota-guard-1：刷新今日额度状态。
+  ///
+  /// - 服务未装配（generationQuotaService == null）→ [_quotaRemaining] = null（降级：不限制）
+  /// - 否则先跨天重置，再读取 todayRemaining
+  ///
+  /// 在 initState、生成成功后调用，驱动额度提示与按钮禁用态刷新。
+  Future<void> _refreshQuotaState() async {
+    final svc = generationQuotaService;
+    if (svc == null) {
+      if (!mounted) return;
+      setState(() => _quotaRemaining = null);
+      return;
+    }
+    try {
+      await svc.resetIfNewDay();
+    } catch (_) {
+      // 跨天重置失败不影响读取当前额度
+    }
+    if (!mounted) return;
+    setState(() => _quotaRemaining = svc.todayRemaining);
   }
 
   /// 触发生成：调用 [ComfortLyricsService]。
@@ -715,34 +751,104 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
   /// - 不暴露 API Key（前端不持有任何凭证）
   /// - 不允许跳过费用确认（_showGenerateSongConfirmDialog 必须返回 true 才调用）
   /// - 编辑态 / 生成中禁用按钮
+  /// - P6-quota-guard-1：今日体验次数已用完时禁用按钮 + 显示额度提示
   Widget _buildGenerateSongButton() {
-    final disabled = _isEditing || _generatingMusic;
-    return FilledButton.icon(
-      onPressed: disabled ? null : _onGenerateSongPressed,
-      icon: _generatingMusic
-          ? const SizedBox(
-              width: 18,
-              height: 18,
-              child: CircularProgressIndicator(
-                strokeWidth: 2.5,
-                color: Colors.white,
-              ),
-            )
-          : const Icon(Icons.music_note_rounded, size: 18),
-      label: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 4),
-        child: Text(
-          _generatingMusic ? '正在生成这首歌…' : '生成这首歌（实验）',
-          style: const TextStyle(fontSize: 15, letterSpacing: 0.5),
+    final quotaExhausted = _quotaRemaining == 0;
+    final disabled = _isEditing || _generatingMusic || quotaExhausted;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // P6-quota-guard-1：额度提示（服务未装配时不显示）
+        if (_quotaRemaining != null) ...[
+          _buildQuotaHint(),
+          const SizedBox(height: 10),
+        ],
+        FilledButton.icon(
+          onPressed: disabled ? null : _onGenerateSongPressed,
+          icon: _generatingMusic
+              ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2.5,
+                    color: Colors.white,
+                  ),
+                )
+              : const Icon(Icons.music_note_rounded, size: 18),
+          label: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            child: Text(
+              _generatingMusic ? '正在生成这首歌…' : '生成这首歌（实验）',
+              style: const TextStyle(fontSize: 15, letterSpacing: 0.5),
+            ),
+          ),
+          style: FilledButton.styleFrom(
+            minimumSize: const Size.fromHeight(50),
+            backgroundColor: AppColors.lavender.withValues(alpha: 0.85),
+            foregroundColor: Colors.white,
+            disabledBackgroundColor: AppColors.lavender.withValues(alpha: 0.35),
+            disabledForegroundColor: Colors.white.withValues(alpha: 0.7),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(14),
+            ),
+          ),
         ),
+      ],
+    );
+  }
+
+  /// P6-quota-guard-1：额度提示 widget（仅在额度服务装配后由调用方显示）。
+  ///
+  /// - remaining > 0：`今日还可生成 N 首`（弱化小字）
+  /// - remaining == 0：`今日体验次数已用完` + 副提示「今天的 AI 生成体验次数已用完，
+  ///   可以先继续编辑歌词，明天再生成。」
+  Widget _buildQuotaHint() {
+    final remaining = _quotaRemaining;
+    if (remaining == null) return const SizedBox.shrink();
+    if (remaining > 0) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 2),
+        child: Row(
+          children: [
+            const Icon(Icons.spa_rounded, size: 14, color: AppColors.textMuted),
+            const SizedBox(width: 6),
+            Text(
+              '今日还可生成 $remaining 首',
+              style: const TextStyle(fontSize: 12, color: AppColors.textMuted),
+            ),
+          ],
+        ),
+      );
+    }
+    // 已用完：温和卡片提示，引导用户先编辑歌词、明天再生成
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.cardBg,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.cardBorder),
       ),
-      style: FilledButton.styleFrom(
-        minimumSize: const Size.fromHeight(50),
-        backgroundColor: AppColors.lavender.withValues(alpha: 0.85),
-        foregroundColor: Colors.white,
-        disabledBackgroundColor: AppColors.lavender.withValues(alpha: 0.35),
-        disabledForegroundColor: Colors.white.withValues(alpha: 0.7),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: const [
+          Text(
+            '今日体验次数已用完',
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: AppColors.textSecondary,
+            ),
+          ),
+          SizedBox(height: 4),
+          Text(
+            '今天的 AI 生成体验次数已用完，可以先继续编辑歌词，明天再生成。',
+            style: TextStyle(
+              fontSize: 12,
+              color: AppColors.textMuted,
+              height: 1.6,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -755,6 +861,8 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
   /// - 确认后调用 [_callGenerateMusicApi]
   Future<void> _onGenerateSongPressed() async {
     if (_isEditing || _generatingMusic || _result == null) return;
+    // P6-quota-guard-1：今日体验次数已用完则不再发起（按钮已禁用，此处双保险）
+    if (_quotaRemaining == 0) return;
     FocusScope.of(context).unfocus();
 
     final confirmed = await _showGenerateSongConfirmDialog();
@@ -936,6 +1044,10 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
           _storageWarning = null;
           _musicErrorHint = null;
         });
+        // P6-quota-guard-1：仅当成功且拿到可播放音频时才计数 + 刷新额度状态。
+        // 失败 / 取消 / 无可播放音频 / 网络异常都不计数。
+        await generationQuotaService?.recordSuccessfulGeneration();
+        await _refreshQuotaState();
       } else {
         // 既无 generatedAudioUrl 也无 audioDataUrl → 无法播放
         // 保留 storageWarning（如有），UI 会显示"音乐已生成并保存"提示；
@@ -1101,6 +1213,8 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
   /// 不允许跳过确认（防止误触扣费）。
   Future<void> _onRegenerateSongPressed() async {
     if (_isEditing || _generatingMusic || _result == null) return;
+    // P6-quota-guard-1：今日体验次数已用完则不再发起（按钮已禁用，此处双保险）
+    if (_quotaRemaining == 0) return;
     FocusScope.of(context).unfocus();
 
     final confirmed = await _showGenerateSongConfirmDialog();
@@ -1297,10 +1411,20 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
   /// - 重新播放：从头播放当前歌曲，不扣费
   /// - 返回编辑歌词：进入编辑态，不丢失歌词
   /// - 重新生成：弹出费用确认，会真实调用 MiniMax（可能产生费用）
+  ///
+  /// P6-quota-guard-1：结果区显示时通常额度已用完（一次成功生成即耗尽当日额度），
+  /// 此时「重新生成」按钮禁用并显示额度提示；「重新播放」「编辑歌词」不受额度影响。
   Widget _buildSongActionButtons() {
+    // P6-quota-guard-1：额度用完时在操作区顶部显示提示（服务未装配则不显示）
+    final quotaExhausted = _quotaRemaining == 0;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        // P6-quota-guard-1：额度用完提示（仅服务装配后显示）
+        if (_quotaRemaining != null && quotaExhausted) ...[
+          _buildQuotaHint(),
+          const SizedBox(height: 10),
+        ],
         // 重新播放（主按钮，不扣费）
         FilledButton.icon(
           onPressed: _replayGeneratedSong,
@@ -1339,7 +1463,8 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
             const SizedBox(width: 10),
             Expanded(
               child: OutlinedButton.icon(
-                onPressed: _onRegenerateSongPressed,
+                // P6-quota-guard-1：额度用完时禁用「重新生成」（方法内 guard 双保险）
+                onPressed: quotaExhausted ? null : _onRegenerateSongPressed,
                 icon: const Icon(Icons.refresh_rounded, size: 16),
                 label: const Text('重新生成', style: TextStyle(fontSize: 13)),
                 style: OutlinedButton.styleFrom(

@@ -1,6 +1,7 @@
 import 'package:xinxian_healing_music/pipeline/cloud/mock_cloud_feedback_uploader.dart';
 import 'package:xinxian_healing_music/pipeline/consent/cloud_feedback_consent_service.dart';
 import 'package:xinxian_healing_music/pipeline/consent/cloud_text_consent_service.dart';
+import 'package:xinxian_healing_music/pipeline/local/local_generation_quota_service.dart';
 import 'package:xinxian_healing_music/pipeline/llm/llm_consent_service.dart';
 import 'package:xinxian_healing_music/pipeline/llm/mood_analyzer_gateway.dart';
 import 'package:xinxian_healing_music/pipeline/mock/mock_feedback_repository.dart';
@@ -44,6 +45,13 @@ CloudFeedbackConsentService? cloudFeedbackConsentService;
 /// 默认 null；`main.dart` 启动时装配持久化实现。UI 层应判空后使用。
 /// 即使同意云端采集，文字反馈默认也不上传，需单独勾选同意。
 CloudTextConsentService? cloudTextConsentService;
+
+/// P6-quota-guard-1: 「把困惑写成一首歌」AI 生成歌曲本地每日额度保护服务。
+///
+/// 默认 null（保证 `runApp` 前可用）；`main.dart` 启动时装配持久化实现。
+/// UI 层（[ComfortLyricsScreen]）应判空后使用：null 时跳过额度限制（permissive 降级）。
+/// 仅约束「生成这首歌（实验）」+「重新生成」，不影响「快速舒缓一下」固定曲库。
+LocalGenerationQuotaService? generationQuotaService;
 
 /// M7: 云端反馈上传器单例。
 ///

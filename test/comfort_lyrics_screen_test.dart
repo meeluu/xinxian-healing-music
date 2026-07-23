@@ -24,6 +24,13 @@ import 'package:xinxian_healing_music/screens/comfort_lyrics_screen.dart';
 /// - 以上两个区域仅在 `_generatedAudioUrl != null`（成功）或 `_musicErrorHint != null`（失败）时渲染，
 ///   测试环境无真实后端不会触发，故现有断言不受影响
 ///
+/// P6-quota-guard-1 新增（额度保护，service 层已覆盖，UI 集成未纳入 widget 测试）：
+/// - 额度逻辑（每日 1 次 / 计数 / 跨天重置 / 损坏容错 / key 隔离）由
+///   `test/local_generation_quota_service_test.dart` 在 service 层完整覆盖。
+/// - 额度 UI 集成（按钮禁用 / 「今日还可生成 N 首」/「今日体验次数已用完」提示）
+///   需 mock 全局 `generationQuotaService` 并触发结果区（`_result != null`），
+///   与 P4 结果区测试同样依赖 API mock，本批留待后续。
+///
 /// 验证：
 /// - 页面渲染不空白（关键元素可见）
 /// - 标题「把困惑写成一首歌」可见

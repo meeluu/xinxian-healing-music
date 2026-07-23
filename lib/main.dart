@@ -5,6 +5,7 @@ import 'package:xinxian_healing_music/pipeline/cloud/http_cloud_feedback_uploade
 import 'package:xinxian_healing_music/pipeline/consent/cloud_feedback_consent_service.dart';
 import 'package:xinxian_healing_music/pipeline/consent/cloud_text_consent_service.dart';
 import 'package:xinxian_healing_music/pipeline/local/local_feedback_repository.dart';
+import 'package:xinxian_healing_music/pipeline/local/local_generation_quota_service.dart';
 import 'package:xinxian_healing_music/pipeline/local/local_listening_session_recorder.dart';
 import 'package:xinxian_healing_music/pipeline/local/preferences_port.dart';
 import 'package:xinxian_healing_music/pipeline/local/web_preferences_factory.dart';
@@ -196,6 +197,22 @@ Future<void> bootstrapServices() async {
     debugPrint('[Startup] cloud consent 服务未就绪，cloudFeedbackUploader 保持 mock');
   }
 
+  // ─── 9. generationQuotaService（P6-quota-guard-1 新增，独立 try/catch）───
+  // 「生成这首歌（实验）」本地每日额度保护：每天最多 1 次成功生成。
+  // 仅约束 AI 生成歌曲入口，不影响「快速舒缓一下」固定曲库。
+  try {
+    generationQuotaService = await LocalGenerationQuotaService.create(storage);
+    debugPrint(
+      '[Startup] generationQuotaService 装配完成: '
+      'usage=${generationQuotaService!.getTodayUsage()}, '
+      'remaining=${generationQuotaService!.todayRemaining}, '
+      'canGenerate=${generationQuotaService!.canGenerateToday()}',
+    );
+  } catch (e, st) {
+    debugPrint('[Startup] generationQuotaService 装配失败，保持 null: $e');
+    debugPrint('$st');
+  }
+
   // ─── 启动自检汇总（仅 debugPrint，不显示到 UI）───
   final analyzerMode = moodAnalyzerGateway != null ? 'gateway' : 'mock';
   debugPrint('[Startup] ===== 自检汇总 =====');
@@ -217,6 +234,10 @@ Future<void> bootstrapServices() async {
   );
   debugPrint(
     '[Startup] cloudFeedbackUploader type: ${cloudFeedbackUploader.runtimeType}',
+  );
+  debugPrint(
+    '[Startup] generationQuotaService: '
+    '${generationQuotaService != null ? "ready" : "null"}',
   );
   debugPrint('[Startup] ======================');
 }

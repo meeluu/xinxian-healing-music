@@ -18,7 +18,7 @@ class AppVersion {
   static const String appName = '心弦';
 
   /// 当前里程碑阶段（M1 / M2 / ... / M8.1 / P1-Web-v1.0 / P2-Web-v1.0 / P3-Web-v1.0 / P4-AI-Music-v1.0）。
-  static const String milestone = 'P4-AI-Music-v1.0';
+  static const String milestone = 'P6-Quota-v1.0';
 
   /// 语义化版本号（与里程碑对应：M4 → v0.4.x，M5 → v0.5.x，M6 → v0.6.x，M7 → v0.7.x，M8 → v0.8.x，P2 → v0.9.x，P3/P4 → v1.0.x）。
   static const String versionName = 'v1.0.0';
@@ -52,8 +52,9 @@ class AppVersion {
   /// - `P{N}-temp-audio-playback-{n}`：P 阶段第 n 批 MiniMax 生成音频临时播放闭环（audioHex → base64 dataUrl → 前端播放，不依赖 R2）
   /// - `P{N}-temp-audio-playback-{n}-cleanup`：P 阶段第 n 批临时播放闭环的代码审计清理版本（线上试听验证通过后的收尾）
   /// - `P{N}-song-result-experience-{n}`：P 阶段第 n 批生成歌曲结果页体验优化（纯前端，不改后端真实调用策略）
+  /// - `P{N}-quota-guard-{n}`：P 阶段第 n 批本地额度保护与成本安全（浏览器每日生成次数限制）
   /// - `P{N}-stable`：P 阶段收尾验收通过，正式发布
-  static const String buildLabel = 'P4-song-result-experience-1';
+  static const String buildLabel = 'P6-quota-guard-1';
 
   /// 构建日期（YYYY-MM-DD），手动维护。
   static const String buildDate = '2026-07-23';

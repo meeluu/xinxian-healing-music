@@ -7,6 +7,8 @@
 > - **Mureka 降级为后续候选 provider**（最低充值 200 元，测试成本偏高，暂不接入）
 > - 本文档保留作为后续候选方案的调研资料，**不删除**
 > - 后期如果预算允许、且 MiniMax 确实无法修复，再切换或新增 Mureka
+>
+> **2026-07-23 更新（P6-quota-guard-1）**：MiniMax 真实调用链路已于 P4-temp-audio-playback-1 打通并线上真实试听验证成功（audioDataUrl 临时播放），上版「真实调用失败需继续排查」的判断已过时。项目最终决策：**不调用 Mureka API**，Mureka 作为未采用的历史调研保留。当前状态见 [README.md](../README.md) 与 [ROADMAP.md](ROADMAP.md)。
 
 > 版本：`v1.0.0 · P4-comfort-song-design-1-fix1 · 2026-07-18`
 > 范围：本文档为**后续候选方案调研**，当前不实现 `mureka_music provider`，不真实调用 Mureka API，不写入任何 API Key，不产生费用，不改 D1 schema，不改前端代码。
