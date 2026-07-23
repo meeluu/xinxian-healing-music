@@ -128,17 +128,15 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
 
   // ─── P4-conversation-song-flow-1：多轮困惑理解状态 ───
   //
-  // 流程：input（输入困惑+选曲风）→ followUp（2-3 轮温和追问）→ done（生成结果）
+  // 流程：input（输入困惑+选曲风）→ loadingFollowUp（调 LLM 拿动态追问）→
+  //       followUp（2-3 轮动态追问）→ done（生成结果）
   // 多轮数据只存在页面 state，不做长期保存（_reset 清空，不写入本地存储/云端）。
   //
-  // 状态字段对应后端 /api/comfort-lyrics 的多轮上下文：
-  // - _initialConcern：原始困惑（input 阶段填入）
-  // - _followUpAnswers：Q1 追问回答列表
-  // - _desiredFeeling：Q2 期望感觉（安慰/释怀/力量）
-  // - _comfortDirection：Q3 陪伴方向（被理解/平静下来）
+  // fix1：追问改为 LLM 动态生成（fetchFollowUpQuestions），失败走本地 6 分类兜底。
+  // 不再用固定 _followUpQuestions 常量；所有回答统一计入 _followUpAnswers。
   _ConversationPhase _phase = _ConversationPhase.input;
 
-  /// 当前追问轮次 0..2。
+  /// 当前追问轮次 0.._dynamicQuestions.length-1。
   int _followUpIndex = 0;
 
   /// 追问输入控制器。
@@ -150,14 +148,11 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
   /// 原始困惑（input 阶段填入，done 阶段作为 storyText 传给 service）。
   String _initialConcern = '';
 
-  /// Q1 追问回答列表（每轮一个条目）。
+  /// 动态追问回答列表（每轮一个条目，统一计入，不再区分 desiredFeeling/comfortDirection）。
   List<String> _followUpAnswers = [];
 
-  /// Q2 期望感觉。
-  String _desiredFeeling = '';
-
-  /// Q3 陪伴方向。
-  String _comfortDirection = '';
+  /// fix1：当前动态问题列表（来自 LLM 或本地兜底）。空列表表示尚未加载。
+  List<String> _dynamicQuestions = [];
 
   /// 4 种曲风选项。
   static const List<_StyleOption> _styleOptions = [
@@ -180,29 +175,6 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
       value: 'soft_piano',
       label: '柔光钢琴',
       description: '钢琴 + 缓慢 + 平和',
-    ),
-  ];
-
-  /// P4-conversation-song-flow-1：3 轮温和追问问题。
-  ///
-  /// 文案短、自然、低压力，不像心理测评问卷。
-  /// Q1 开放式；Q2/Q3 带快速选项（也可自由输入）。
-  /// 用户可随时「跳过追问，直接生成」。
-  static const List<_FollowUpQuestion> _followUpQuestions = [
-    _FollowUpQuestion(
-      prompt: '这件事里，最让你放不下的是哪一部分？',
-      hint: '可以简单写几个字，也可以不写',
-      options: [],
-    ),
-    _FollowUpQuestion(
-      prompt: '如果这首歌只陪你说一句话，你希望它更像安慰、释怀，还是给你一点力量？',
-      hint: '可以直接选一个，也可以自己写',
-      options: ['安慰', '释怀', '给我一点力量'],
-    ),
-    _FollowUpQuestion(
-      prompt: '你现在更想被理解，还是更想慢慢平静下来？',
-      hint: '可以直接选一个，也可以自己写',
-      options: ['想被理解', '想慢慢平静下来'],
     ),
   ];
 
@@ -256,8 +228,8 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
   /// 触发生成：调用 [ComfortLyricsService]。
   ///
   /// P4-conversation-song-flow-1：storyText 改为 [_initialConcern]（input 阶段填入），
-  /// 并传入多轮对话上下文（followUpAnswers / desiredFeeling / comfortDirection），
-  /// 让后端 LLM 生成更贴合用户困境的歌词。
+  /// 并传入多轮对话上下文（followUpAnswers），让后端 LLM 生成更贴合用户困境的歌词。
+  /// fix1：desiredFeeling / comfortDirection 已移除，所有回答统一计入 followUpAnswers。
   ///
   /// 任何异常都被 Service 兜底为 fallback，前端不会再 catch 到异常。
   /// 这里仍用 try/catch + _errorHint 作为最后保险，避免任何边界情况导致页面卡死。
@@ -280,8 +252,6 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
         storyText: story,
         targetStyle: _targetStyle,
         followUpAnswers: _followUpAnswers,
-        desiredFeeling: _desiredFeeling,
-        comfortDirection: _comfortDirection,
       );
       if (!mounted) return;
       setState(() {
@@ -298,21 +268,21 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
     }
   }
 
-  /// P4-conversation-song-flow-1：从 input 阶段进入 followUp 阶段。
+  /// fix1：从 input 阶段进入 loadingFollowUp，调 LLM 拿动态追问。
   ///
-  /// 记录原始困惑为 [_initialConcern]，重置多轮状态，进入第 0 个追问。
-  /// 不立即调用 LLM（先收集 2-3 轮追问上下文）。
-  void _startFollowUp() {
+  /// 记录原始困惑为 [_initialConcern]，切到 loadingFollowUp 阶段，
+  /// 调 [_service.fetchFollowUpQuestions] 拿动态问题；失败走本地 6 分类兜底。
+  /// 拿到问题后切到 followUp 阶段，进入第 0 个追问。
+  Future<void> _startFollowUp() async {
     final story = _storyController.text.trim();
     if (story.isEmpty || _loading) return;
     FocusScope.of(context).unfocus();
     setState(() {
       _initialConcern = story;
-      _phase = _ConversationPhase.followUp;
+      _phase = _ConversationPhase.loadingFollowUp;
       _followUpIndex = 0;
       _followUpAnswers = [];
-      _desiredFeeling = '';
-      _comfortDirection = '';
+      _dynamicQuestions = [];
       _followUpController.clear();
       _errorHint = null;
       _result = null;
@@ -320,30 +290,41 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
       _editedLyric = null;
       _songPromptExpanded = false;
     });
+
+    List<String> questions;
+    try {
+      questions = await _service.fetchFollowUpQuestions(storyText: story);
+    } catch (_) {
+      questions = const <String>[];
+    }
+    if (!mounted) return;
+
+    // 防御性兜底：service 内部已 fallback，这里再检查空列表
+    if (questions.isEmpty) {
+      questions = const ['今天最重的是哪一段心情？', '现在更想被理解，还是想先平静下来？', '有想先放一放的事吗？'];
+    }
+
+    setState(() {
+      _dynamicQuestions = questions;
+      _phase = _ConversationPhase.followUp;
+    });
+
     // 自动聚焦到追问输入框
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _followUpFocus.requestFocus();
     });
   }
 
-  /// P4-conversation-song-flow-1：记录当前追问回答并推进到下一轮或生成。
+  /// fix1：记录当前追问回答并推进到下一轮或生成。
   ///
-  /// - index 0 → 计入 [_followUpAnswers]
-  /// - index 1 → 计入 [_desiredFeeling]
-  /// - index 2 → 计入 [_comfortDirection]
-  /// - 最后一轮记录后进入 done 阶段并调用 [_generate]
-  /// - 非最后一轮推进 [_followUpIndex] 并聚焦下一题输入框
+  /// 所有回答统一计入 [_followUpAnswers]（不再区分 desiredFeeling/comfortDirection）。
+  /// 最后一轮记录后进入 done 阶段并调用 [_generate]；
+  /// 非最后一轮推进 [_followUpIndex] 并聚焦下一题输入框。
   void _recordAnswerAndAdvance(String answer) {
     FocusScope.of(context).unfocus();
-    final lastIndex = _followUpQuestions.length - 1;
+    final lastIndex = _dynamicQuestions.length - 1;
     setState(() {
-      if (_followUpIndex == 0) {
-        _followUpAnswers = [..._followUpAnswers, answer];
-      } else if (_followUpIndex == 1) {
-        _desiredFeeling = answer;
-      } else if (_followUpIndex == 2) {
-        _comfortDirection = answer;
-      }
+      _followUpAnswers = [..._followUpAnswers, answer];
       _followUpController.clear();
       if (_followUpIndex < lastIndex) {
         _followUpIndex += 1;
@@ -399,8 +380,7 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
       _followUpIndex = 0;
       _initialConcern = '';
       _followUpAnswers = [];
-      _desiredFeeling = '';
-      _comfortDirection = '';
+      _dynamicQuestions = [];
       _followUpController.clear();
     });
     // 停止并释放上一首生成歌曲的播放器（异步清理，不阻塞 UI）
@@ -485,6 +465,11 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
             ),
           ],
 
+          // ── loadingFollowUp 阶段：LLM 动态追问生成中 ──
+          if (_phase == _ConversationPhase.loadingFollowUp) ...[
+            _buildLoadingHint('正在根据你的文字整理几个更贴近的问题…'),
+          ],
+
           // ── followUp 阶段：多轮追问卡片 ──
           if (_phase == _ConversationPhase.followUp) ...[_buildFollowUpCard()],
 
@@ -508,16 +493,19 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
     );
   }
 
-  /// P4-conversation-song-flow-1：done 阶段加载提示。
+  /// P4-conversation-song-flow-1：分阶段加载提示。
   ///
-  /// 多轮追问收集完成后，调用 LLM 生成解惑 + 歌词期间显示。
-  /// 文案温和、不医疗化，告诉用户正在基于完整上下文生成。
-  Widget _buildLoadingHint() {
+  /// fix1：根据不同阶段显示不同文案，不再所有阶段都用同一句。
+  /// - loadingFollowUp 阶段：正在根据你的文字整理几个更贴近的问题…
+  /// - done 阶段（生成歌词）：正在整理你的文字，写成一首更贴近你的歌…
+  /// 文案温和、不医疗化，不暗示已完成治疗效果。
+  Widget _buildLoadingHint([String? message]) {
+    final text = message ?? '正在整理你的文字，写成一首更贴近你的歌…';
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 40),
       child: Column(
-        children: const [
-          SizedBox(
+        children: [
+          const SizedBox(
             width: 28,
             height: 28,
             child: CircularProgressIndicator(
@@ -525,10 +513,10 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
               color: AppColors.lavender,
             ),
           ),
-          SizedBox(height: 16),
+          const SizedBox(height: 16),
           Text(
-            '正在陪你把这件事重新看一遍…',
-            style: TextStyle(
+            text,
+            style: const TextStyle(
               fontSize: 14,
               color: AppColors.textSecondary,
               letterSpacing: 0.5,
@@ -541,15 +529,17 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
 
   /// P4-conversation-song-flow-1：多轮追问卡片。
   ///
+  /// fix1：问题改为 LLM 动态生成（[_dynamicQuestions]），不再使用固定模板。
+  ///
   /// 结构：
   /// - 原始困惑回显（compact，让用户感到"被听见"）
-  /// - 进度提示（第 N/3 个问题，可跳过）
-  /// - 问题卡片：问题文案 + 输入框 + 快速选项（Q2/Q3）+ 跳过/继续按钮
+  /// - 进度提示（第 N/M 个问题，可跳过）
+  /// - 问题卡片：问题文案 + 输入框 + 跳过/继续按钮
   ///
   /// 文案短、自然、低压力，不像心理测评问卷。用户可随时跳过直接生成。
   Widget _buildFollowUpCard() {
-    final q = _followUpQuestions[_followUpIndex];
-    final isLast = _followUpIndex == _followUpQuestions.length - 1;
+    final prompt = _dynamicQuestions[_followUpIndex];
+    final isLast = _followUpIndex == _dynamicQuestions.length - 1;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -595,7 +585,7 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
         const SizedBox(height: 18),
         // 进度提示
         Text(
-          '第 ${_followUpIndex + 1} / ${_followUpQuestions.length} 个问题 · 可以只写几个字，也可以跳过',
+          '第 ${_followUpIndex + 1} / ${_dynamicQuestions.length} 个问题 · 可以只写几个字，也可以跳过',
           style: const TextStyle(
             fontSize: 11,
             color: AppColors.textMuted,
@@ -634,7 +624,7 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      q.prompt,
+                      prompt,
                       style: const TextStyle(
                         fontSize: 15,
                         fontWeight: FontWeight.w600,
@@ -647,7 +637,7 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
               ),
               const SizedBox(height: 6),
               Text(
-                q.hint,
+                '写几个字就好，也可以不写',
                 style: const TextStyle(
                   fontSize: 12,
                   color: AppColors.textMuted,
@@ -692,21 +682,6 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
                   contentPadding: const EdgeInsets.all(14),
                 ),
               ),
-              // 快速选项（Q2/Q3）
-              if (q.options.isNotEmpty) ...[
-                const SizedBox(height: 12),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    for (final opt in q.options)
-                      _FollowUpOptionChip(
-                        label: opt,
-                        onTap: () => _recordAnswerAndAdvance(opt),
-                      ),
-                  ],
-                ),
-              ],
               const SizedBox(height: 16),
               // 跳过 + 继续/生成
               Row(
@@ -1176,7 +1151,7 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
           label: Padding(
             padding: const EdgeInsets.symmetric(vertical: 4),
             child: Text(
-              _generatingMusic ? '正在生成这首歌…' : '生成这首歌（实验）',
+              _generatingMusic ? '正在生成这首歌，请保持页面打开…' : '生成这首歌（实验）',
               style: const TextStyle(fontSize: 15, letterSpacing: 0.5),
             ),
           ),
@@ -1816,21 +1791,17 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
 
   /// P4-conversation-song-flow-1：跳转本地纯音乐舒缓流程。
   ///
-  /// 根据用户多轮对话中选择的 desiredFeeling / comfortDirection 构造温和心境文本，
-  /// 跳转 AnalysisScreen 走现有「快速舒缓一下」流程。
+  /// fix1：不再依赖 desiredFeeling / comfortDirection（已移除），使用静态温和文案。
+  /// 跳转 AnalysisScreen 走现有「快速舒缓一下」流程，只用本地 assets 音乐。
   /// 不触发 MiniMax，不扣额度（额度只约束 AI 歌曲生成）。
   void _goToSoothe() {
     // 停止 AI 生成歌曲播放，避免两路音频叠加
     _generatedAudioPlayer?.pause();
-    final parts = <String>['听完这首歌，想再安静一会儿'];
-    if (_comfortDirection.isNotEmpty) {
-      parts.add(_comfortDirection);
-    } else if (_desiredFeeling.isNotEmpty) {
-      parts.add('想要一点$_desiredFeeling');
-    }
-    final moodText = parts.join('，');
+    const moodText = '听完这首歌，想再安静一会儿';
     Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => AnalysisScreen(moodText: moodText)),
+      MaterialPageRoute(
+        builder: (_) => const AnalysisScreen(moodText: moodText),
+      ),
     );
   }
 
@@ -2355,57 +2326,8 @@ class _StoryInputField extends StatelessWidget {
 }
 
 /// P4-conversation-song-flow-1：多轮对话阶段。
-enum _ConversationPhase { input, followUp, done }
-
-/// P4-conversation-song-flow-1：追问问题数据。
-class _FollowUpQuestion {
-  final String prompt;
-  final String hint;
-  final List<String> options;
-
-  const _FollowUpQuestion({
-    required this.prompt,
-    required this.hint,
-    this.options = const [],
-  });
-}
-
-/// P4-conversation-song-flow-1：追问快速选项 chip。
-class _FollowUpOptionChip extends StatelessWidget {
-  final String label;
-  final VoidCallback onTap;
-
-  const _FollowUpOptionChip({required this.label, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: AppColors.lavender.withValues(alpha: 0.08),
-      borderRadius: BorderRadius.circular(10),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(10),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(
-              color: AppColors.lavender.withValues(alpha: 0.3),
-            ),
-          ),
-          child: Text(
-            label,
-            style: TextStyle(
-              fontSize: 13,
-              color: AppColors.lavender.withValues(alpha: 0.9),
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
+/// fix1：新增 loadingFollowUp 阶段（LLM 动态追问生成中）。
+enum _ConversationPhase { input, loadingFollowUp, followUp, done }
 
 /// 曲风选项数据。
 class _StyleOption {

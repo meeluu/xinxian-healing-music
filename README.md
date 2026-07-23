@@ -5,7 +5,7 @@
 心弦是一款基于 Flutter Web 的情绪陪伴 Demo。用户输入当下心境后，系统通过 LLM 生成情绪画像与音乐参数，并播放匹配的本地音频素材，形成「自然语言 → AI 情绪解析 → 音乐方案 → 音频体验 → 用户反馈」的完整闭环。
 
 - **正式体验地址**：[https://xinxian-music.xyz](https://xinxian-music.xyz)
-- **当前版本**：`v1.0.0 · P4-conversation-song-flow-1 · Cloudflare Pages`
+- **当前版本**：`v1.0.0 · P4-conversation-song-flow-1-fix1 · Cloudflare Pages`
 - **定位**：辅助情绪调节、睡前舒缓、正念陪伴、温和充能的轻量化工具，**不提供医疗诊断或治疗**，不替代专业心理咨询与医疗建议（详见[第十二章 免责声明](#十二免责声明)）
 
 ---
@@ -33,6 +33,7 @@
 6.17. [P4 临时音频播放闭环](#六点十七p4-临时音频播放闭环)
 6.18. [P6-quota-guard-1：本地额度保护 + 文档整理](#六点十八p6-quota-guard-1本地额度保护--文档整理)
 6.19. [P4-conversation-song-flow-1：多轮困惑理解 + 歌词增强 + 纯音乐本地舒缓 + 定时关闭](#六点十九p4-conversation-song-flow-1多轮困惑理解--歌词增强--纯音乐本地舒缓--定时关闭)
+6.20. [P4-conversation-song-flow-1-fix1：LLM 动态追问 + 歌词贴合度增强 + 加载文案分阶段](#六点二十p4-conversation-song-flow-1-fix1llm-动态追问--歌词贴合度增强--加载文案分阶段)
 7. [数据与隐私](#七数据与隐私)
 8. [环境变量与部署](#八环境变量与部署)
 9. [本地开发与验证](#九本地开发与验证)
@@ -83,11 +84,11 @@
 
 ### 2.1 当前阶段
 
-- **阶段**：`P4-AI-Music-v1.0 / P4-conversation-song-flow-1（多轮困惑理解 + 更贴合困境的歌词 + 纯音乐本地舒缓 + 定时关闭；P4 歌曲生成链路已打通并上线，默认 REAL_CALLS=false）`
-- **版本号**：`v1.0.0 · P4-conversation-song-flow-1 · Cloudflare Pages`（首页底部显示 `心弦 v1.0.0 · P4-conversation-song-flow-1 · Cloudflare Pages`）
+- **阶段**：`P4-AI-Music-v1.0 / P4-conversation-song-flow-1-fix1（LLM 动态追问 + 歌词贴合度增强 + 快速舒缓纯本地化核查 + 加载文案分阶段；P4 歌曲生成链路已打通并上线，默认 REAL_CALLS=false）`
+- **版本号**：`v1.0.0 · P4-conversation-song-flow-1-fix1 · Cloudflare Pages`（首页底部显示 `心弦 v1.0.0 · P4-conversation-song-flow-1-fix1 · Cloudflare Pages`）
 - **构建日期**：2026-07-23
 - **部署目标**：Cloudflare Pages
-- **上一阶段**：P6-quota-guard-1 已完成（本地额度保护与文档整理，2026-07-23）；P4-song-result-experience-1 已上线（2026-07-23）；P3-Web-v1.0 已完成（`P3-data-3`）；P2-Web-v1.0 已完成（`P2-stable`）
+- **上一阶段**：P4-conversation-song-flow-1 已上线（多轮困惑理解 + 纯音乐本地舒缓 + 定时关闭，2026-07-23）；P6-quota-guard-1 已完成（本地额度保护与文档整理，2026-07-23）；P4-song-result-experience-1 已上线（2026-07-23）；P3-Web-v1.0 已完成（`P3-data-3`）；P2-Web-v1.0 已完成（`P2-stable`）
 
 ### 2.2 当前部署架构
 
@@ -2826,6 +2827,111 @@ P4-song-result-experience-1 已部署上线并验收通过（`buildLabel=P4-song
 
 realCallsEnabled 保持 false / manualTest 保护保留 / P6 额度保护保留 / 本次未触发真实 MiniMax 调用。
 
+### 6.20 P4-conversation-song-flow-1-fix1：LLM 动态追问 + 歌词贴合度增强 + 加载文案分阶段（2026-07-23）
+
+#### 6.20.1 定位
+
+P4-conversation-song-flow-1 上线后发现三类体验问题：多轮追问像固定问卷（不随用户输入变化）、歌词贴合度不够（泛泛写窗台/手机/夜色而非承接用户核心感受）、加载页文案不分阶段（一直显示「AI 正在理解你的状态」）。本批在不部署、不真实调用 MiniMax 的前提下修复这三点，并核查「快速舒缓一下」彻底纯本地化。
+
+#### 6.20.2 生成链路确认
+
+- 「给现在的你」由 LLM 生成（`/api/comfort-lyrics` → `comfortInterpretation`）
+- 「写成歌的话」歌词由 LLM 生成（`/api/comfort-lyrics` → `lyricDraft`）
+- AI 歌曲音频由 MiniMax 生成（`/api/generate-music`，受三重门保护，默认 REAL_CALLS=false）
+- 「快速舒缓一下」只使用本地 assets 音乐（`AudioAssetCatalog`），不调用 `/api/generate-music`，不调用 MiniMax，不扣 P6 额度
+
+#### 6.20.3 LLM 动态追问
+
+扩展 `/api/comfort-lyrics`，新增 `mode` 参数：
+
+- `mode = "follow_up_questions"`：只生成 2-3 个追问，不生成歌词
+- `mode = "comfort_song"` 或默认：生成 `comfortInterpretation` + `lyricDraft` + `songPrompt`
+
+追问输入：`initialConcern` / `targetStyle` / `language`。追问输出：`questions: string[]`。
+
+追问要求（写入 `FOLLOW_UP_PROMPT`）：
+
+- 必须基于用户具体文字生成，不能套模板
+- 用户说的是低能量/疲惫/空（状态），不问「这件事里」（事件导向）
+- 问题短、自然、低压力，允许跳过，不像心理测评，不医疗化
+- 数量 2-3 个，每个不超过 25 字
+
+示例：输入「最近总是提不起劲，感觉很疲惫、很空」→ 合理追问：`这种疲惫和空落感，通常在什么时候最明显？` / `你更像是身体累，还是心里没有力气？` / `如果这首歌陪你一会儿，你希望它让你慢慢休息，还是给你一点点重新开始的力气？`
+
+#### 6.20.4 本地兜底追问（6 分类）
+
+LLM 追问失败时，使用本地关键词分类兜底（前后端镜像实现）：
+
+| 分类 | 触发关键词 | 兜底问题特征 |
+|---|---|---|
+| `lowEnergy`（优先级最高） | 提不起劲、疲惫、累、空、麻木、没动力、不想动 | 围绕疲惫/空落/身体累/心里没力气，**不含「这件事」** |
+| `eventConflict` | 争吵、分手、被批评、失败、考试、工作事件、人际冲突 | 允许事件导向措辞（「最让你难受」） |
+| `anxietyStress` | 焦虑、紧张、压力、心慌、担心、睡不着 | 围绕最担心的事 |
+| `guiltRegret` | 后悔、愧疚、责备自己、做错事 | 围绕放不下 |
+| `loneliness` | 孤独、没人理解、空落、想有人陪 | 围绕想被陪伴 |
+| `unknown` | 无匹配 | 通用低压力问题 |
+
+`lowEnergy` 优先级最高：只要命中低能量关键词，即使同时含其他类别词，也归 `lowEnergy`，避免对「提不起劲」误问「这件事里」。
+
+#### 6.20.5 歌词贴合度增强
+
+修改 `SYSTEM_PROMPT`，明确：
+
+- 主歌必须承接用户在 `storyText` / 追问回答中提到的具体困境（人物/场景/物件/关系），意象化处理
+- **不编造用户没说过的具体场景**（窗台/手机/枕头边），意象必须服务于用户困境
+- 让用户第一段就感觉「这是在写我」
+- 副歌给一句容易记住的陪伴话，不过度鸡汤
+- 针对「提不起劲/疲惫/空」：围绕提不起劲、很累、空空的、什么都不想做、慢一点也可以、今天先不用变好；不强行写窗台/手机/枕头边
+
+`callLlm` 调用时透传 `initialConcern` + `followUpAnswers`，确保 LLM 能吸收多轮上下文。
+
+#### 6.20.6 「给现在的你」不大改
+
+保持当前结构，使用多轮上下文轻微增强，不变成鸡汤，不说教，不医疗化。
+
+#### 6.20.7 快速舒缓纯本地化核查
+
+全局核查确认：
+
+- 「快速舒缓一下」不调用 `/api/generate-music`、不调用 MiniMax、不扣 P6 额度
+- 不存在「生成专属音乐（实验）」入口/文案
+- 不存在 `MusicGenerationScreen` 路由/入口/残留 import
+- 不保留纯音乐 AI 生成相关页面或测试
+- 只使用本地 assets 音乐（`AudioAssetCatalog`）
+- 后续新增纯音乐只扩展本地曲库配置，不走 AI 生成
+- 「把困惑写成一首歌」的 MiniMax 歌曲生成能力保留，provider adapter 保留
+
+#### 6.20.8 加载页文案分阶段
+
+不同阶段显示不同文案，不再统一显示「AI 正在理解你的状态」：
+
+| 阶段 | 文案 |
+|---|---|
+| 生成追问（loadingFollowUp） | `正在根据你的文字整理几个更贴近的问题…` |
+| 生成「给现在的你」+ 歌词 | `正在整理你的文字，写成一首更贴近你的歌…` |
+| 生成 AI 歌曲音频 | `正在生成这首歌，请保持页面打开…` |
+| 快速舒缓本地音乐分析 | `正在为你选择一段适合此刻的纯音乐…` |
+
+实现：`ComfortLyricsScreen._buildLoadingHint` 支持动态 message；`AnalysisScreen` 加载文案改为「正在为你选择一段适合此刻的纯音乐…」。
+
+#### 6.20.9 版本号同步
+
+- `lib/config/app_version.dart`：`milestone = P4-AI-Music-v1.0`、`versionName = v1.0.0`、`buildLabel = P4-conversation-song-flow-1-fix1`、`buildDate = 2026-07-23`、`deployTarget = Cloudflare Pages`
+- `functions/api/health.js`：`BUILD_LABEL = P4-conversation-song-flow-1-fix1`
+- `scripts/verify-provider-adapter.mjs`：`buildLabel` 断言同步
+
+#### 6.20.10 本批不做
+
+- 不部署上线、不真实调用 MiniMax
+- 不做 R2 持久化 / 历史歌曲 / 分享链接 / 付费系统 / 用户系统 / 4090 部署
+- 不删除「把困惑写成一首歌」的 MiniMax 歌曲生成能力与 provider adapter
+
+#### 6.20.11 验证
+
+`flutter analyze`（No issues found）/ `flutter test` / `flutter build web --release` / `node scripts/verify-provider-adapter.mjs` / `node scripts/verify-comfort-lyrics.mjs`（57 项：P4 第二批 35 项 + fix1 22 项）。
+
+realCallsEnabled 保持 false / manualTest 保护保留 / P6 额度保护保留 / 不使用医疗化表达。
+
 ---
 
 ## 七、数据与隐私
@@ -3181,6 +3287,7 @@ Web 与 Android 的构建链路相互独立：Android 的 Gradle 配置不参与
 |---|---|---|---|
 | 2026-07-23 | v1.0.0 / P6-quota-guard-1 | P6 首批 | 本地额度保护与成本安全 + 文档整理：新增 `LocalGenerationQuotaService`（每日 1 次成功生成上限 / 同步方法 / 时钟注入 / JSON 持久化 / 损坏容错）+ service 单元测试（9 项）；`services.dart` 注册 nullable 全局变量 + `main.dart` 第 9 步装配（独立 try/catch + 自检）；`comfort_lyrics_screen.dart` 额度 UI 集成（`_quotaRemaining` 字段 / initState / `_refreshQuotaState` / 两个 guard / `_buildGenerateSongButton` Column 重写 / `_buildQuotaHint` / 成功分支计数 / `_buildSongActionButtons` 重新生成禁用）；版本号同步 `app_version.dart`(`milestone=P6-Quota-v1.0` / `buildLabel=P6-quota-guard-1`) + `health.js` + `verify-provider-adapter.mjs`(测试 45/63)；新增 `docs/ROADMAP.md`；README 定向更新（2.1 / 2.3 / 6.18 / 十 / 十一 / 十三 / 目录）；`docs/mureka-api-integration-plan.md` 历史标注。realCallsEnabled 保持 false / manualTest 保护保留 / 不部署上线 / 不做 R2/付费/用户系统/4090 / 不使用医疗化表达 |
 | 2026-07-23 | v1.0.0 / P4-conversation-song-flow-1 | P4 多轮流程 | 多轮困惑理解 + 歌词增强 + 纯音乐本地舒缓 + 定时关闭：`comfort_lyrics_screen.dart` 改为 input→followUp→done 三阶段多轮对话流程（3 轮温和追问 + 跳过 + state 字段 `initialConcern`/`followUpAnswers`/`desiredFeeling`/`comfortDirection`，只存页面 state 不做长期保存）；`comfort_lyrics_service.dart` + `functions/api/comfort-lyrics.js` 多轮上下文校验 + LLM prompt 增强（歌词吸收具体细节 + 结构化要求 + 意象化隐私保护）；`plan_screen.dart` 删除「生成专属音乐（实验）」入口 + 删除 `music_generation_screen.dart` 及测试；新增「快速舒缓一下」CTA（跳转 AnalysisScreen 走本地纯音乐，不触发 MiniMax 不扣额度）；新增 `lib/widgets/sleep_timer_button.dart` 共享定时关闭组件（关闭/5/10/15/30 分钟/播放完当前音频）接入 PlayerScreen + ComfortLyricsScreen AI 歌曲播放区；版本号同步 `app_version.dart`(`milestone=P4-AI-Music-v1.0` / `buildLabel=P4-conversation-song-flow-1`) + `health.js` + `verify-provider-adapter.mjs`；测试文件全面更新适配多轮流程 + 新增 4 个多轮对话测试。realCallsEnabled 保持 false / manualTest 保护保留 / P6 额度保护保留 / 已部署上线（2026-07-23，health 验证 realCallsEnabled=false / buildLabel=P4-conversation-song-flow-1，未触发真实 MiniMax）/ 不做 R2/历史歌曲/分享/付费/用户系统/4090/真实 MiniMax 测试 / 不使用医疗化表达 |
+| 2026-07-23 | v1.0.0 / P4-conversation-song-flow-1-fix1 | P4 多轮流程 fix1 | LLM 动态追问 + 歌词贴合度增强 + 快速舒缓纯本地化核查 + 加载文案分阶段：`functions/api/comfort-lyrics.js` 新增 `mode` 参数（`follow_up_questions` 只生成 2-3 个追问 / `comfort_song` 生成歌词）+ `FOLLOW_UP_PROMPT` 引导 LLM 基于用户文字动态生成追问 + `classifyConcern` 6 分类本地兜底（lowEnergy 优先级最高，eventConflict/anxietyStress/guiltRegret/loneliness/unknown）+ `localFollowUpFallback` 兜底问题库 + `normalizeFollowUpQuestions` 规范化；`SYSTEM_PROMPT` 修改：主歌承接用户具体困境，不编造未提及场景（窗台/手机/枕头边），意象服务于用户困境；`lib/pipeline/llm/comfort_lyrics_service.dart` 新增 `fetchFollowUpQuestions` + 本地 6 分类兜底（前后端镜像）；`comfort_lyrics_screen.dart` 新增 `loadingFollowUp` 阶段 + `_dynamicQuestions` + `_buildLoadingHint` 分阶段文案（生成追问/生成歌词/生成歌曲/快速舒缓本地分析各一句）+ 移除 `_loadingFollowUp`/`_desiredFeeling`/`_comfortDirection`/`_FollowUpQuestion`/`_FollowUpOptionChip` 冗余字段与类；`analysis_screen.dart` 加载文案改为「正在为你选择一段适合此刻的纯音乐…」；核查「快速舒缓一下」纯本地化（不调 generate-music/不调 MiniMax/不扣额度/无 MusicGenerationScreen 残留）；版本号同步 `app_version.dart`(`buildLabel=P4-conversation-song-flow-1-fix1`) + `health.js` + `verify-provider-adapter.mjs`；新增 `comfort_lyrics_service_test.dart` 8 项 fix1 测试 + `verify-comfort-lyrics.mjs` 22 项 fix1 测试。realCallsEnabled 保持 false / manualTest 保护保留 / P6 额度保护保留 / 不部署上线 / 不真实调用 MiniMax / 不使用医疗化表达 |
 
 ### 13.7 项目结构
 

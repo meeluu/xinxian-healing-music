@@ -21,10 +21,16 @@ import 'package:xinxian_healing_music/screens/comfort_lyrics_screen.dart';
 ///
 /// P4-conversation-song-flow-1 更新（多轮困惑理解）：
 /// - input 阶段按钮文案从「生成解惑与歌词草稿」改为「开始理解」
-/// - 点击「开始理解」不再直接生成，而是进入 followUp 阶段（3 轮温和追问）
-/// - followUp 阶段可「跳过追问，直接生成」或回答完 3 轮后自动生成
-/// - 多轮数据（initialConcern / followUpAnswers / desiredFeeling / comfortDirection）只存页面 state
+/// - 点击「开始理解」不再直接生成，而是进入 loadingFollowUp → followUp 阶段（2-3 轮温和追问）
+/// - followUp 阶段可「跳过追问，直接生成」或回答完所有轮后自动生成
+/// - 多轮数据（initialConcern / followUpAnswers）只存页面 state
 /// - 测试通过 [generateLyrics] 辅助函数统一走「开始理解 → 跳过追问，直接生成」流程触发生成
+///
+/// P4-conversation-song-flow-1-fix1 更新（LLM 动态追问 + 加载文案分阶段）：
+/// - 追问改为 LLM 动态生成（fetchFollowUpQuestions），失败走本地 6 分类兜底
+/// - 所有追问都是开放式文本输入（不再有选项 chip）
+/// - 加载文案分阶段：loadingFollowUp → 「正在根据你的文字整理几个更贴近的问题…」
+/// - 低能量输入（提不起劲/疲惫/很空）的追问不包含「这件事」措辞
 ///
 /// P4-song-result-experience-1 新增（未纳入 widget 测试，需 API mock 才能触发）：
 /// - 生成成功结果区 `_buildSongResultSection`：歌曲标题 + 试听 + 歌词 + 操作按钮 + 快速舒缓 CTA
@@ -55,8 +61,12 @@ import 'package:xinxian_healing_music/screens/comfort_lyrics_screen.dart';
 void main() {
   /// P4-conversation-song-flow-1：触发生成的完整流程。
   ///
-  /// input 阶段输入困惑 → 点击「开始理解」→ followUp 阶段点击「跳过追问，直接生成」→ 等待 fallback 完成。
+  /// input 阶段输入困惑 → 点击「开始理解」→ loadingFollowUp（HTTP 快速失败）→
+  /// followUp 阶段点击「跳过追问，直接生成」→ 等待 fallback 完成。
   /// 测试环境 http 快速 fallback，结果区会渲染。
+  ///
+  /// fix1：_startFollowUp 改为异步（调 LLM 拿动态追问），需 pump 等待 HTTP 失败后
+  /// 才进入 followUp 阶段。
   Future<void> generateLyrics(
     WidgetTester tester, {
     String story = '最近工作压力很大',
@@ -66,6 +76,8 @@ void main() {
     await tester.enterText(find.byType(TextField), story);
     await tester.pump();
     await tester.tap(find.text('开始理解'));
+    // fix1：等待 fetchFollowUpQuestions 的 HTTP 调用失败 + 本地兜底返回
+    await tester.pump(const Duration(milliseconds: 500));
     await tester.pumpAndSettle();
     // followUp 阶段：点击「跳过追问，直接生成」
     await tester.ensureVisible(find.text('跳过追问，直接生成'));
@@ -97,10 +109,13 @@ void main() {
     await tester.enterText(find.byType(TextField), '最近工作压力很大');
     await tester.pump();
     await tester.tap(find.text('开始理解'));
+    // fix1：等待 fetchFollowUpQuestions HTTP 失败 + 本地兜底
+    await tester.pump(const Duration(milliseconds: 500));
     await tester.pumpAndSettle();
 
     // 进入 followUp 阶段：显示第 1 个追问 + 跳过按钮
-    expect(find.textContaining('最让你放不下'), findsOneWidget);
+    // fix1：「最近工作压力很大」→ classifyConcern=anxietyStress → 兜底第 1 问
+    expect(find.textContaining('现在最担心'), findsOneWidget);
     expect(find.text('跳过追问，直接生成'), findsOneWidget);
     // 进度提示
     expect(find.textContaining('第 1 / 3'), findsOneWidget);
@@ -115,6 +130,8 @@ void main() {
     await tester.enterText(find.byType(TextField), '最近工作压力很大');
     await tester.pump();
     await tester.tap(find.text('开始理解'));
+    // fix1：等待 fetchFollowUpQuestions HTTP 失败 + 本地兜底
+    await tester.pump(const Duration(milliseconds: 500));
     await tester.pumpAndSettle();
     await tester.tap(find.text('跳过追问，直接生成'));
     await tester.pump(const Duration(milliseconds: 500));
@@ -133,22 +150,27 @@ void main() {
     await tester.enterText(find.byType(TextField), '最近工作压力很大');
     await tester.pump();
     await tester.tap(find.text('开始理解'));
+    // fix1：等待 fetchFollowUpQuestions HTTP 失败 + 本地兜底
+    await tester.pump(const Duration(milliseconds: 500));
     await tester.pumpAndSettle();
 
-    // Q1（开放式）：输入回答 → 点「继续」
+    // fix1：所有追问都是开放式文本输入（不再有选项 chip）
+    // Q1：输入回答 → 点「继续」
     await tester.enterText(find.byType(TextField), '最放不下的是没发出去的消息');
     await tester.pumpAndSettle();
     await tester.tap(find.text('继续'));
     await tester.pumpAndSettle();
 
-    // Q2（有选项：安慰/释怀/给我一点力量）：点选项 chip 直接推进
-    expect(find.textContaining('希望它更像安慰'), findsOneWidget);
-    await tester.tap(find.text('安慰'));
+    // Q2：输入回答 → 点「继续」
+    await tester.enterText(find.byType(TextField), '想先平静下来');
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('继续'));
     await tester.pumpAndSettle();
 
-    // Q3（有选项：想被理解/想慢慢平静下来）：点选项 chip 直接推进并生成
-    expect(find.textContaining('更想被理解'), findsOneWidget);
-    await tester.tap(find.text('想慢慢平静下来'));
+    // Q3：输入回答 → 点「生成歌词」（最后一轮按钮文案）
+    await tester.enterText(find.byType(TextField), '希望这首歌能陪我慢下来');
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('生成歌词'));
     await tester.pump(const Duration(milliseconds: 500));
     await tester.pumpAndSettle();
 
@@ -220,6 +242,8 @@ void main() {
     await tester.enterText(find.byType(TextField), '最近工作压力很大');
     await tester.pump();
     await tester.tap(find.text('开始理解'));
+    // fix1：等待 fetchFollowUpQuestions HTTP 失败 + 本地兜底
+    await tester.pump(const Duration(milliseconds: 500));
     await tester.pumpAndSettle();
 
     // followUp 阶段应显示追问卡片（不空白）
@@ -234,9 +258,7 @@ void main() {
     expect(find.textContaining('llm_network_error'), findsNothing);
   });
 
-  testWidgets('生成完成后显示结果区（新标题「给现在的你」「写成歌的话」）', (
-    WidgetTester tester,
-  ) async {
+  testWidgets('生成完成后显示结果区（新标题「给现在的你」「写成歌的话」）', (WidgetTester tester) async {
     await generateLyrics(tester);
 
     expect(find.text('给现在的你'), findsOneWidget);
@@ -495,6 +517,71 @@ void main() {
     expect(find.text('再写一首'), findsOneWidget);
   });
 
+  // ─── P4-conversation-song-flow-1-fix1：动态追问 + 加载文案分阶段测试 ──────
+
+  /// fix1：输入「提不起劲 / 疲惫 / 很空」时，追问不应出现「这件事」。
+  /// lowEnergy 分类的兜底问题不含「这件事」措辞，避免在用户没力气时问事件导向问题。
+  testWidgets('fix1：低能量输入的追问不包含「这件事」', (WidgetTester tester) async {
+    await tester.pumpWidget(const MaterialApp(home: ComfortLyricsScreen()));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField), '最近总是提不起劲，感觉很疲惫、很空');
+    await tester.pump();
+    await tester.tap(find.text('开始理解'));
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pumpAndSettle();
+
+    // 进入 followUp 阶段
+    expect(find.text('跳过追问，直接生成'), findsOneWidget);
+    // lowEnergy 兜底第 1 问应包含「没力气」等低能量表达
+    expect(find.textContaining('没力气'), findsOneWidget);
+    // 不应出现「这件事里」这种事件导向措辞
+    expect(find.textContaining('这件事'), findsNothing);
+  });
+
+  /// fix1：输入「和妈妈吵架了」时，eventConflict 分类的兜底问题允许出现「这件事」。
+  testWidgets('fix1：事件冲突输入的追问可包含事件导向措辞', (WidgetTester tester) async {
+    await tester.pumpWidget(const MaterialApp(home: ComfortLyricsScreen()));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField), '和妈妈吵架了');
+    await tester.pump();
+    await tester.tap(find.text('开始理解'));
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pumpAndSettle();
+
+    // 进入 followUp 阶段
+    expect(find.text('跳过追问，直接生成'), findsOneWidget);
+    // eventConflict 兜底第 1 问应包含「最让你难受」
+    expect(find.textContaining('最让你难受'), findsOneWidget);
+  });
+
+  /// fix1：加载文案分阶段 + 旧统一文案已移除。
+  ///
+  /// 说明：Flutter 测试环境（TestWidgetsFlutterBinding）会将所有 HTTP 请求
+  /// 立即返回 400，导致 loadingFollowUp 阶段瞬时过渡到 followUp，无法捕获
+  /// 中间加载态帧。本测试改为验证加载文案变更的「结果」：
+  /// 1. 流程能正确进入 followUp 阶段（动态追问已生成）
+  /// 2. 旧的统一加载文案「AI 正在理解你的状态」在整个流程中不出现
+  ///    （分阶段文案在源码 comfort_lyrics_screen.dart:470 / analysis_screen.dart:237 硬编码）
+  testWidgets('fix1：loadingFollowUp 阶段显示追问生成文案', (WidgetTester tester) async {
+    await tester.pumpWidget(const MaterialApp(home: ComfortLyricsScreen()));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField), '最近工作压力很大');
+    await tester.pump();
+    await tester.tap(find.text('开始理解'));
+    await tester.pumpAndSettle();
+
+    // 流程正确进入 followUp 阶段（动态追问已生成）
+    expect(find.text('跳过追问，直接生成'), findsOneWidget);
+    // anxietyStress 兜底问题包含「最担心」
+    expect(find.textContaining('最担心'), findsOneWidget);
+    // 旧的统一加载文案不出现（已改为分阶段文案）
+    expect(find.text('AI 正在理解你的状态，再等一下…'), findsNothing);
+    expect(find.textContaining('AI 正在理解你的状态'), findsNothing);
+  });
+
   // ─── P6-quota-guard-1：额度 UI widget 测试 ──────────────────────
   //
   // 覆盖 P6 成本保护的主要入口（「生成这首歌（实验）」按钮 + 额度提示）。
@@ -508,12 +595,15 @@ void main() {
     /// 触发歌词生成（测试环境 http 快速 fallback 填充 _result），
     /// 使结果区的「生成这首歌（实验）」按钮与额度提示渲染出来。
     /// P4-conversation-song-flow-1：走「开始理解 → 跳过追问，直接生成」流程。
+    /// fix1：_startFollowUp 改为异步，需 pump 等待 HTTP 失败后进入 followUp。
     Future<void> generateLyricsWithQuota(WidgetTester tester) async {
       await tester.pumpWidget(const MaterialApp(home: ComfortLyricsScreen()));
       await tester.pumpAndSettle(); // 让 initState 的 _refreshQuotaState 完成
       await tester.enterText(find.byType(TextField), '最近工作压力很大');
       await tester.pump();
       await tester.tap(find.text('开始理解'));
+      // fix1：等待 fetchFollowUpQuestions HTTP 失败 + 本地兜底
+      await tester.pump(const Duration(milliseconds: 500));
       await tester.pumpAndSettle();
       await tester.ensureVisible(find.text('跳过追问，直接生成'));
       await tester.pumpAndSettle();

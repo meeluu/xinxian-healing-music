@@ -234,7 +234,7 @@ class _AnalysisScreenState extends State<AnalysisScreen>
                         ),
                         const SizedBox(height: 16),
                         const Text(
-                          'AI 正在理解你的状态，再等一下…',
+                          '正在为你选择一段适合此刻的纯音乐…',
                           style: TextStyle(
                             fontSize: 14,
                             color: AppColors.textSecondary,

@@ -2,7 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:xinxian_healing_music/models/comfort_lyrics_result.dart';
 import 'package:xinxian_healing_music/pipeline/llm/comfort_lyrics_service.dart';
 
-/// ComfortLyricsService 测试（P4 新方向第一批 / 第二批）。
+/// ComfortLyricsService 测试（P4 新方向第一批 / 第二批 / fix1）。
 ///
 /// P4 第二批更新：
 /// - fallback 改为按场景识别（detectScene）选择模板，不再按 targetStyle
@@ -10,11 +10,18 @@ import 'package:xinxian_healing_music/pipeline/llm/comfort_lyrics_service.dart';
 /// - 新增说教类禁用词检测（你必须/你应该/这说明你/你需要治疗）
 /// - 新增玄学类禁用词检测（命运安排/宇宙告诉你/上天告诉你/神明告诉你）
 ///
+/// P4-conversation-song-flow-1-fix1 新增：
+/// - fetchFollowUpQuestions 本地兜底分类测试（6 分类：lowEnergy/eventConflict/anxietyStress/guiltRegret/loneliness/unknown）
+/// - 低能量输入（提不起劲/疲惫/很空）的兜底问题不包含「这件事」措辞
+/// - eventConflict 允许事件导向措辞，anxietyStress/guiltRegret/loneliness 各有特征词
+/// - 兜底问题不含医疗化词汇
+///
 /// 验证：
 /// - 网络失败时返回 fallback（不抛异常）
 /// - fallback 文案符合规范（含歌词结构、不含医疗化/玄学化/说教词汇）
 /// - 5 场景识别正确，每个场景有独立模板
 /// - songPrompt 为英文且含 vocal/tempo/instrumentation 要素
+/// - fix1：fetchFollowUpQuestions 网络失败时返回本地 6 分类兜底问题
 /// - 不依赖真实后端（测试环境无网络，必然走 fallback）
 void main() {
   const service = ComfortLyricsService();
@@ -352,6 +359,119 @@ void main() {
           isFalse,
           reason: 'songPrompt 不应含用户隐私原句: $frag',
         );
+      }
+    });
+  });
+
+  // ─── P4-conversation-song-flow-1-fix1：fetchFollowUpQuestions + 本地兜底分类 ───
+  //
+  // 测试环境无真实后端，fetchFollowUpQuestions 的 HTTP 调用必然失败，
+  // 走 _localFollowUpFallback → _classifyConcern 的 6 分类关键词匹配。
+  // 验证：低能量输入不出现「这件事」、eventConflict 允许事件导向措辞、问题数量 2-3 条。
+  group('fix1：fetchFollowUpQuestions 本地兜底分类', () {
+    test('网络失败时返回本地兜底问题，不抛异常', () async {
+      final questions = await service.fetchFollowUpQuestions(
+        storyText: '最近工作压力很大',
+      );
+
+      expect(questions, isA<List<String>>());
+      expect(questions.length, greaterThanOrEqualTo(2));
+      expect(questions.length, lessThanOrEqualTo(3));
+    });
+
+    test('低能量输入（提不起劲/疲惫/很空）返回 lowEnergy 兜底问题', () async {
+      final questions = await service.fetchFollowUpQuestions(
+        storyText: '最近总是提不起劲，感觉很疲惫、很空',
+      );
+
+      expect(questions.length, 3);
+      // lowEnergy 兜底第 1 问应包含「没力气」
+      expect(questions.first, contains('没力气'));
+    });
+
+    test('低能量兜底问题不包含「这件事」措辞', () async {
+      final lowEnergyInputs = [
+        '最近总是提不起劲，感觉很疲惫、很空',
+        '什么都不想做，很累，没动力',
+        '感觉麻木，空的，没精神',
+      ];
+      for (final input in lowEnergyInputs) {
+        final questions = await service.fetchFollowUpQuestions(
+          storyText: input,
+        );
+        for (final q in questions) {
+          expect(
+            q.contains('这件事'),
+            isFalse,
+            reason: '低能量输入的兜底问题不应包含「这件事」: $q (input: $input)',
+          );
+        }
+      }
+    });
+
+    test('事件冲突输入（和妈妈吵架了）返回 eventConflict 兜底问题', () async {
+      final questions = await service.fetchFollowUpQuestions(
+        storyText: '和妈妈吵架了',
+      );
+
+      expect(questions.length, 3);
+      // eventConflict 兜底第 1 问应包含「最让你难受」
+      expect(questions.first, contains('最让你难受'));
+    });
+
+    test('焦虑压力输入（焦虑/睡不着）返回 anxietyStress 兜底问题', () async {
+      final questions = await service.fetchFollowUpQuestions(
+        storyText: '最近很焦虑，睡不着',
+      );
+
+      expect(questions.length, 3);
+      // anxietyStress 兜底第 1 问应包含「最担心」
+      expect(questions.first, contains('最担心'));
+    });
+
+    test('愧疚后悔输入（后悔/愧疚）返回 guiltRegret 兜底问题', () async {
+      final questions = await service.fetchFollowUpQuestions(
+        storyText: '我很后悔，当时不该那样做',
+      );
+
+      expect(questions.length, 3);
+      // guiltRegret 兜底第 1 问应包含「放不下」
+      expect(questions.first, contains('放不下'));
+    });
+
+    test('孤独输入（孤独/没人理解）返回 loneliness 兜底问题', () async {
+      final questions = await service.fetchFollowUpQuestions(
+        storyText: '感觉很孤独，没人理解我',
+      );
+
+      expect(questions.length, 3);
+      // loneliness 兜底第 1 问应包含「有人陪」
+      expect(questions.first, contains('有人陪'));
+    });
+
+    test('兜底问题不含医疗化词汇', () async {
+      final testInputs = [
+        '提不起劲，很疲惫',
+        '和妈妈吵架了',
+        '很焦虑，睡不着',
+        '我很后悔',
+        '感觉很孤独',
+        '今天心情不太好',
+      ];
+      final bannedWords = ['治疗', '治愈', '疗法', '疗效', '症状', '抑郁', '焦虑症'];
+      for (final input in testInputs) {
+        final questions = await service.fetchFollowUpQuestions(
+          storyText: input,
+        );
+        for (final q in questions) {
+          for (final w in bannedWords) {
+            expect(
+              q.contains(w),
+              isFalse,
+              reason: '兜底问题不应包含医疗化词汇: $w (q: $q, input: $input)',
+            );
+          }
+        }
       }
     });
   });

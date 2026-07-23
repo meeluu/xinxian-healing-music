@@ -92,6 +92,199 @@ class ComfortLyricsService {
     return ComfortLyricsResult.fromJson(body);
   }
 
+  // ─── P4-conversation-song-flow-1-fix1：LLM 动态追问 ────────────
+  //
+  // 调用后端 mode='follow_up_questions' 分支，让 LLM 根据用户原文生成 2-3 个
+  // 简短追问（不再用固定模板）。任何失败都走 [_localFollowUpFallback] 返回本地
+  // 6 分类兜底问题，绝不抛异常，不让前端卡死。
+  //
+  // 与 generate() 的区别：只拉追问列表，不生成歌词；超时更短（12s）。
+
+  /// 拉取 LLM 动态追问问题。
+  ///
+  /// 失败时（网络、非 200、JSON 解析失败、questions 为空/不足 2 条）调用
+  /// [_localFollowUpFallback] 返回本地兜底问题，绝不抛异常。
+  Future<List<String>> fetchFollowUpQuestions({
+    required String storyText,
+    String sessionId = '',
+    String language = 'zh-CN',
+  }) async {
+    final http.Response resp;
+    try {
+      resp = await http
+          .post(
+            _endpoint(),
+            headers: {'Content-Type': 'application/json; charset=utf-8'},
+            body: jsonEncode({
+              'storyText': storyText,
+              'sessionId': sessionId,
+              'language': language,
+              'mode': 'follow_up_questions',
+            }),
+          )
+          .timeout(const Duration(seconds: 12));
+    } catch (_) {
+      return _localFollowUpFallback(storyText);
+    }
+
+    if (resp.statusCode != 200) {
+      return _localFollowUpFallback(storyText);
+    }
+
+    final Map<String, dynamic> body;
+    try {
+      body = jsonDecode(resp.body) as Map<String, dynamic>;
+    } catch (_) {
+      return _localFollowUpFallback(storyText);
+    }
+
+    final raw = body['questions'];
+    if (raw is! List) return _localFollowUpFallback(storyText);
+    final questions = raw
+        .whereType<String>()
+        .map((s) => s.trim())
+        .where((s) => s.isNotEmpty)
+        .toList();
+    if (questions.length < 2) return _localFollowUpFallback(storyText);
+    return questions.take(3).toList();
+  }
+
+  /// 追问本地兜底（LLM 不可达 / 返回无效时使用）。
+  ///
+  /// 与后端 `localFollowUpFallback` 的 6 分类保持一致，通过 [_classifyConcern]
+  /// 关键词匹配选择对应问题。lowEnergy 优先级最高，避免在用户没力气时问"这件事里"。
+  List<String> _localFollowUpFallback(String storyText) {
+    final category = _classifyConcern(storyText);
+    return _followUpFallbackQuestions[category] ??
+        _followUpFallbackQuestions['unknown']!;
+  }
+
+  /// 根据 storyText 关键词识别追问分类（与后端 `classifyConcern` 一致）。
+  ///
+  /// 6 类：lowEnergy / eventConflict / anxietyStress / guiltRegret /
+  /// loneliness / unknown。lowEnergy 优先级最高。
+  static String _classifyConcern(String storyText) {
+    if (storyText.isEmpty) return 'unknown';
+
+    // lowEnergy：提不起劲 / 疲惫 / 空 / 没动力（优先级最高）
+    const lowEnergyKeywords = [
+      '提不起劲',
+      '疲惫',
+      '很累',
+      '好累',
+      '太累了',
+      '很空',
+      '空的',
+      '空落',
+      '麻木',
+      '没动力',
+      '不想动',
+      '没力气',
+      '什么都不想做',
+      '没意思',
+      '没劲儿',
+      '提不起精神',
+      '没精神',
+    ];
+    for (final k in lowEnergyKeywords) {
+      if (storyText.contains(k)) return 'lowEnergy';
+    }
+
+    // eventConflict：争吵 / 分手 / 被批评 / 失败 / 人际冲突
+    const eventConflictKeywords = [
+      '争吵',
+      '吵架',
+      '分手',
+      '被批评',
+      '失败',
+      '考试',
+      '挂科',
+      '冷战',
+      '已读不回',
+      '妈妈',
+      '爸爸',
+      '朋友',
+      '同事',
+      '室友',
+      '老板',
+      '上司',
+      '伴侣',
+      '对象',
+      '男朋友',
+      '女朋友',
+      '骂',
+      '冲突',
+      '闹翻',
+    ];
+    for (final k in eventConflictKeywords) {
+      if (storyText.contains(k)) return 'eventConflict';
+    }
+
+    // anxietyStress：焦虑 / 紧张 / 压力 / 心慌 / 睡不着
+    const anxietyStressKeywords = [
+      '焦虑',
+      '紧张',
+      '压力',
+      '心慌',
+      '担心',
+      '睡不着',
+      '失眠',
+      '喘不过气',
+      '心跳快',
+      '害怕',
+      '恐惧',
+    ];
+    for (final k in anxietyStressKeywords) {
+      if (storyText.contains(k)) return 'anxietyStress';
+    }
+
+    // guiltRegret：后悔 / 愧疚 / 责备自己 / 做错事
+    const guiltRegretKeywords = [
+      '后悔',
+      '愧疚',
+      '责备自己',
+      '做错事',
+      '对不起',
+      '我害了',
+      '都是我的错',
+      '自责',
+      '内疚',
+      '辜负',
+    ];
+    for (final k in guiltRegretKeywords) {
+      if (storyText.contains(k)) return 'guiltRegret';
+    }
+
+    // loneliness：孤独 / 没人理解 / 想有人陪
+    const lonelinessKeywords = [
+      '孤独',
+      '没人理解',
+      '想有人陪',
+      '一个人',
+      '没人懂',
+      '没人陪',
+      '孤零零',
+      '孤单',
+    ];
+    for (final k in lonelinessKeywords) {
+      if (storyText.contains(k)) return 'loneliness';
+    }
+
+    return 'unknown';
+  }
+
+  /// 6 分类追问兜底问题（与后端 `FOLLOW_UP_FALLBACK_QUESTIONS` 一致）。
+  ///
+  /// 全部低压力、不医疗化；lowEnergy / unknown 不带"这件事里"措辞。
+  static const Map<String, List<String>> _followUpFallbackQuestions = {
+    'lowEnergy': ['今天最没力气的是什么时刻？', '现在更想要安静，还是有人陪？', '有想先放一放的事吗？'],
+    'eventConflict': ['最让你难受的是哪一句？', '现在更想被理解，还是想先平静下来？', '有想跟对方说、但没说出口的话吗？'],
+    'anxietyStress': ['现在最担心的是哪件事？', '有没有哪一段想法，一直绕着不走？', '想先停一下，还是想找个人说一说？'],
+    'guiltRegret': ['最放不下的是当时的哪一句话？', '现在更想先原谅自己，还是先想清楚？', '有想跟对方说、但还没说出口的吗？'],
+    'loneliness': ['今天最想有人陪的时刻是哪一段？', '现在更想要安静，还是想被听见？', '有没有谁，是你想了一下但没联系的？'],
+    'unknown': ['今天最重的是哪一段心情？', '现在更想被理解，还是想先平静下来？', '有想先放一放的事吗？'],
+  };
+
   /// 前端本地 fallback（网络完全不可达时使用）。
   ///
   /// P4 第二批：与后端 `localFallback` 的 5 场景模板保持一致，
