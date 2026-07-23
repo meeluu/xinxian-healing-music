@@ -9,7 +9,7 @@ import 'package:xinxian_healing_music/pipeline/llm/comfort_lyrics_service.dart';
 import 'package:xinxian_healing_music/theme/app_colors.dart';
 import 'package:xinxian_healing_music/widgets/centered_page.dart';
 
-/// 「把困惑写成一首歌」页面（P4 新方向第一/二/三批 + P4 生成音频落地播放）。
+/// 「把困惑写成一首歌」页面（P4 新方向第一/二/三批 + P4 生成音频落地播放 + P4 临时音频播放闭环）。
 ///
 /// 流程：
 /// 1. 用户输入一段困惑/事件/情绪描述
@@ -18,14 +18,15 @@ import 'package:xinxian_healing_music/widgets/centered_page.dart';
 /// 4. 显示：
 ///    - 温和解惑文本（comfortInterpretation）
 ///    - 歌词草稿（lyricDraft，含主歌/副歌/尾声标记）
-///    - 后续提示：`下一步将用于生成专属歌曲`（本批不接真实音乐生成）
-/// 5. P4 第三批：用户可「编辑歌词」并保存/取消；底部新增「生成这首歌（即将开放）」占位按钮
-/// 6. P4-generated-audio-playback-1：「生成这首歌」改为受控实验入口
-///    - 文案改为「生成这首歌（实验）」
+///    - 后续提示：`下一步可以生成专属歌曲`
+/// 5. P4 第三批：用户可「编辑歌词」并保存/取消
+/// 6. P4-generated-audio-playback-1 + P4-temp-audio-playback-1：「生成这首歌」受控实验入口
+///    - 文案为「生成这首歌（实验）」
 ///    - 点击前必须确认"会发起一次 AI 音乐生成，可能产生调用费用"
 ///    - 调用 /api/generate-music（带 manualTest=true，受后端三重门保护）
-///    - 成功拿到 generatedAudioUrl 后在页面内嵌简洁播放区
-///    - 拿到 storageKey 但无 URL 时提示"音乐已生成并保存，播放地址配置后可试听"
+///    - 成功拿到 generatedAudioUrl（R2 路径）或 audioDataUrl（base64 临时播放）后在页面内嵌播放区
+///    - P4-temp-audio-playback-1：不依赖 R2，audioDataUrl 临时播放闭环已线上验证通过
+///    - 既无 URL 也无 audioDataUrl 时提示"音乐已经生成，但暂时无法播放，请稍后再试"
 ///    - 失败时显示"生成没有完成，请稍后再试"
 ///    - 不影响"快速舒缓一下"固定曲库播放链路
 ///
@@ -1197,9 +1198,10 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
     );
   }
 
-  /// 存储警告提示卡片：音乐已生成保存但播放地址未配置。
+  /// 存储警告提示卡片：音乐已生成但暂时无法播放。
   ///
-  /// 触发条件：后端返回 storageWarning=r2_not_configured 或 r2_upload_failed。
+  /// P4-temp-audio-playback-1 调整：R2 未配置不再触发此卡片（走 audioDataUrl 临时播放）。
+  /// 当前触发条件：R2 上传失败（r2_upload_failed）且 audioDataUrl 也未生成（极端边界情况）。
   /// 文案面向用户友好，不暴露 R2 / storageKey 等技术细节。
   Widget _buildStorageWarningHint() {
     return Container(
@@ -1220,7 +1222,7 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
           const SizedBox(width: 8),
           Expanded(
             child: Text(
-              '音乐已生成并保存，播放地址配置后可试听。',
+              '音乐已生成，但暂时无法播放，请稍后再试。',
               style: TextStyle(
                 fontSize: 12,
                 color: AppColors.textSecondary,

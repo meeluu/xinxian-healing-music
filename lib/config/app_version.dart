@@ -50,8 +50,9 @@ class AppVersion {
   /// - `P{N}-minimax-real-test-{n}`：P 阶段第 n 批 MiniMax 真实生成链路受控测试（手动 curl 真实调用，仓库默认 REAL_CALLS=false）
   /// - `P{N}-generated-audio-playback-{n}`：P 阶段第 n 批 MiniMax 生成音频落地播放链路（audioHex → R2 → 前端播放闭环）
   /// - `P{N}-temp-audio-playback-{n}`：P 阶段第 n 批 MiniMax 生成音频临时播放闭环（audioHex → base64 dataUrl → 前端播放，不依赖 R2）
+  /// - `P{N}-temp-audio-playback-{n}-cleanup`：P 阶段第 n 批临时播放闭环的代码审计清理版本（线上试听验证通过后的收尾）
   /// - `P{N}-stable`：P 阶段收尾验收通过，正式发布
-  static const String buildLabel = 'P4-temp-audio-playback-1';
+  static const String buildLabel = 'P4-temp-audio-playback-1-cleanup';
 
   /// 构建日期（YYYY-MM-DD），手动维护。
   static const String buildDate = '2026-07-23';

@@ -46,7 +46,8 @@ const SERVICE_VERSION = 'v1';
 // P4 MiniMax 真实生成链路受控测试：同步更新为 P4-minimax-real-test-1
 // P4 生成音频落地播放链路：同步更新为 P4-generated-audio-playback-1
 // P4 临时音频播放闭环：同步更新为 P4-temp-audio-playback-1
-const BUILD_LABEL = 'P4-temp-audio-playback-1';
+// P4 临时音频播放闭环代码审计清理：同步更新为 P4-temp-audio-playback-1-cleanup
+const BUILD_LABEL = 'P4-temp-audio-playback-1-cleanup';
 
 // ─── 统一响应 helper ──────────────────────────────────────────
 function jsonResponse(payload, statusCode, origin) {

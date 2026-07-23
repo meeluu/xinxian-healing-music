@@ -5,7 +5,7 @@
 心弦是一款基于 Flutter Web 的情绪陪伴 Demo。用户输入当下心境后，系统通过 LLM 生成情绪画像与音乐参数，并播放匹配的本地音频素材，形成「自然语言 → AI 情绪解析 → 音乐方案 → 音频体验 → 用户反馈」的完整闭环。
 
 - **正式体验地址**：[https://xinxian-music.xyz](https://xinxian-music.xyz)
-- **当前版本**：`v1.0.0 · P4-temp-audio-playback-1 · Cloudflare Pages`
+- **当前版本**：`v1.0.0 · P4-temp-audio-playback-1-cleanup · Cloudflare Pages`
 - **定位**：辅助情绪调节、睡前舒缓、正念陪伴、温和充能的轻量化工具，**不提供医疗诊断或治疗**，不替代专业心理咨询与医疗建议（详见[第十二章 免责声明](#十二免责声明)）
 
 ---
@@ -2488,6 +2488,87 @@ flutter build web --release                 # exit code 0
 6. 测试完成后立即将 `MUSIC_GENERATION_REAL_CALLS_ENABLED` 改回 `"false"` 并重新部署
 7. `/api/health` 确认 `realCallsEnabled=false` / `hasMinimaxKey=true` / `buildLabel=P4-temp-audio-playback-1`
 
+#### 6.17.11 线上真实试听结果（2026-07-23）
+
+**结论：线上真实试听成功，前端可播放 AI 生成歌曲。**
+
+执行流程：
+1. 临时将 `wrangler.toml` `MUSIC_GENERATION_REAL_CALLS_ENABLED` 改为 `"true"`
+2. 临时注释掉 `wrangler.toml` 中 `[[r2_buckets]]` R2 binding（因 `xinxian-generated-music` bucket 不存在会导致部署失败）
+3. `flutter build web --release` + `wrangler pages deploy` 部署到线上
+4. `/api/health` 确认 `realCallsEnabled=true` / `hasMinimaxKey=true` / `hasR2Bucket=false` / `buildLabel=P4-temp-audio-playback-1`
+5. 用户在 https://xinxian-music.xyz 手动测试：
+   - 点击「把困惑写成一首歌」
+   - 输入困惑 → 生成解惑与歌词草稿
+   - 点击「生成这首歌（实验）」→ 确认费用弹窗 → 等待生成
+   - **页面出现播放器，点击播放可听到 AI 生成歌曲** ✅
+6. 测试完成后立即将 `MUSIC_GENERATION_REAL_CALLS_ENABLED` 改回 `"false"` 并重新部署
+7. `/api/health` 确认 `realCallsEnabled=false` / `hasMinimaxKey=true` / `buildLabel=P4-temp-audio-playback-1`
+
+**验证要点**：
+- ✅ 成功调用 MiniMax Music-2.0 API
+- ✅ 使用 `audioDataUrl`（base64 dataUrl）临时播放，**不依赖 R2**
+- ✅ 前端能播放 AI 生成歌曲
+- ✅ `realCallsEnabled` 测试后已恢复 `false`
+- ✅ 不影响"快速舒缓一下"固定曲库播放流程
+
+**产品核心链路已跑通**：
+> 用户输入困惑 → 生成解惑 → 生成歌词 → MiniMax 生成歌曲 → 页面直接播放
+
+#### 6.17.12 代码审计与清理（P4-temp-audio-playback-1-cleanup）
+
+线上试听验证通过后，对本批代码进行审计清理：
+
+**审计结论**（全部通过）：
+- ✅ R2 完全可选：R2 未配置/失败时走 `audioDataUrl` 兜底，不影响播放；`wrangler.toml` R2 binding 已注释（bucket 不存在时不阻断部署）
+- ✅ 不返回完整 `audioHex` 给前端（只返回 `audioHexLength` + `audioDataUrl` base64 编码形式）
+- ✅ 不在日志打印完整 `audioHex` / `audioDataUrl` / `storageKey`（只打印长度）
+- ✅ 只保留必要诊断字段：`audioHexLength` / `audioBase64Length` / `contentType` / `traceId` / `provider` / `status`
+- ✅ MiniMax 失败时返回 fallback，不白屏
+- ✅ `manualTest=true` 安全保护保留
+- ✅ `realCallsEnabled=false` 默认安全
+- ✅ 不暴露 `MINIMAX_API_KEY`
+- ✅ 文案合规（无"治疗/治愈/诊断/疗法/算命/神谕/命中注定"等违规表达）
+- ✅ 无重复状态字段 / 无废弃方法 / 无未使用 import
+
+**清理内容**：
+- 更新 `comfort_lyrics_screen.dart` 顶部文档注释（反映 P4-temp-audio-playback-1 当前状态，移除"本批不接真实音乐生成"等过时描述）
+- 更新 `_buildStorageWarningHint` 注释和文案（R2 未配置不再触发此卡片，文案改为"音乐已生成，但暂时无法播放，请稍后再试"）
+- 版本号更新为 `P4-temp-audio-playback-1-cleanup`
+
+**未清理（保留）**：
+- R2 相关代码（`_hexToBytes` / `_buildStorageKey` / R2 上传逻辑）：作为后续 P5 持久化方案的基础，保留但可选
+- `functions/api/generated-music.js`：R2 音频流代理端点，保留但仅在 R2 配置时可用
+- `manualTest` 三重门保护：安全核心，不移除
+
+#### 6.17.13 后续计划（未实现，仅规划）
+
+以下功能**尚未实现**，仅作为后续路线规划：
+
+**P4 下一批：生成歌曲结果页体验优化**
+- 展示生成歌曲标题
+- 展示歌词
+- 展示播放控件
+- 支持重新生成
+- 支持返回编辑歌词
+
+**P5：持久化存储**
+- 可选 R2 或未来 4090 服务器存储
+- 保存生成歌曲
+- 历史生成记录
+- 分享链接
+
+**P6：用户与额度**
+- 免费次数
+- 生成次数限制
+- 成本统计
+- 失败不扣次数
+
+**P7：4090 后端迁移准备**
+- 抽象 provider
+- 设计独立后端服务
+- 设计音频存储服务
+
 ---
 
 ## 七、数据与隐私
@@ -2829,6 +2910,7 @@ Web 与 Android 的构建链路相互独立：Android 的 Gradle 配置不参与
 | 2026-07-19 | v1.0.0 / P4-minimax-real-test-1 | P4 MiniMax 真实生成链路受控测试 | 完善 MiniMax Music-2.0 真实生成链路返回信息，准备手动 curl 测试流程：`minimax-music-provider.js` `_callMiniMax` 补齐 `audioUrl`（`data.data.audio_url`）/ `taskId`（`data.data.task_id` / `data.task_id`）/ `requestId`（`data.request_id`）字段提取，成功响应返回 `audioUrl` / `audioUrlLength` / `taskId` / `requestId`；`_fallbackResponse` 新增第四个参数 `extra`（用于 errorMessage 映射不进入响应）+ 返回字段新增 `errorCode`（与 `reason` 一致）/ `errorMessage`（安全映射）/ `taskId` / `traceId` / `requestId`（null）；新增 `_mapErrorMessage(reason, extra)` 方法根据 reason 返回内部友好消息（`http_error_*`→`minimax_http_error` / `minimax_error_*`→`minimax_business_error` / `request_timeout`→`minimax_request_timeout` / `request_failed`→`minimax_request_failed` / `provider_disabled`→`minimax_real_calls_disabled` / `api_key_missing`→`minimax_api_key_missing` / `manual_test_required`→`manual_test_required`），**不泄露 errText / status_msg / err.message 原始内容**；HTTP 错误 / 业务错误 / 超时 / fetch 异常调用 `_fallbackResponse` 时传入 `extra`（httpStatus / minimaxStatusCode / errorName）；`wrangler.toml` `MUSIC_GENERATION_REAL_CALLS_ENABLED` 注释新增 P4-minimax-real-test-1 手动测试流程（**保持 `"false"`** 仓库默认安全，测试时手动改 `true` 并部署，测完改回 `false` 再部署，curl `/api/health` 验证 `realCallsEnabled=false` / `hasMinimaxKey=true`）；`health.js` `BUILD_LABEL` 同步为 `P4-minimax-real-test-1`；`app_version.dart` `buildLabel` → `P4-minimax-real-test-1` + 新增 `P{N}-minimax-real-test-{n}` 约定说明；`verify-provider-adapter.mjs` 测试 24/25/26/27/28/29 断言更新（errorCode 与 reason 一致 + errorMessage 安全映射 + audioUrl/taskId/requestId 字段），新增测试 47-52（audioUrl 解析 / taskId 解析 / requestId 解析 / HTTP 错误 errorMessage 不泄露 errText / 业务错误 errorMessage 不泄露 status_msg / fetch 异常 errorMessage 不泄露 err.message / fallback 响应包含 taskId/traceId/requestId 字段，共 7 项），共 52 项测试；本批**不开放前端真实调用**（按钮保持灰度入口） / **不调用 Mureka** / **不部署 4090** / **不改 D1 schema** / **不做付费模块** / **不做社交 Agent** / **不写入任何 API Key** / **不打印 MINIMAX_API_KEY** / **不使用医疗化/玄学化表达** / **不返回完整 audioHex** / **不实现真实音频播放**（下一批处理）/ **不实现 R2 持久化存储** / **不允许移除 manualTest 保护**（三重门之一）；手动 curl 真实测试需用户在测试环境执行，仓库默认 `REAL_CALLS_ENABLED=false` 不产生费用；**真实调用已于 2026-07-19 02:39 UTC 完成测试**：临时改 `true` → 部署 → curl `/api/generate-music`（`manualTest=true`）→ 真实返回 `ok=true` / `provider=minimax_music` / `status=succeeded` / `traceId=06ab6bd351ff28a4d8dbb6cefddee5fe` / `audioHexLength=1022098`（约 512KB mp3）/ `audioUrl=null`（MiniMax 同步接口返回 hex 而非 URL）/ `musicDuration=0`（MiniMax 未返回该字段）/ `taskId=null` / `requestId=null`；测试完成后立即改回 `false` 并重新部署，`/api/health` 确认 `realCallsEnabled=false` / `hasMinimaxKey=true`；本次调用产生真实费用约 0.25 元；详见 6.15.11 真实调用结果 |
 | 2026-07-19 | v1.0.0 / P4-generated-audio-playback-1 | P4 生成音频落地播放链路 | 完成「MiniMax audioHex → R2 → 前端播放」第一版闭环：新增 `functions/api/generated-music.js`（从 R2 读取音频流端点，`GET /api/generated-music?key=...`，校验 storageKey 路径合法性，流式返回 audio/mpeg，受 CORS 白名单保护）；修改 `minimax-music-provider.js` constructor 新增 `this.r2Bucket = this.env.GENERATED_MUSIC_BUCKET || null` + `_callMiniMax` 成功分支新增三种情况处理（MiniMax 直接返回 audioUrl → `storageProvider=minimax_direct` / 有 audioHex + R2 已配置 → `_hexToBytes` 转 Uint8Array + `_buildStorageKey` 生成 `generated-music/{yyyyMMdd}/{sessionId}-{traceId}.mp3` + `R2.put()` 上传 → `storageProvider=r2` / 有 audioHex + R2 未配置 → `storageWarning=r2_not_configured` / R2 上传失败 → `storageWarning=r2_upload_failed`）+ 新增辅助方法 `_hexToBytes(hex)`（hex→Uint8Array，处理奇数长度/空白字符/非 hex 字符）和 `_buildStorageKey(sessionId, traceId)`（生成 R2 object key，traceId 为空时用时间戳占位）+ 返回字段新增 `storageProvider` / `storageKey` / `generatedAudioUrl` / `storageWarning`（`generatedAudioUrl` 形如 `/api/generated-music?key=...`，前端通过 `Uri.base.resolve()` 解析为绝对 URL）；修改 `wrangler.toml` 新增 `[[r2_buckets]]` 段：`binding = "GENERATED_MUSIC_BUCKET"` / `bucket_name = "xinxian-generated-music"` + 详细注释（创建命令 `npx wrangler r2 bucket create xinxian-generated-music` / 安全注意事项 / 缺失时返回 `storageWarning=r2_not_configured` 不崩溃）；修改 `health.js` `BUILD_LABEL` → `P4-generated-audio-playback-1` + `buildDiagnostics` 新增 `hasR2Bucket` 字段（不泄露 bucket 名，只返回 true/false）；修改 `app_version.dart` `buildLabel` → `P4-generated-audio-playback-1` + 新增 `P{N}-generated-audio-playback-{n}` 约定说明；修改 `comfort_lyrics_screen.dart` 实现受控实验入口（顶部新增 `dart:convert` / `http` / `just_audio` import + 8 个 AI 生成歌曲状态字段 + `dispose()`/`_reset()` 释放播放器 + `_buildGenerateSongButton()` 文案改为「生成这首歌（实验）」 + 新增 `_onGenerateSongPressed()`/`_showGenerateSongConfirmDialog()`（**费用确认对话框，必须用户主动确认**）/`_callGenerateMusicApi()`（调用 /api/generate-music，请求体含 `manualTest=true`，处理三种响应：ok+url→初始化播放器 / ok+storageWarning→显示已保存提示 / !ok→显示"生成没有完成，请稍后再试"）/`_initGeneratedAudioPlayer()`/`_toggleGeneratedAudio()`/`_mapStyleToTargetState()`（曲风→targetState 映射：gentle_pop/soft_piano→soothe，ambient_ballad→sleep，acoustic_warm→regulate）/`_buildGeneratedSongPlayer()`（内嵌播放区：标题行 + 圆形播放/暂停按钮 + 文案）/`_buildMusicErrorHint()`/`_buildStorageWarningHint()` + 顶层辅助函数 `_jsonEncode`/`_decodeJson` + `_buildNextStepHint()` 文案更新）；修改 `verify-provider-adapter.mjs` 新增 10 项测试（测试 54-63：R2 已配置上传成功 / R2 未配置返回 storageWarning / R2 上传失败返回 storageWarning / MiniMax 直接返回 audioUrl 时 storageProvider=minimax_direct / storageKey 格式正确 / 响应不包含完整 audioHex / _hexToBytes 正确转换 / _buildStorageKey 边界处理 traceId 为空 / hasR2Bucket 字段不泄露 bucket 名 / buildLabel 已更新），共 **62 项测试全部通过**；本批**继续使用 MiniMax 不切换 Mureka/Replicate/4090** / **`MUSIC_GENERATION_REAL_CALLS_ENABLED` 默认保持 `false`** / **manualTest 保护不移除** / **不暴露 MINIMAX_API_KEY** / **不允许前端正式入口自动扣费**（必须用户主动点击 + 费用确认对话框）/ **不做付费模块/社交 Agent/完整用户系统** / **不使用医疗化表达** / **不把 audioHex 原文返回前端**（只返回 audioHexLength）/ **R2 bucket 默认私有不开放公开访问**（统一通过 /api/generated-music 代理）/ **R2 binding 不存在时返回清楚错误不崩溃** / **不改 D1 schema** / **不影响"快速舒缓一下"固定曲库播放链路**；详见 6.16 章节 |
 | 2026-07-23 | v1.0.0 / P4-temp-audio-playback-1 | P4 临时音频播放闭环 | **暂不依赖 R2**，先跑通产品核心链路（用户输入困惑 → 生成解惑 → 生成歌词 → MiniMax 生成歌曲 → 页面直接播放）：修改 `minimax-music-provider.js` 新增 `_bytesToBase64(bytes)` 辅助方法（Uint8Array→base64，分块处理每 32KB 避免 `String.fromCharCode.apply` 栈溢出，使用 Web 标准 `btoa` API）+ `_callMiniMax` 成功分支存储逻辑调整（情况1 MiniMax 直接返回 audioUrl → `generatedAudioUrl=audioUrl` / 情况2 有 audioHex + R2 已配置 → 上传 R2 → `generatedAudioUrl=/api/generated-music?key=...`，上传失败 → 回退 `audioDataUrl` + `storageWarning=r2_upload_failed` / 情况3 有 audioHex + R2 未配置 → 生成 `audioDataUrl=data:audio/mpeg;base64,...`，**不再返回 `storageWarning=r2_not_configured`**，本批不视为错误）+ 返回字段新增 `audioDataUrl` / `audioBase64Length` / `contentType` + R2 上传成功时不返回 `audioDataUrl`（节省响应体）；修改 `comfort_lyrics_screen.dart` `_callGenerateMusicApi` 响应处理新增 `audioDataUrl` 字段（优先用 `generatedAudioUrl`，回退到 `audioDataUrl`，都没有 → 显示"音乐已经生成，但暂时无法播放，请稍后再试"）+ `_initGeneratedAudioPlayer` 支持 `data:` URL（`data:` / `http://` / `https://` 开头 → 直接 `Uri.parse`，相对路径 → `Uri.base.resolve`，just_audio Web 端底层 HTML5 audio 元素原生支持 data: URL）；修改 `app_version.dart` `buildLabel` → `P4-temp-audio-playback-1` / `buildDate` → `2026-07-23` + 新增 `P{N}-temp-audio-playback-{n}` 约定说明；修改 `health.js` `BUILD_LABEL` → `P4-temp-audio-playback-1`；修改 `verify-provider-adapter.mjs` 测试 55 调整（R2 未配置 → 返回 `audioDataUrl`，不再 `storageWarning=r2_not_configured`）+ 测试 56 调整（R2 上传失败 → `storageWarning=r2_upload_failed` + `audioDataUrl` 兜底）+ 测试 54/57 新增 `audioDataUrl=null` 断言（R2 成功/MiniMax 直返 URL 时不返回 audioDataUrl）+ 测试 63 更新 buildLabel + 新增测试 64/65（`_bytesToBase64` 正确转换 hex→bytes→base64 / audioDataUrl 路径下响应不包含完整 audioHex 原文），共 **64 项测试全部通过**；本批**暂不依赖 R2**（不要求创建 bucket / 不要求绑定 GENERATED_MUSIC_BUCKET，R2 逻辑保留作为后续持久化方案）/ **`MUSIC_GENERATION_REAL_CALLS_ENABLED` 默认保持 `false`** / **manualTest 保护不移除** / **不暴露 MINIMAX_API_KEY** / **不做付费模块/用户系统/4090 部署/社交 Agent** / **不使用医疗化表达** / **不把完整 audioHex 原文返回前端**（只返回 audioHexLength + audioDataUrl base64 编码形式）/ **不把完整 audioDataUrl 打印进日志** / **不改 D1 schema** / **不影响"快速舒缓一下"固定曲库播放链路**；详见 6.17 章节 |
+| 2026-07-23 | v1.0.0 / P4-temp-audio-playback-1-cleanup | P4 临时音频播放闭环 - 线上试听验证 + 代码审计清理 | **线上真实试听成功**：临时开启 `realCallsEnabled=true` 部署后，用户在 https://xinxian-music.xyz 完成完整链路测试（输入困惑 → 生成解惑 → 生成歌词 → 点击「生成这首歌（实验）」→ 确认费用 → 等待生成 → **页面出现播放器，点击播放可听到 AI 生成歌曲**），使用 `audioDataUrl`（base64 dataUrl）临时播放，**不依赖 R2**；测试完成后立即恢复 `realCallsEnabled=false` 并重新部署，`/api/health` 确认安全；部署时发现 `wrangler.toml` 中 `[[r2_buckets]]` R2 binding 因 bucket 不存在导致部署失败，临时注释掉 R2 binding（本批不依赖 R2，后端走 audioDataUrl 兜底路径）；代码审计全部通过（R2 完全可选 / 不返回完整 audioHex / 不打印完整 audioDataUrl / 只保留必要诊断字段 / MiniMax 失败不白屏 / manualTest 保护保留 / realCallsEnabled=false 默认安全 / 文案合规无违规表达 / 无重复状态字段无废弃方法无未使用 import）；清理 `comfort_lyrics_screen.dart` 顶部过时文档注释（移除"本批不接真实音乐生成"等过时描述）+ `_buildStorageWarningHint` 注释和文案更新（R2 未配置不再触发此卡片，文案改为"音乐已生成，但暂时无法播放，请稍后再试"）；版本号 `buildLabel` → `P4-temp-audio-playback-1-cleanup`；新增 6.17.11 线上试听结果 + 6.17.12 代码审计清理 + 6.17.13 后续计划（P4下一批结果页体验优化 / P5 持久化存储 / P6 用户与额度 / P7 4090 后端迁移）；验证：node verify 64 passed / flutter analyze No issues / flutter test 273 passed / flutter build web 通过；**产品核心链路已跑通**；详见 6.17.11-6.17.13 |
 
 ### 13.6 项目结构
 
