@@ -2810,9 +2810,21 @@ P4-song-result-experience-1 已部署上线并验收通过（`buildLabel=P4-song
 - 4090 部署
 - 真实 MiniMax 测试
 
-#### 6.19.10 验证
+#### 6.19.10 验证与部署
 
-`flutter analyze` / `flutter test`（含多轮对话流程测试）/ `flutter build web --release` / `node scripts/verify-provider-adapter.mjs`（含 `buildLabel=P4-conversation-song-flow-1` 断言）。realCallsEnabled 保持 false / manualTest 保护保留 / 不部署上线。
+**本地验证**：`flutter analyze`（No issues found）/ `flutter test`（288 passed, 5 skipped，含 4 个多轮对话测试）/ `flutter build web --release`（Built build\web）/ `node scripts/verify-provider-adapter.mjs`（64 passed, 0 failed）。
+
+**范围核对发现并修复**：部署前核对发现 `wrangler.toml` 中 `MUSIC_GENERATION_REAL_CALLS_ENABLED` 前批线上试听测试遗留为 `"true"`（注释称已恢复 false 但实际未恢复），已改回 `"false"`，仓库默认安全。
+
+**线上部署**（2026-07-23）：`wrangler pages deploy build/web --project-name=xinxian-healing-music` 部署成功。
+
+**部署后 health 验证**（`GET https://xinxian-music.xyz/api/health`）：
+- `buildLabel` = `P4-conversation-song-flow-1` ✅
+- `realCallsEnabled` = `false` ✅
+- `hasMinimaxKey` = `true` ✅
+- `musicProvider` = `minimax_music` ✅
+
+realCallsEnabled 保持 false / manualTest 保护保留 / P6 额度保护保留 / 本次未触发真实 MiniMax 调用。
 
 ---
 
@@ -3168,7 +3180,7 @@ Web 与 Android 的构建链路相互独立：Android 的 Gradle 配置不参与
 | 日期 | 版本 | 阶段 | 摘要 |
 |---|---|---|---|
 | 2026-07-23 | v1.0.0 / P6-quota-guard-1 | P6 首批 | 本地额度保护与成本安全 + 文档整理：新增 `LocalGenerationQuotaService`（每日 1 次成功生成上限 / 同步方法 / 时钟注入 / JSON 持久化 / 损坏容错）+ service 单元测试（9 项）；`services.dart` 注册 nullable 全局变量 + `main.dart` 第 9 步装配（独立 try/catch + 自检）；`comfort_lyrics_screen.dart` 额度 UI 集成（`_quotaRemaining` 字段 / initState / `_refreshQuotaState` / 两个 guard / `_buildGenerateSongButton` Column 重写 / `_buildQuotaHint` / 成功分支计数 / `_buildSongActionButtons` 重新生成禁用）；版本号同步 `app_version.dart`(`milestone=P6-Quota-v1.0` / `buildLabel=P6-quota-guard-1`) + `health.js` + `verify-provider-adapter.mjs`(测试 45/63)；新增 `docs/ROADMAP.md`；README 定向更新（2.1 / 2.3 / 6.18 / 十 / 十一 / 十三 / 目录）；`docs/mureka-api-integration-plan.md` 历史标注。realCallsEnabled 保持 false / manualTest 保护保留 / 不部署上线 / 不做 R2/付费/用户系统/4090 / 不使用医疗化表达 |
-| 2026-07-23 | v1.0.0 / P4-conversation-song-flow-1 | P4 多轮流程 | 多轮困惑理解 + 歌词增强 + 纯音乐本地舒缓 + 定时关闭：`comfort_lyrics_screen.dart` 改为 input→followUp→done 三阶段多轮对话流程（3 轮温和追问 + 跳过 + state 字段 `initialConcern`/`followUpAnswers`/`desiredFeeling`/`comfortDirection`，只存页面 state 不做长期保存）；`comfort_lyrics_service.dart` + `functions/api/comfort-lyrics.js` 多轮上下文校验 + LLM prompt 增强（歌词吸收具体细节 + 结构化要求 + 意象化隐私保护）；`plan_screen.dart` 删除「生成专属音乐（实验）」入口 + 删除 `music_generation_screen.dart` 及测试；新增「快速舒缓一下」CTA（跳转 AnalysisScreen 走本地纯音乐，不触发 MiniMax 不扣额度）；新增 `lib/widgets/sleep_timer_button.dart` 共享定时关闭组件（关闭/5/10/15/30 分钟/播放完当前音频）接入 PlayerScreen + ComfortLyricsScreen AI 歌曲播放区；版本号同步 `app_version.dart`(`milestone=P4-AI-Music-v1.0` / `buildLabel=P4-conversation-song-flow-1`) + `health.js` + `verify-provider-adapter.mjs`；测试文件全面更新适配多轮流程 + 新增 4 个多轮对话测试。realCallsEnabled 保持 false / manualTest 保护保留 / P6 额度保护保留 / 不部署上线 / 不做 R2/历史歌曲/分享/付费/用户系统/4090/真实 MiniMax 测试 / 不使用医疗化表达 |
+| 2026-07-23 | v1.0.0 / P4-conversation-song-flow-1 | P4 多轮流程 | 多轮困惑理解 + 歌词增强 + 纯音乐本地舒缓 + 定时关闭：`comfort_lyrics_screen.dart` 改为 input→followUp→done 三阶段多轮对话流程（3 轮温和追问 + 跳过 + state 字段 `initialConcern`/`followUpAnswers`/`desiredFeeling`/`comfortDirection`，只存页面 state 不做长期保存）；`comfort_lyrics_service.dart` + `functions/api/comfort-lyrics.js` 多轮上下文校验 + LLM prompt 增强（歌词吸收具体细节 + 结构化要求 + 意象化隐私保护）；`plan_screen.dart` 删除「生成专属音乐（实验）」入口 + 删除 `music_generation_screen.dart` 及测试；新增「快速舒缓一下」CTA（跳转 AnalysisScreen 走本地纯音乐，不触发 MiniMax 不扣额度）；新增 `lib/widgets/sleep_timer_button.dart` 共享定时关闭组件（关闭/5/10/15/30 分钟/播放完当前音频）接入 PlayerScreen + ComfortLyricsScreen AI 歌曲播放区；版本号同步 `app_version.dart`(`milestone=P4-AI-Music-v1.0` / `buildLabel=P4-conversation-song-flow-1`) + `health.js` + `verify-provider-adapter.mjs`；测试文件全面更新适配多轮流程 + 新增 4 个多轮对话测试。realCallsEnabled 保持 false / manualTest 保护保留 / P6 额度保护保留 / 已部署上线（2026-07-23，health 验证 realCallsEnabled=false / buildLabel=P4-conversation-song-flow-1，未触发真实 MiniMax）/ 不做 R2/历史歌曲/分享/付费/用户系统/4090/真实 MiniMax 测试 / 不使用医疗化表达 |
 
 ### 13.7 项目结构
 

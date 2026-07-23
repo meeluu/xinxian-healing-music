@@ -57,7 +57,9 @@ MUSIC_GENERATION_PROVIDER = "minimax_music"
 # P4-temp-audio-playback-1 线上真实试听测试（2026-07-23）已完成：
 # - 真实调用成功，audioDataUrl 临时播放闭环验证通过，前端可播放 AI 生成歌曲
 # - 测试完成已恢复为 "false"，仓库默认安全
-MUSIC_GENERATION_REAL_CALLS_ENABLED = "true"
+# P4-conversation-song-flow-1（2026-07-23）范围核对发现此值仍为 "true"（前批遗留），
+# 已改回 "false"，仓库默认安全。
+MUSIC_GENERATION_REAL_CALLS_ENABLED = "false"
 # P4.4-5: MiniMax Music-2.0 真实调用测试参数（非敏感）
 # - MINIMAX_MUSIC_MODEL：模型名（Music-2.0）
 # - MUSIC_GENERATION_MAX_DURATION_SECONDS：单次测试目标时长上限（120s = 2 分钟）
