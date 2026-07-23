@@ -53,7 +53,10 @@ MUSIC_GENERATION_PROVIDER = "minimax_music"
 # ──────────────────────────────────────────────────────────────────────
 # P4-minimax-real-test-1 手动实测已完成（2026-07-19）：真实调用成功拿到 audioHex
 # 已恢复为 "false"，仓库默认安全
-MUSIC_GENERATION_REAL_CALLS_ENABLED = "false"
+# ──────────────────────────────────────────────────────────────────────
+# P4-temp-audio-playback-1 线上真实试听测试（2026-07-23）：临时改为 "true"
+# 测试完成后必须立即改回 "false" 并重新部署
+MUSIC_GENERATION_REAL_CALLS_ENABLED = "true"
 # P4.4-5: MiniMax Music-2.0 真实调用测试参数（非敏感）
 # - MINIMAX_MUSIC_MODEL：模型名（Music-2.0）
 # - MUSIC_GENERATION_MAX_DURATION_SECONDS：单次测试目标时长上限（120s = 2 分钟）
