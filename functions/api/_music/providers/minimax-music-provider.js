@@ -64,11 +64,25 @@
 //   但 ok 仍为 true（MiniMax 调用本身成功），不崩溃，前端提示"音频已生成，但播放地址还未配置"
 // - 不把完整 audioHex 返回给前端（避免巨大响应 + 避免长期暴露）
 //
+// P4 临时音频播放闭环（P4-temp-audio-playback-1）策略调整：
+// - 本批暂不依赖 R2：不要求创建 xinxian-generated-music bucket，不要求绑定 GENERATED_MUSIC_BUCKET
+// - R2 逻辑保留（作为后续持久化方案），但 R2 缺失不能导致播放失败
+// - 新增 audioDataUrl 字段：当 R2 未配置 / R2 上传失败时，将 audioHex 转 base64 dataUrl 直接返回前端
+//   dataUrl 格式：data:audio/mpeg;base64,{base64EncodedAudio}
+// - 返回优先级：
+//   1) MiniMax 直接返回 audioUrl → generatedAudioUrl=audioUrl（无需转换）
+//   2) 有 audioHex + R2 上传成功 → generatedAudioUrl=/api/generated-music?key=...（不返回 audioDataUrl，节省响应体）
+//   3) 有 audioHex + R2 未配置 / 上传失败 → audioDataUrl=data:audio/mpeg;base64,...（临时播放闭环）
+// - 新增字段：audioDataUrl / audioBase64Length / contentType
+// - R2 未配置时不再返回 storageWarning="r2_not_configured"（本批不视为错误，只是回退到 dataUrl）
+// - R2 上传失败仍返回 storageWarning="r2_upload_failed"（同时返回 audioDataUrl 作为兜底）
+// - 不把完整 audioHex 打印进日志，不把完整 audioDataUrl 打印进日志
+//
 // 安全：
 // - 不打印 API Key 值，只打印 apiKeyConfigured: true/false
 // - 不打印完整歌词 / songPrompt 内容，只打印长度
 // - 不泄露 MiniMax 原始错误细节（status_msg / errText），统一映射为内部 errorCode + 安全 errorMessage
-// - 不在日志中打印完整 audioHex / storageKey 完整值（只打印 storageKeyLength）
+// - 不在日志中打印完整 audioHex / storageKey / audioDataUrl 完整值（只打印长度）
 // - R2 object 不公开访问（通过 /api/generated-music 代理读取，受 CORS 白名单保护）
 
 import { getFallbackTrack } from '../music-generation-utils.js';
@@ -264,56 +278,84 @@ export class MiniMaxMusicProvider {
         lyricsLength: lyrics.length,
       });
 
-      // P4-generated-audio-playback-1：将 audioHex 转为 bytes 并上传到 R2
-      // 如果 MiniMax 直接返回 audioUrl，则无需 R2 上传，直接用 audioUrl 作为 generatedAudioUrl
+      // P4-temp-audio-playback-1：音频落地与临时播放策略
+      // - 优先级 1：MiniMax 直接返回 audioUrl → generatedAudioUrl=audioUrl（无需转换）
+      // - 优先级 2：有 audioHex + R2 上传成功 → generatedAudioUrl=/api/generated-music?key=...
+      // - 优先级 3：有 audioHex + R2 未配置 / 上传失败 → audioDataUrl=data:audio/mpeg;base64,...
+      // - R2 缺失不影响播放（本批不依赖 R2），R2 上传失败仍返回 audioDataUrl 兜底
       var storageProvider = 'none';
       var storageKey = null;
       var generatedAudioUrl = null;
       var storageWarning = null;
+      // P4-temp-audio-playback-1：临时播放字段（base64 dataUrl，仅在 R2 路径不可用时启用）
+      var contentType = 'audio/mpeg';
+      var audioDataUrl = null;
+      var audioBase64Length = 0;
 
       if (audioUrl.length > 0) {
-        // 情况 1：MiniMax 直接返回 audioUrl（无需 R2 上传）
+        // 情况 1：MiniMax 直接返回 audioUrl（无需 R2 上传，无需 dataUrl）
         storageProvider = 'minimax_direct';
         generatedAudioUrl = audioUrl;
         console.log('[minimax-music] MiniMax 直接返回 audioUrl，无需 R2 上传', {
           storageProvider: storageProvider,
           audioUrlLength: audioUrl.length,
         });
-      } else if (audioHex.length > 0 && this.r2Bucket) {
-        // 情况 2：有 audioHex 且 R2 binding 已配置 → 上传到 R2
-        try {
-          var audioBytes = this._hexToBytes(audioHex);
-          storageKey = this._buildStorageKey(validated.sessionId, traceId);
-          await this.r2Bucket.put(storageKey, audioBytes, {
-            httpMetadata: { contentType: 'audio/mpeg' },
-          });
-          storageProvider = 'r2';
-          // generatedAudioUrl 通过 /api/generated-music 代理读取 R2（无需 R2 公开访问）
-          generatedAudioUrl = '/api/generated-music?key=' + encodeURIComponent(storageKey);
-          console.log('[minimax-music] R2 上传成功', {
+      } else if (audioHex.length > 0) {
+        // 有 audioHex：先转 bytes（R2 上传和 dataUrl 都需要）
+        var audioBytes = this._hexToBytes(audioHex);
+        var r2Uploaded = false;
+
+        if (this.r2Bucket) {
+          // 情况 2：R2 binding 已配置 → 尝试上传到 R2
+          try {
+            storageKey = this._buildStorageKey(validated.sessionId, traceId);
+            await this.r2Bucket.put(storageKey, audioBytes, {
+              httpMetadata: { contentType: contentType },
+            });
+            storageProvider = 'r2';
+            // generatedAudioUrl 通过 /api/generated-music 代理读取 R2（无需 R2 公开访问）
+            generatedAudioUrl = '/api/generated-music?key=' + encodeURIComponent(storageKey);
+            r2Uploaded = true;
+            console.log('[minimax-music] R2 上传成功', {
+              storageProvider: storageProvider,
+              storageKeyLength: storageKey.length,
+              audioBytesLength: audioBytes.length,
+              hasGeneratedAudioUrl: true,
+              // 不打印 storageKey 完整值
+            });
+          } catch (storageErr) {
+            console.error('[minimax-music] R2 上传失败，回退到 audioDataUrl', {
+              errorName: storageErr && storageErr.name,
+              // 不打印完整错误消息，可能含敏感信息
+            });
+            storageProvider = 'none';
+            storageKey = null;
+            generatedAudioUrl = null;
+            storageWarning = 'r2_upload_failed';
+            // 继续走 audioDataUrl 兜底（下方 !r2Uploaded 分支）
+          }
+        } else {
+          // 情况 3：R2 binding 未配置 → 本批不视为错误，直接走 audioDataUrl
+          // P4-temp-audio-playback-1：不再返回 storageWarning="r2_not_configured"
+          console.log('[minimax-music] R2 binding 未配置，使用 audioDataUrl 临时播放', {
             storageProvider: storageProvider,
-            storageKeyLength: storageKey.length,
-            audioBytesLength: audioBytes.length,
-            hasGeneratedAudioUrl: true,
-            // 不打印 storageKey 完整值
+            audioHexLength: audioHex.length,
           });
-        } catch (storageErr) {
-          console.error('[minimax-music] R2 上传失败', {
-            errorName: storageErr && storageErr.name,
-            // 不打印完整错误消息，可能含敏感信息
-          });
-          storageProvider = 'none';
-          storageKey = null;
-          generatedAudioUrl = null;
-          storageWarning = 'r2_upload_failed';
         }
-      } else if (audioHex.length > 0 && !this.r2Bucket) {
-        // 情况 3：有 audioHex 但 R2 binding 未配置 → 返回 storageWarning
-        storageWarning = 'r2_not_configured';
-        console.log('[minimax-music] R2 binding 未配置，跳过上传', {
-          storageWarning: storageWarning,
-          audioHexLength: audioHex.length,
-        });
+
+        // P4-temp-audio-playback-1：R2 未上传成功时，生成 audioDataUrl 作为临时播放方案
+        // 这样保证 R2 缺失/失败时前端仍可播放，不依赖 R2
+        if (!r2Uploaded) {
+          var base64Str = this._bytesToBase64(audioBytes);
+          audioBase64Length = base64Str.length;
+          audioDataUrl = 'data:' + contentType + ';base64,' + base64Str;
+          console.log('[minimax-music] 已生成 audioDataUrl 临时播放地址', {
+            audioBase64Length: audioBase64Length,
+            audioBytesLength: audioBytes.length,
+            storageWarning: storageWarning,
+            // 不打印 audioDataUrl 完整值
+          });
+        }
       }
 
       return {
@@ -335,6 +377,11 @@ export class MiniMaxMusicProvider {
         storageKey: storageKey,
         generatedAudioUrl: generatedAudioUrl,
         storageWarning: storageWarning,
+        // P4-temp-audio-playback-1：临时播放字段（base64 dataUrl）
+        // 仅在 R2 路径不可用时返回（R2 上传成功时不返回，节省响应体）
+        audioDataUrl: audioDataUrl,
+        audioBase64Length: audioBase64Length,
+        contentType: contentType,
         // P4 第四批：返回请求摘要字段，便于排查
         lyricsLength: lyrics.length,
         songPromptSource: (validated.songPrompt && validated.songPrompt.length > 0) ? 'user_song_prompt' : 'preset_by_target_state',
@@ -405,6 +452,31 @@ export class MiniMaxMusicProvider {
       bytes[i] = isNaN(b) ? 0 : b;
     }
     return bytes;
+  }
+
+  /// P4-temp-audio-playback-1：将 Uint8Array 转为 base64 字符串
+  /// 用于生成 audioDataUrl（data:audio/mpeg;base64,...）实现临时播放闭环
+  /// 实现说明：
+  /// - 输入：Uint8Array（来自 _hexToBytes 的音频二进制）
+  /// - 输出：base64 字符串（无 data: 前缀，调用方自行拼接）
+  /// - 边界处理：空数组返回空字符串
+  /// - 性能：分块处理（每 32KB），避免 String.fromCharCode.apply 栈溢出
+  ///   一次性 apply 在大数组（>100KB）上会触发 "Maximum call stack size exceeded"
+  /// - 兼容性：btoa 是 Web 标准 API，Cloudflare Workers / 浏览器 / Node 16+ 均支持
+  /// 安全：本方法不接触敏感信息（音频数据），无日志泄漏风险
+  _bytesToBase64(bytes) {
+    if (!bytes || bytes.length === 0) {
+      return '';
+    }
+    var binary = '';
+    var chunkSize = 0x8000; // 32KB chunks（apply 安全上限）
+    for (var i = 0; i < bytes.length; i += chunkSize) {
+      var end = Math.min(i + chunkSize, bytes.length);
+      var chunk = bytes.subarray(i, end);
+      // fromCharCode.apply 在 32KB chunk 内安全（不会栈溢出）
+      binary += String.fromCharCode.apply(null, chunk);
+    }
+    return btoa(binary);
   }
 
   /// P4-generated-audio-playback-1：构建 R2 object key

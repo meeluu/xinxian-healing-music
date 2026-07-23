@@ -835,10 +835,11 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
   /// - durationSeconds：120（与后端 maxDurationSeconds 一致）
   /// - manualTest: true（受三重门保护，realCallsEnabled=false 时仍返回 fallback）
   ///
-  /// 响应处理：
-  /// - ok:true + generatedAudioUrl → 初始化播放器，显示播放区
-  /// - ok:true + storageWarning=r2_not_configured → 显示"音乐已生成并保存，播放地址配置后可试听"
+  /// 响应处理（P4-temp-audio-playback-1：支持 audioDataUrl 临时播放）：
   /// - ok:false → 显示"生成没有完成，请稍后再试"
+  /// - ok:true + generatedAudioUrl → 初始化播放器（R2 路径或 MiniMax 直返 URL）
+  /// - ok:true + audioDataUrl → 初始化播放器（base64 dataUrl 临时播放，不依赖 R2）
+  /// - ok:true + 既无 generatedAudioUrl 也无 audioDataUrl → 显示"音乐已经生成，但暂时无法播放"
   /// - 网络异常 → 显示"生成没有完成，请稍后再试"
   Future<void> _callGenerateMusicApi() async {
     final result = _result!;
@@ -900,6 +901,8 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
 
       final ok = body['ok'] == true;
       final generatedAudioUrl = body['generatedAudioUrl'] as String?;
+      // P4-temp-audio-playback-1：新增 audioDataUrl 字段（base64 dataUrl 临时播放）
+      final audioDataUrl = body['audioDataUrl'] as String?;
       final storageWarning = body['storageWarning'] as String?;
       final provider = body['provider'] as String?;
 
@@ -913,34 +916,42 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
       }
 
       // ok=true：MiniMax 真实调用成功
-      if (generatedAudioUrl != null && generatedAudioUrl.isNotEmpty) {
-        // 拿到可播放 URL → 初始化播放器
+      // P4-temp-audio-playback-1：优先用 generatedAudioUrl（R2 路径或 MiniMax 直返 URL），
+      // 回退到 audioDataUrl（base64 dataUrl 临时播放，不依赖 R2）
+      final playableUrl =
+          (generatedAudioUrl != null && generatedAudioUrl.isNotEmpty)
+          ? generatedAudioUrl
+          : ((audioDataUrl != null && audioDataUrl.isNotEmpty)
+                ? audioDataUrl
+                : null);
+
+      if (playableUrl != null) {
+        // 拿到可播放音频 → 初始化播放器
         await _initGeneratedAudioPlayer(
-          generatedAudioUrl,
+          playableUrl,
           provider ?? 'minimax_music',
         );
         if (!mounted) return;
         setState(() {
           _generatingMusic = false;
-          _generatedAudioUrl = generatedAudioUrl;
+          _generatedAudioUrl = playableUrl;
           _generatedMusicMeta = 'AI 生成 · $targetState';
+          // 有可播放音频时清空 storageWarning，避免显示"无法播放"提示
           _storageWarning = null;
           _musicErrorHint = null;
         });
-      } else if (storageWarning != null) {
-        // 拿到 storageKey 但无 URL（R2 未配置 / 上传失败）
-        setState(() {
-          _generatingMusic = false;
-          _storageWarning = storageWarning;
-          _generatedMusicMeta = 'AI 生成 · $targetState';
-          _generatedAudioUrl = null;
-          _musicErrorHint = null;
-        });
       } else {
-        // 既无 URL 也无 storageWarning → 边界情况，显示通用提示
+        // 既无 generatedAudioUrl 也无 audioDataUrl → 无法播放
+        // 保留 storageWarning（如有），UI 会显示"音乐已生成并保存"提示；
+        // 否则显示通用错误
         setState(() {
           _generatingMusic = false;
-          _musicErrorHint = '生成没有完成，请稍后再试';
+          _generatedAudioUrl = null;
+          _generatedMusicMeta = 'AI 生成 · $targetState';
+          _storageWarning = storageWarning;
+          _musicErrorHint = (storageWarning != null)
+              ? null
+              : '音乐已经生成，但暂时无法播放，请稍后再试';
         });
       }
     } catch (_) {
@@ -954,17 +965,27 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
 
   /// 初始化 AI 生成歌曲播放器。
   ///
-  /// generatedAudioUrl 是相对路径（如 /api/generated-music?key=...），
-  /// Web 端通过 Uri.base.resolve() 解析为绝对 URL。
-  /// 使用 just_audio 的 AudioSource.uri 加载（支持任意 HTTP URL）。
+  /// playableUrl 支持两种形式（P4-temp-audio-playback-1）：
+  /// - 相对路径（如 /api/generated-music?key=...）：通过 Uri.base.resolve() 解析为绝对 URL
+  /// - data: URL（如 data:audio/mpeg;base64,...）：直接 Uri.parse，不走 resolve
+  ///   data: URL 用于 R2 未配置时的临时播放闭环，不依赖 R2 持久化
+  /// - 绝对 HTTP URL（如 https://cdn.minimax.chat/...）：直接 Uri.parse
+  ///
+  /// 使用 just_audio 的 AudioSource.uri 加载（Web 端底层为 HTML5 audio 元素，支持 data: URL）。
   Future<void> _initGeneratedAudioPlayer(
-    String generatedAudioUrl,
+    String playableUrl,
     String provider,
   ) async {
     _generatedAudioPlayer = AudioPlayer();
     try {
-      final absoluteUrl = Uri.base.resolve(generatedAudioUrl);
-      await _generatedAudioPlayer!.setAudioSource(AudioSource.uri(absoluteUrl));
+      // data: URL 和绝对 URL 直接 parse；相对路径用 Uri.base.resolve
+      final absoluteUri =
+          playableUrl.startsWith('data:') ||
+              playableUrl.startsWith('http://') ||
+              playableUrl.startsWith('https://')
+          ? Uri.parse(playableUrl)
+          : Uri.base.resolve(playableUrl);
+      await _generatedAudioPlayer!.setAudioSource(AudioSource.uri(absoluteUri));
       _generatedPlayerStateSub = _generatedAudioPlayer!.playerStateStream
           .listen((state) {
             if (!mounted) return;

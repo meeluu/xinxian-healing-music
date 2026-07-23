@@ -73,8 +73,17 @@
 // 61. _buildStorageKey 边界处理 - traceId 为空时仍生成合法 key
 // 62. health buildDiagnostics 返回 hasR2Bucket 字段（不泄露 bucket 名）
 // 63. buildLabel 已更新为 P4-generated-audio-playback-1
+// ── P4 临时音频播放闭环（P4-temp-audio-playback-1）新增/调整 ──
+// 64. R2 未配置 + 有 audioHex → 返回 audioDataUrl（不再 storageWarning=r2_not_configured）
+// 65. R2 上传失败 + 有 audioHex → 返回 audioDataUrl 兜底 + storageWarning=r2_upload_failed
+// 66. R2 上传成功 → 不返回 audioDataUrl（节省响应体，只用 generatedAudioUrl）
+// 67. MiniMax 直接返回 audioUrl → 不返回 audioDataUrl（已有可播放 URL）
+// 68. audioDataUrl 格式正确（data:audio/mpeg;base64,...）
+// 69. 响应包含 contentType=audio/mpeg + audioBase64Length 字段
+// 70. _bytesToBase64 正确转换（通过 audioBase64Length 验证：hex "deadbeef" → 4 字节 → 8 字符 base64）
+// 71. buildLabel 已更新为 P4-temp-audio-playback-1
 // 注：实际测试用例编号通过 await test() 调用顺序自动递增，
-//     注释编号仅作说明用途，以实际运行结果为准（62 项 passed）。
+//     注释编号仅作说明用途，以实际运行结果为准。
 
 import assert from 'assert';
 import { createProvider } from '../functions/api/_music/provider-factory.js';
@@ -1154,14 +1163,18 @@ await test('MiniMax 真实调用成功 + R2 已配置 → 上传到 R2 + 返回 
   assert.ok(resp.generatedAudioUrl, 'generatedAudioUrl 不应为空');
   assert.ok(resp.generatedAudioUrl.indexOf('/api/generated-music?key=') === 0, 'generatedAudioUrl 应为 /api/generated-music?key= 形式');
   assert.strictEqual(resp.storageWarning, null);
+  // P4-temp-audio-playback-1：R2 上传成功时不返回 audioDataUrl（节省响应体，只用 generatedAudioUrl）
+  assert.strictEqual(resp.audioDataUrl, null, 'R2 上传成功时不应返回 audioDataUrl');
+  assert.strictEqual(resp.audioBase64Length, 0, 'audioBase64Length 应为 0');
   // R2 put 应被调用 1 次
   assert.strictEqual(mockBucket._puts.length, 1, 'R2 put 应被调用 1 次');
   // content-type 应为 audio/mpeg
   assert.strictEqual(mockBucket._puts[0].options.httpMetadata.contentType, 'audio/mpeg');
 });
 
-// 测试 55: MiniMax 真实调用成功 + R2 未配置 → storageWarning=r2_not_configured + storageProvider=none
-await test('MiniMax 真实调用成功 + R2 未配置 → storageWarning=r2_not_configured', async () => {
+// 测试 55: MiniMax 真实调用成功 + R2 未配置 → 返回 audioDataUrl（P4-temp-audio-playback-1 调整）
+// P4-temp-audio-playback-1：R2 未配置不再视为错误，回退到 audioDataUrl 临时播放
+await test('MiniMax 真实调用成功 + R2 未配置 → 返回 audioDataUrl（不依赖 R2）', async () => {
   var provider = createProvider({
     MUSIC_GENERATION_PROVIDER: 'minimax_music',
     MINIMAX_API_KEY: 'mm-test',
@@ -1184,11 +1197,18 @@ await test('MiniMax 真实调用成功 + R2 未配置 → storageWarning=r2_not_
   assert.strictEqual(resp.storageProvider, 'none');
   assert.strictEqual(resp.storageKey, null);
   assert.strictEqual(resp.generatedAudioUrl, null);
-  assert.strictEqual(resp.storageWarning, 'r2_not_configured');
+  // P4-temp-audio-playback-1：不再返回 storageWarning="r2_not_configured"
+  assert.strictEqual(resp.storageWarning, null, 'R2 未配置不应返回 storageWarning');
+  // 应返回 audioDataUrl 作为临时播放方案
+  assert.ok(resp.audioDataUrl, 'audioDataUrl 不应为空（R2 未配置时回退到 dataUrl）');
+  assert.ok(resp.audioDataUrl.indexOf('data:audio/mpeg;base64,') === 0, 'audioDataUrl 应为 data:audio/mpeg;base64, 形式');
+  assert.ok(resp.audioBase64Length > 0, 'audioBase64Length 应 > 0');
+  assert.strictEqual(resp.contentType, 'audio/mpeg');
 });
 
-// 测试 56: MiniMax 真实调用成功 + R2 上传失败 → storageWarning=r2_upload_failed
-await test('MiniMax 真实调用成功 + R2 上传失败 → storageWarning=r2_upload_failed', async () => {
+// 测试 56: MiniMax 真实调用成功 + R2 上传失败 → storageWarning=r2_upload_failed + audioDataUrl 兜底
+// P4-temp-audio-playback-1：R2 上传失败时回退到 audioDataUrl，保证前端仍可播放
+await test('MiniMax 真实调用成功 + R2 上传失败 → storageWarning=r2_upload_failed + audioDataUrl 兜底', async () => {
   var failingBucket = {
     put: async function () { throw new Error('R2 put failed'); },
     get: async function () { return null; },
@@ -1216,6 +1236,9 @@ await test('MiniMax 真实调用成功 + R2 上传失败 → storageWarning=r2_u
   assert.strictEqual(resp.storageKey, null);
   assert.strictEqual(resp.generatedAudioUrl, null);
   assert.strictEqual(resp.storageWarning, 'r2_upload_failed');
+  // P4-temp-audio-playback-1：R2 上传失败时应回退到 audioDataUrl
+  assert.ok(resp.audioDataUrl, 'audioDataUrl 不应为空（R2 上传失败时回退到 dataUrl）');
+  assert.ok(resp.audioDataUrl.indexOf('data:audio/mpeg;base64,') === 0, 'audioDataUrl 应为 data:audio/mpeg;base64, 形式');
 });
 
 // 测试 57: MiniMax 真实调用成功 + 直接返回 audioUrl → storageProvider=minimax_direct
@@ -1247,6 +1270,8 @@ await test('MiniMax 真实调用成功 + 直接返回 audioUrl → storageProvid
   assert.strictEqual(resp.storageProvider, 'minimax_direct');
   assert.strictEqual(resp.generatedAudioUrl, 'https://cdn.minimax.chat/audio/direct-001.mp3');
   assert.strictEqual(resp.storageWarning, null);
+  // P4-temp-audio-playback-1：MiniMax 直接返回 audioUrl 时不需要 audioDataUrl
+  assert.strictEqual(resp.audioDataUrl, null, 'MiniMax 直接返回 audioUrl 时不应返回 audioDataUrl');
   // R2 put 不应被调用（MiniMax 直接返回 URL 时无需上传）
   assert.strictEqual(mockBucket._puts.length, 0, 'R2 put 不应被调用');
 });
@@ -1406,10 +1431,77 @@ await test('health buildDiagnostics 返回 hasR2Bucket 字段（不泄露 bucket
   assert.strictEqual(JSON.stringify(d3).indexOf('xinxian-generated-music'), -1, '诊断 JSON 不应包含 bucket 名');
 });
 
-// 测试 63: buildLabel 已更新为 P4-generated-audio-playback-1
-await test('buildLabel 已更新为 P4-generated-audio-playback-1', () => {
+// 测试 63: buildLabel 已更新为 P4-temp-audio-playback-1
+// P4-temp-audio-playback-1：从 P4-generated-audio-playback-1 更新而来
+await test('buildLabel 已更新为 P4-temp-audio-playback-1', () => {
   var d = buildDiagnostics({});
-  assert.strictEqual(d.buildLabel, 'P4-generated-audio-playback-1');
+  assert.strictEqual(d.buildLabel, 'P4-temp-audio-playback-1');
+});
+
+// ─── P4 临时音频播放闭环（P4-temp-audio-playback-1）新增测试 ──
+console.log('\nP4 临时音频播放闭环（audioDataUrl + _bytesToBase64）:');
+
+// 测试 64: _bytesToBase64 正确转换（hex "deadbeef" → 4 字节 → base64 "3q2+7w=="）
+// 验证 audioBase64Length 与预期一致，并验证 audioDataUrl 解码后能还原原始 bytes
+await test('_bytesToBase64 正确转换 hex → bytes → base64（通过 audioDataUrl 验证）', async () => {
+  var provider = createProvider({
+    MUSIC_GENERATION_PROVIDER: 'minimax_music',
+    MINIMAX_API_KEY: 'mm-test',
+    MUSIC_GENERATION_REAL_CALLS_ENABLED: 'true',
+    // 不配置 R2，强制走 audioDataUrl 路径
+  });
+  // hex "deadbeef" → 4 字节 [0xde, 0xad, 0xbe, 0xef]
+  // base64("Þ­¾ï") = "3q2+7w==" （长度 8）
+  injectMockFetch(() => ({
+    ok: true,
+    json: async () => ({
+      base_resp: { status_code: 0, status_msg: 'success' },
+      data: { audio: 'deadbeef', music_duration: 30 },
+      trace_id: 'base64-verify-trace',
+    }),
+  }));
+
+  var resp = await provider.createJob(validatedManual);
+  restoreFetch();
+
+  assert.strictEqual(resp.ok, true);
+  assert.ok(resp.audioDataUrl, 'audioDataUrl 不应为空');
+  // base64 部分："3q2+7w=="（8 字符）
+  assert.strictEqual(resp.audioBase64Length, 8, 'hex "deadbeef" → 4 字节 → 8 字符 base64');
+  // 验证 audioDataUrl 格式
+  assert.ok(resp.audioDataUrl.indexOf('data:audio/mpeg;base64,3q2+7w==') === 0, 'audioDataUrl 应为 data:audio/mpeg;base64,3q2+7w==');
+  // 验证 contentType
+  assert.strictEqual(resp.contentType, 'audio/mpeg');
+});
+
+// 测试 65: audioDataUrl 不包含完整 audioHex 原文（避免 hex 长期暴露）
+await test('audioDataUrl 路径下响应不包含完整 audioHex 原文', async () => {
+  var provider = createProvider({
+    MUSIC_GENERATION_PROVIDER: 'minimax_music',
+    MINIMAX_API_KEY: 'mm-test',
+    MUSIC_GENERATION_REAL_CALLS_ENABLED: 'true',
+    // 不配置 R2，走 audioDataUrl 路径
+  });
+  var fullHex = 'deadbeefcafebabe1234567890abcdef';
+  injectMockFetch(() => ({
+    ok: true,
+    json: async () => ({
+      base_resp: { status_code: 0, status_msg: 'success' },
+      data: { audio: fullHex, music_duration: 30 },
+      trace_id: 'no-hex-leak-trace',
+    }),
+  }));
+
+  var resp = await provider.createJob(validatedManual);
+  restoreFetch();
+
+  // 应返回 audioHexLength，但不返回完整 audioHex 字段
+  assert.strictEqual(resp.audioHexLength, fullHex.length);
+  assert.strictEqual(resp.audioHex, undefined, '响应不应包含完整 audioHex 字段');
+  // 响应 JSON 字符串中不应出现完整 hex 原文（base64 编码后 hex 字符串不应原样出现）
+  assert.strictEqual(JSON.stringify(resp).indexOf(fullHex), -1, '响应 JSON 不应包含完整 audioHex 原文');
+  // 但 audioDataUrl 应该存在（base64 编码后的形式）
+  assert.ok(resp.audioDataUrl, 'audioDataUrl 不应为空');
 });
 
 // ─── 总结 ─────────────────────────────────────────────────
