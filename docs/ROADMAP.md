@@ -8,17 +8,18 @@
 
 ## 当前阶段
 
-**P4-player-seek-bugfix-3（修复首次 ready 前允许 seek 导致拖动回 0）**
+**P4-player-seek-refresh-workaround-1（首次进入播放器自动软重建，临时兜底 seek 回 0）**
 
-在 P4-player-seek-bugfix-2 已存在的基础上，继续修复「快速舒缓一下」进入本地音乐播放页后，新用户首次打开拖动进度条会回到 0，但退出后第二次打开正常的问题。本批为纯前端播放体验修复，不部署、不真实调用 MiniMax、不依赖 R2、不改 AI 歌曲生成链路：
+在 P4-player-seek-bugfix-3 已加入 seek-ready 门控后，快速舒缓本地播放页首次 uncached 打开时仍偶发拖动进度条回 0；用户确认短时间手动刷新后再次进入同一播放页通常正常。本批按临时兜底处理：首次进入快速舒缓播放器后用 Flutter 内部软重建模拟“第二次进入”，不使用浏览器硬刷新，不跳回首页，不丢失播放页参数。
 
-- **根因**：bugfix-2 解决了 seek 过程中的旧 position 回弹，但首次 uncached 打开时，音频 metadata / duration / HTML audio seekable 还可能没有稳定，Slider 只看 `duration > 0` 就允许用户拖动，导致过早 seek 被浏览器音频元素拉回 0；第二次打开因浏览器缓存已 warm up 而正常。
-- **修复**：新增 `_audioReadyForSeek` 门控，仅 duration 已知且 `processingState` 为 `ready` / `completed` 时启用 Slider；未 ready 时显示「音频正在准备中…」并禁止 seek；`setAudioSources` 重建音源时先关闭 seek，ready 后自动恢复。保留 bugfix-2 的 await seek + `_pendingSeek` 确认逻辑。新增 `lib/utils/audio_seek_readiness.dart` 纯逻辑与测试。
-- **修复后行为**：拖到任意位置可继续播放、暂停态拖动保持暂停、播完后拖到中间不强制回 0、切模式 / 定时强制循环态下拖动不回 0；只有点击"重新播放"或在 completed 状态点击播放（未手动 seek）才回 0。
-- **不影响范围**：快速舒缓仍只使用本地 `AudioAssetCatalog`，不调 `/api/generate-music`、不调 MiniMax、不扣 P6 额度；`generated_song_player_screen.dart`（AI 歌曲播放页）有相同 seek 模式，按用户要求聚焦快速舒缓页，AI 歌曲播放页留作后续可选跟进，不影响生成链路与三重门保护。
+- **定位**：这是 workaround，不是底层 Web audio / just_audio 首次 seek ready 根因的最终修复。后续仍需继续排查 metadata / duration / seekable range / `setAudioSources` 首次 ready 时序。
+- **实现**：`PlayerScreen` 新增 `enableFirstOpenWarmReload` 与 `warmReloadAlreadyDone`，仅快速舒缓入口开启；本次应用 session 尚未 warm reload 时延迟 500ms，先停止当前 `AudioPlayer`，再 `Navigator.pushReplacement` 到同一 `PlayerScreen`，携带原 `plan` / `moodText`，并关闭 warm reload 标记。
+- **防循环**：session 级 `_warmReloadDoneThisSession` + replacement 参数 `enableFirstOpenWarmReload=false` / `warmReloadAlreadyDone=true` 双保险，避免无限软刷新；用户返回后再进入也不会进入循环。
+- **交互保护**：warm reload 等待窗口内播放按钮显示 loading，进度条与播放模式 / 定时按钮禁用，显示「正在准备播放器…」，避免旧播放器实例被用户启动或操作。
+- **不影响范围**：快速舒缓仍只使用本地 `AudioAssetCatalog` assets，不调 `/api/generate-music`、不调 MiniMax、不扣 P6 额度；不改 `GeneratedSongPlayerScreen`、不改 AI 歌曲生成链路、不修改 `MUSIC_GENERATION_REAL_CALLS_ENABLED`。
 - 保留 P6-quota-guard-1 本地额度保护；保留 4 种播放模式与定时关闭持续播放保证。
 - 本批不修改 `MUSIC_GENERATION_REAL_CALLS_ENABLED`，`manualTest=true` 保护保留。
-- 本批不部署上线，不新增自动调用 / 轮询 / 重试，不引入新依赖。
+- 本批不新增真实 API 调用 / 轮询 / 后端依赖，不引入新依赖。
 
 ### 上一阶段（已完成）
 
@@ -28,7 +29,8 @@
 
 ### 短期：安全小范围内测（当前）
 
-- **P4-player-seek-bugfix-3（本批）**：修复快速舒缓播放页首次 ready 前允许 seek 导致拖动回 0、二次打开正常（seek-ready 门控 + 临时 debug）。
+- **P4-player-seek-refresh-workaround-1（本批）**：快速舒缓本地播放页首次进入后自动软重建一次，临时兜底首次 seek 回 0；不是底层 seek 根因最终修复。
+- **P4-player-seek-bugfix-3（已完成）**：修复快速舒缓播放页首次 ready 前允许 seek 导致拖动回 0、二次打开正常（seek-ready 门控 + 临时 debug）。
 - **P4-player-seek-bugfix-2（已完成）**：修复快速舒缓播放页首次 seek 尚未完成时被 `positionStream` 的 0 拉回（await seek + 延迟确认 + 3 秒兜底）。
 - **P4-player-seek-bugfix-1（已完成）**：修复快速舒缓播放页首次进入拖动进度条回到 0 秒（`_pendingSeek` 防回弹 + `completedFlag` 分离重播 / 继续）。
 - **P4-playback-experience-2（已完成）**：AI 歌曲独立播放页 + 本地舒缓播放模式增强 + 定时关闭持续播放保证。
@@ -72,7 +74,8 @@
 | P4-playback-experience-2 | AI 歌曲独立播放页 + 本地舒缓播放模式增强 + 定时关闭持续播放保证 | ✅ 已完成 |
 | P4-player-seek-bugfix-1 | 修复快速舒缓播放页拖动进度条回到 0 秒（`_pendingSeek` 防回弹 + `completedFlag` 分离重播 / 继续） | ✅ 已完成 |
 | P4-player-seek-bugfix-2 | 修复首次 seek 尚未完成时被 `positionStream` 的 0 拉回（await seek + 延迟确认） | ✅ 已完成 |
-| P4-player-seek-bugfix-3 | 修复首次 ready 前允许 seek 导致拖动回 0、二次打开正常（seek-ready 门控） | ✅ 本批完成 |
+| P4-player-seek-bugfix-3 | 修复首次 ready 前允许 seek 导致拖动回 0、二次打开正常（seek-ready 门控） | ✅ 已完成 |
+| P4-player-seek-refresh-workaround-1 | 首次进入快速舒缓本地播放页后自动软重建一次，临时兜底首次 seek 回 0 | ✅ 本批完成 |
 | 中期 | R2 持久化 / 历史生成歌曲 / 分享链接 / 用户系统 / 付费会员 | ⏳ 计划中 |
 | 长期 | 4090 后端迁移 / 自有音乐模型 / 增长 Agent | ⏳ 计划中 |
 

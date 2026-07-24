@@ -5,7 +5,7 @@
 心弦是一款基于 Flutter Web 的情绪陪伴 Demo。用户输入当下心境后，系统通过 LLM 生成情绪画像与音乐参数，并播放匹配的本地音频素材，形成「自然语言 → AI 情绪解析 → 音乐方案 → 音频体验 → 用户反馈」的完整闭环。
 
 - **正式体验地址**：[https://xinxian-music.xyz](https://xinxian-music.xyz)
-- **当前版本**：`v1.0.0 · P4-player-seek-bugfix-3 · Cloudflare Pages`
+- **当前版本**：`v1.0.0 · P4-player-seek-refresh-workaround-1 · Cloudflare Pages`
 - **定位**：辅助情绪调节、睡前舒缓、正念陪伴、温和充能的轻量化工具，**不提供医疗诊断或治疗**，不替代专业心理咨询与医疗建议（详见[第十二章 免责声明](#十二免责声明)）
 
 ---
@@ -39,6 +39,7 @@
 6.23. [P4-player-seek-bugfix-1：修复快速舒缓播放页拖动进度条回到 0 秒](#六点二十三p4-player-seek-bugfix-1修复快速舒缓播放页拖动进度条回到-0-秒)
 6.24. [P4-player-seek-bugfix-2：await seek + 延迟确认](#六点二十四p4-player-seek-bugfix-2await-seek--延迟确认)
 6.25. [P4-player-seek-bugfix-3：首次 ready 前禁用 seek](#六点二十五p4-player-seek-bugfix-3首次-ready-前禁用-seek)
+6.26. [P4-player-seek-refresh-workaround-1：首次进入播放器自动软重建](#六点二十六p4-player-seek-refresh-workaround-1首次进入播放器自动软重建)
 7. [数据与隐私](#七数据与隐私)
 8. [环境变量与部署](#八环境变量与部署)
 9. [本地开发与验证](#九本地开发与验证)
@@ -89,8 +90,8 @@
 
 ### 2.1 当前阶段
 
-- **阶段**：`P4-AI-Music-v1.0 / P4-player-seek-bugfix-3（修复快速舒缓播放页首次加载 ready 前允许 seek，导致首次打开拖动回 0、二次打开正常的问题；P4 歌曲生成链路已打通并上线；REAL_CALLS 由 Cloudflare 环境变量/配置管理，本批未修改）`
-- **版本号**：`v1.0.0 · P4-player-seek-bugfix-3 · Cloudflare Pages`（首页底部显示 `心弦 v1.0.0 · P4-player-seek-bugfix-3 · Cloudflare Pages`）
+- **阶段**：`P4-AI-Music-v1.0 / P4-player-seek-refresh-workaround-1（快速舒缓本地播放页首次进入后短时间自动软重建一次，用作首次加载 seek 回 0 的临时兜底；不是底层 Web audio / just_audio 首次 seek ready 根因的最终修复；P4 歌曲生成链路不变；REAL_CALLS 由 Cloudflare 环境变量/配置管理，本批未修改）`
+- **版本号**：`v1.0.0 · P4-player-seek-refresh-workaround-1 · Cloudflare Pages`（首页底部显示 `心弦 v1.0.0 · P4-player-seek-refresh-workaround-1 · Cloudflare Pages`）
 - **构建日期**：2026-07-24
 - **部署目标**：Cloudflare Pages
 - **上一阶段**：P4-conversation-song-flow-1-fix2 已上线（low_energy 场景 + lowEnergy 追问问题对齐 + 歌词低能量指引 + 快速舒缓纯本地化复核，2026-07-24 部署）；P4-conversation-song-flow-1-fix1 已完成（LLM 动态追问 + 歌词贴合度增强 + 快速舒缓纯本地化核查 + 加载文案分阶段，2026-07-23）；P4-conversation-song-flow-1 已上线（多轮困惑理解 + 纯音乐本地舒缓 + 定时关闭，2026-07-23）；P6-quota-guard-1 已完成（本地额度保护与文档整理，2026-07-23）；P4-song-result-experience-1 已上线（2026-07-23）；P3-Web-v1.0 已完成（`P3-data-3`）；P2-Web-v1.0 已完成（`P2-stable`）
@@ -3252,6 +3253,34 @@ bugfix-1 主要是“视觉上先按住目标值”和“completed 后手动 see
 
 ---
 
+### 6.26 P4-player-seek-refresh-workaround-1：首次进入播放器自动软重建
+
+本批是「快速舒缓一下」本地播放页首次进入后 seek 仍偶发回 0 的临时兜底方案。用户反馈显示：首次进入后如果短时间内手动刷新页面，再进入同一播放页，拖动进度条恢复正常。因此本批通过 Flutter 内部软重建模拟“第二次进入播放器”，不使用浏览器硬刷新，不跳回首页，不丢失 `plan` / `moodText` / 本地音频资产信息。
+
+#### 6.26.1 临时 workaround 方案
+
+- `PlayerScreen` 新增 `enableFirstOpenWarmReload` / `warmReloadAlreadyDone` 参数，仅由快速舒缓本地播放入口开启。
+- 首次进入且本次应用 session 尚未执行过 warm reload 时，延迟 500ms 后先停止当前 `AudioPlayer`，再用 `Navigator.pushReplacement` 替换为同一 `PlayerScreen`。
+- replacement 页面传入同一份 `plan` 与 `moodText`，并传入 `enableFirstOpenWarmReload=false`、`warmReloadAlreadyDone=true`，避免循环刷新。
+- warm reload 等待窗口内播放按钮显示 loading，进度条与播放模式 / 定时按钮不允许操作，并显示「正在准备播放器…」。
+- 新增 `lib/utils/player_warm_reload_decision.dart` + `test/player_warm_reload_decision_test.dart`，用纯逻辑测试覆盖开启时触发一次、已触发后不再触发、关闭时不触发和 replacement 不循环。
+
+#### 6.26.2 明确边界
+
+- 这是首次加载 seek bug 的临时 workaround，不是 Web audio / just_audio 首次 seek ready 状态的最终根因修复。
+- 快速舒缓仍然只使用本地 `AudioAssetCatalog` assets 音乐，不调用 `/api/generate-music`。
+- 不影响 `GeneratedSongPlayerScreen`，AI 歌曲生成播放页不参与 warm reload。
+- 不修改 `MUSIC_GENERATION_REAL_CALLS_ENABLED`，不打开真实 MiniMax 调用，不暴露任何 API Key / Secret。
+- 后续仍需继续排查 Web audio metadata / duration / seekable range / just_audio 首次 `setAudioSources` 后的 seek ready 时序。
+
+#### 6.26.3 版本号同步
+
+- `lib/config/app_version.dart`：`buildLabel = P4-player-seek-refresh-workaround-1`、`buildDate = 2026-07-24`
+- `functions/api/health.js`：`BUILD_LABEL = P4-player-seek-refresh-workaround-1`
+- `scripts/verify-provider-adapter.mjs`：`buildLabel` 断言同步
+
+---
+
 ## 七、数据与隐私
 
 ### 7.1 心境文本处理
@@ -3612,6 +3641,7 @@ Web 与 Android 的构建链路相互独立：Android 的 Gradle 配置不参与
 | 2026-07-24 | v1.0.0 / P4-player-seek-bugfix-1 | P4 播放体验 bugfix | 修复快速舒缓播放页首次进入拖动进度条回到 0 秒：根因有二——①`lib/screens/player_screen.dart` 的 `_ProgressSection.onChangeEnd` 调 `player.seek(target)` 后未 await 且立即清空 `_dragValue`，slider 显示 positionStream 旧快照（首次进入≈0）导致视觉回弹到 0；②`_ProgressSection` 直接调 `player.seek()` 不通知宿主清空 `_completed`，歌曲播完后拖到中间再点播放，`_toggle()` 检测 `processingState==completed` 走 `seek(Duration.zero)+play()` 真正重播。修复：新增 `lib/utils/play_button_decision.dart` 纯函数 `decidePlayButtonAction(processingState, playing, completedFlag)` 返回 `replayFromStart/play/pause`，把"自然播完→重播"与"手动 seek→继续"分开（`completed+completedFlag=true→replayFromStart`，`completed+completedFlag=false→play` 不回 0）；`_toggle()` 改用纯函数以 `_completed` 为 completedFlag；`_ProgressSection` 新增 `onSeekStart` 回调，拖动结束时 `_onUserSeek()` 清空 `_completed`；`_ProgressSection` 防回弹：拖动结束把目标存入 `_pendingSeek`，positionStream 确认到达目标（容差 2% 或 300ms，兼容正/反向 seek）前 slider 持续显示目标值，800ms 保护计时器到期后交还控制权，消除视觉回弹到 0。修复后拖到任意位置可继续播放、暂停态拖动保持暂停、播完后拖到中间不强制回 0、切模式/定时强制循环态下拖动不回 0。版本号同步 `app_version.dart`(`buildLabel=P4-player-seek-bugfix-1`/`buildDate=2026-07-24`) + `health.js` + `verify-provider-adapter.mjs`；新增 `test/play_button_decision_test.dart` 9 项纯函数回归测试（just_audio AudioPlayer 难以在 widget test 稳定 mock，故测纯函数决策逻辑，实际 seek 行为由手动验收覆盖）。manualTest 三重门保护保留 / P6 额度保护保留 / 不真实调用 MiniMax / 不使用医疗化表达 / 快速舒缓仍完全本地化 / 不改 AI 歌曲生成链路（`generated_song_player_screen.dart` 相同 seek 模式留作后续可选跟进）/ 未做 R2/历史歌曲/分享链接/支付/用户系统/4090；详见 6.23 章节 |
 | 2026-07-24 | v1.0.0 / P4-player-seek-bugfix-2 | P4 播放体验 bugfix | 继续修复快速舒缓本地播放页首次 seek 被 0 拉回：bugfix-1 已加入 `_pendingSeek` 和 `completedFlag`，但 `onChangeEnd` 仍 fire-and-forget 调 `player.seek(target)`，并在 800ms 后无条件清 pending；Web 音频首次 seek 尚未完成时会重新读取 `positionStream` 旧位置 0。本批仅改 `lib/screens/player_screen.dart` 的 `_ProgressSection`：先设置 `_pendingSeek`/`_pendingSeekTarget`，调用 `onSeekStart` 清 `_completed`，`await player.seek(target)` 后读取真实 position，确认到达目标才清 pending，未到达则短延迟复查，3 秒兜底窗口最后释放；seek 前记录播放状态，seek 后播放中继续、暂停中保持暂停；新增 `lib/utils/seek_progress_guard.dart` + `test/seek_progress_guard_test.dart` 测试目标换算、容差判断和兜底时长；debug 日志仅 `kDebugMode` 下输出 `[DEBUG-SEEK-2]`，不记录隐私内容或 Secret。版本号同步 `app_version.dart`(`buildLabel=P4-player-seek-bugfix-2`/`buildDate=2026-07-24`) + `health.js` + `verify-provider-adapter.mjs` + README + ROADMAP。快速舒缓仍只播放本地 assets，不调 `/api/generate-music`、不调 MiniMax、不改 AI 歌曲生成链路、不修改 `MUSIC_GENERATION_REAL_CALLS_ENABLED`。 |
 | 2026-07-24 | v1.0.0 / P4-player-seek-bugfix-3 | P4 播放体验 bugfix | 修复快速舒缓本地播放页首次打开拖动进度条回 0、第二次打开正常：在本地播放器新增 `_audioReadyForSeek` 门控，仅 duration 已知且 processingState 为 ready/completed 时启用 Slider；未 ready 时显示「音频正在准备中…」且不触发 seek；setAudioSources 重建音源时先关闭 seek，ready 后自动恢复；保留 bugfix-2 await seek + pending 确认；新增 `audio_seek_readiness.dart` 纯逻辑和测试；临时 debug 仅 `kDebugMode` 下输出 `[DEBUG-FIRST-SEEK]`，不记录隐私或 Secret。不改 AI 歌曲生成链路、不修改 `MUSIC_GENERATION_REAL_CALLS_ENABLED`、不触发 MiniMax。 |
+| 2026-07-24 | v1.0.0 / P4-player-seek-refresh-workaround-1 | P4 播放体验 workaround | 为快速舒缓本地播放页增加首次进入自动软重建兜底：仅快速舒缓入口传入 `enableFirstOpenWarmReload=true`，`PlayerScreen` 在本次 session 尚未 warm reload 时延迟 500ms，先停止当前 `AudioPlayer`，再 `Navigator.pushReplacement` 到携带相同 `plan` / `moodText` 的新 `PlayerScreen`，并关闭 warm reload 标记，避免无限刷新；等待窗口内禁用播放、seek、播放模式和定时按钮，显示「正在准备播放器…」。这是临时 workaround，不是底层 Web audio / just_audio 首次 seek ready 根因最终修复；快速舒缓仍只播放本地 assets，不改 `GeneratedSongPlayerScreen`、不改 AI 生成链路、不修改 `MUSIC_GENERATION_REAL_CALLS_ENABLED`、不打开真实 MiniMax。 |
 
 ### 13.7 项目结构
 
@@ -3655,6 +3685,7 @@ lib/
 ├── utils/                         # 工具函数
 │   ├── audio_asset_uri.dart       # Web / 非 Web 平台 AudioSource 路径解析
 │   ├── audio_seek_readiness.dart  # P4-player-seek-bugfix-3：本地播放器 seek ready 门控
+│   ├── player_warm_reload_decision.dart # P4-player-seek-refresh-workaround-1：首次进入播放器软重建决策
 │   ├── user_agent_helper.dart     # Web 端获取 navigator.userAgent
 │   ├── recommendation_reason.dart # P2 推荐理由场景化 helper
 │   ├── play_button_decision.dart  # P4-player-seek-bugfix-1：播放按钮动作纯函数（replay/play/pause）

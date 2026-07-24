@@ -324,8 +324,11 @@ class _PlanScreenState extends State<PlanScreen> {
               onPressed: () {
                 Navigator.of(context).push(
                   MaterialPageRoute(
-                    builder: (_) =>
-                        PlayerScreen(plan: plan, moodText: widget.moodText),
+                    builder: (_) => PlayerScreen(
+                      plan: plan,
+                      moodText: widget.moodText,
+                      enableFirstOpenWarmReload: true,
+                    ),
                   ),
                 );
               },

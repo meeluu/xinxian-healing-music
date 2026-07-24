@@ -10,6 +10,7 @@ import 'package:xinxian_healing_music/theme/app_colors.dart';
 import 'package:xinxian_healing_music/utils/audio_seek_readiness.dart';
 import 'package:xinxian_healing_music/utils/audio_asset_uri.dart';
 import 'package:xinxian_healing_music/utils/play_button_decision.dart';
+import 'package:xinxian_healing_music/utils/player_warm_reload_decision.dart';
 import 'package:xinxian_healing_music/utils/recommendation_reason.dart';
 import 'package:xinxian_healing_music/utils/seek_progress_guard.dart';
 import 'package:xinxian_healing_music/widgets/centered_page.dart';
@@ -66,8 +67,16 @@ extension PlayModeX on PlayMode {
 class PlayerScreen extends StatefulWidget {
   final HealingMusicPlan plan;
   final String moodText;
+  final bool enableFirstOpenWarmReload;
+  final bool warmReloadAlreadyDone;
 
-  const PlayerScreen({super.key, required this.plan, required this.moodText});
+  const PlayerScreen({
+    super.key,
+    required this.plan,
+    required this.moodText,
+    this.enableFirstOpenWarmReload = false,
+    this.warmReloadAlreadyDone = false,
+  });
 
   @override
   State<PlayerScreen> createState() => _PlayerScreenState();
@@ -75,13 +84,17 @@ class PlayerScreen extends StatefulWidget {
 
 class _PlayerScreenState extends State<PlayerScreen>
     with SingleTickerProviderStateMixin {
+  static bool _warmReloadDoneThisSession = false;
+
   late final AudioPlayer _player;
   late final AnimationController _visualizer;
   StreamSubscription<PlayerState>? _stateSub;
   StreamSubscription<Duration?>? _durationSub;
   StreamSubscription<Duration>? _positionSub;
+  Timer? _warmReloadTimer;
   bool _loading = true;
   bool _error = false;
+  bool _warmingReload = false;
   bool _audioReadyForSeek = false;
   Duration? _lastDurationForSeek;
   ProcessingState _lastProcessingStateForSeek = ProcessingState.idle;
@@ -209,6 +222,51 @@ class _PlayerScreenState extends State<PlayerScreen>
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _initAudio();
     });
+    _scheduleFirstOpenWarmReloadIfNeeded();
+  }
+
+  void _scheduleFirstOpenWarmReloadIfNeeded() {
+    final alreadyReloaded =
+        widget.warmReloadAlreadyDone || _warmReloadDoneThisSession;
+    if (!PlayerWarmReloadDecision.shouldWarmReload(
+      enabled: widget.enableFirstOpenWarmReload,
+      alreadyReloaded: alreadyReloaded,
+    )) {
+      return;
+    }
+
+    _warmingReload = true;
+    _audioReadyForSeek = false;
+    _warmReloadDoneThisSession = true;
+    _warmReloadTimer = Timer(PlayerWarmReloadDecision.delay, () {
+      _performWarmReload();
+    });
+  }
+
+  Future<void> _performWarmReload() async {
+    if (!mounted) return;
+    setState(() {
+      _warmingReload = true;
+      _audioReadyForSeek = false;
+    });
+
+    try {
+      await _player.stop();
+    } catch (_) {
+      // Best-effort cleanup before replacing this temporary player instance.
+    }
+    if (!mounted) return;
+
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(
+        builder: (_) => PlayerScreen(
+          plan: widget.plan,
+          moodText: widget.moodText,
+          enableFirstOpenWarmReload: false,
+          warmReloadAlreadyDone: true,
+        ),
+      ),
+    );
   }
 
   Future<void> _initAudio() async {
@@ -411,6 +469,7 @@ class _PlayerScreenState extends State<PlayerScreen>
 
   /// 重试加载音频：重置错误态后重新初始化。
   Future<void> _retry() async {
+    if (_warmingReload) return;
     setState(() {
       _error = false;
       _loading = true;
@@ -422,7 +481,7 @@ class _PlayerScreenState extends State<PlayerScreen>
   }
 
   Future<void> _toggle() async {
-    if (_loading || _error) return;
+    if (_loading || _error || _warmingReload) return;
     final state = _player.playerState;
     // P4-player-seek-bugfix-1：用纯函数决定动作，把"自然播完→点击重播"和
     // "用户手动 seek 后点击继续"两条路径分开。
@@ -474,6 +533,7 @@ class _PlayerScreenState extends State<PlayerScreen>
     _stateSub?.cancel();
     _durationSub?.cancel();
     _positionSub?.cancel();
+    _warmReloadTimer?.cancel();
     _player.dispose();
     _visualizer.dispose();
     super.dispose();
@@ -647,7 +707,7 @@ class _PlayerScreenState extends State<PlayerScreen>
             child: _Visualizer(
               controller: _visualizer,
               child: _PlayButton(
-                loading: _loading,
+                loading: _loading || _warmingReload,
                 error: _error,
                 player: _player,
                 onTap: _toggle,
@@ -737,6 +797,15 @@ class _PlayerScreenState extends State<PlayerScreen>
               style: TextStyle(fontSize: 11, color: AppColors.textMuted),
             ),
 
+          if (_warmingReload) ...[
+            const SizedBox(height: 6),
+            const Text(
+              '正在准备播放器…',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 11, color: AppColors.textMuted),
+            ),
+          ],
+
           const SizedBox(height: 24),
 
           // 进度条 + 时长（柔和蓝绿）
@@ -745,13 +814,13 @@ class _PlayerScreenState extends State<PlayerScreen>
           _ProgressSection(
             player: _player,
             fmt: _fmt,
-            enabled: !_error,
+            enabled: !_error && !_warmingReload,
             readyForSeek: _audioReadyForSeek,
             onSeekStart: _onUserSeek,
           ),
 
           // P4-playback-experience-2：播放模式选择 + 定时关闭（并排，轻量）
-          if (!_error) ...[
+          if (!_error && !_warmingReload) ...[
             const SizedBox(height: 12),
             _buildPlaybackControls(),
           ],
