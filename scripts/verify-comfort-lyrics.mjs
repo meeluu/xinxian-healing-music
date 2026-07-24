@@ -27,7 +27,9 @@ import {
   localFallback,
   classifyConcern,
   localFollowUpFallback,
+  localFollowUpMoreFallback,
   normalizeFollowUpQuestions,
+  normalizeFollowUpMore,
 } from '../functions/api/comfort-lyrics.js';
 
 var passed = 0;
@@ -473,7 +475,8 @@ await test('43. localFollowUpFallback 返回 { category, questions }', () => {
   var r = localFollowUpFallback('最近工作压力很大');
   assert.ok(typeof r.category === 'string');
   assert.ok(Array.isArray(r.questions));
-  assert.ok(r.questions.length >= 2 && r.questions.length <= 3);
+  // P4-dynamic-followup-depth-1：initial 阶段固定返回前 2 条
+  assert.ok(r.questions.length === 2);
   r.questions.forEach(function (q) {
     assert.ok(typeof q === 'string' && q.length > 0);
   });
@@ -504,7 +507,7 @@ await test('45. localFollowUpFallback eventConflict 问题可含事件导向措�
   assert.ok(r.questions[0].includes('最让你难受'), 'eventConflict 第 1 问应含「最让你难受」');
 });
 
-await test('46. localFollowUpFallback 6 分类问题数量均为 3', () => {
+await test('46. localFollowUpFallback 6 分类问题数量均为 2（initial 阶段）', () => {
   var inputs = [
     '提不起劲',       // lowEnergy
     '和妈妈吵架了',   // eventConflict
@@ -515,7 +518,7 @@ await test('46. localFollowUpFallback 6 分类问题数量均为 3', () => {
   ];
   inputs.forEach(function (input) {
     var r = localFollowUpFallback(input);
-    assert.strictEqual(r.questions.length, 3, input + ' 应返回 3 个问题');
+    assert.strictEqual(r.questions.length, 2, input + ' 应返回 2 个问题');
   });
 });
 
@@ -564,7 +567,7 @@ await test('51. normalizeFollowUpQuestions 少于 2 条 → null', () => {
   assert.strictEqual(normalizeFollowUpQuestions({ questions: [] }), null);
 });
 
-await test('52. normalizeFollowUpQuestions 过滤非字符串 + 截断超长 + 最多 3 条', () => {
+await test('52. normalizeFollowUpQuestions 过滤非字符串 + 截断超长 + 默认最多 4 条', () => {
   var r = normalizeFollowUpQuestions({
     questions: [
       '问题1',
@@ -572,14 +575,25 @@ await test('52. normalizeFollowUpQuestions 过滤非字符串 + 截断超长 + �
       '问题2',
       null,
       '问题3',
-      '问题4',  // 超过 3 条应被截断
+      '问题4',
+      '问题5',  // 超过 4 条应被截断
     ],
   });
   assert.ok(Array.isArray(r));
-  assert.strictEqual(r.length, 3);
+  // P4-dynamic-followup-depth-1：默认 maxQuestions=4
+  assert.strictEqual(r.length, 4);
   assert.strictEqual(r[0], '问题1');
   assert.strictEqual(r[1], '问题2');
   assert.strictEqual(r[2], '问题3');
+  assert.strictEqual(r[3], '问题4');
+});
+
+await test('52b. normalizeFollowUpQuestions maxQuestions=3 仍可限制上限', () => {
+  var r = normalizeFollowUpQuestions({
+    questions: ['问题1', '问题2', '问题3', '问题4'],
+  }, 3);
+  assert.ok(Array.isArray(r));
+  assert.strictEqual(r.length, 3);
 });
 
 await test('53. normalizeFollowUpQuestions 过滤医疗化词汇', () => {
@@ -613,6 +627,154 @@ await test('56. validateInput mode 非法 → 默认 comfort_song', () => {
 await test('57. validateInput mode=comfort_song → 透传', () => {
   var r = validateInput({ storyText: 'x', mode: 'comfort_song' });
   assert.strictEqual(r.mode, 'comfort_song');
+});
+
+// ─── P4-dynamic-followup-depth-1：stage / answers / normalizeFollowUpMore ──
+console.log('─ P4-dynamic-followup-depth-1: stage / answers / more ─');
+
+await test('58. validateInput stage 缺失 → 默认 initial', () => {
+  var r = validateInput({ storyText: 'x', mode: 'follow_up_questions' });
+  assert.strictEqual(r.stage, 'initial');
+});
+
+await test('59. validateInput stage=initial → 透传', () => {
+  var r = validateInput({ storyText: 'x', mode: 'follow_up_questions', stage: 'initial' });
+  assert.strictEqual(r.stage, 'initial');
+});
+
+await test('60. validateInput stage=more → 透传', () => {
+  var r = validateInput({ storyText: 'x', mode: 'follow_up_questions', stage: 'more' });
+  assert.strictEqual(r.stage, 'more');
+});
+
+await test('61. validateInput stage 非法 → 默认 initial', () => {
+  var r = validateInput({ storyText: 'x', mode: 'follow_up_questions', stage: 'unknown' });
+  assert.strictEqual(r.stage, 'initial');
+});
+
+await test('62. validateInput answers 缺失 → 默认空数组', () => {
+  var r = validateInput({ storyText: 'x', mode: 'follow_up_questions', stage: 'more' });
+  assert.ok(Array.isArray(r.answers));
+  assert.strictEqual(r.answers.length, 0);
+});
+
+await test('63. validateInput answers 非数组 → 默认空数组', () => {
+  var r = validateInput({ storyText: 'x', mode: 'follow_up_questions', stage: 'more', answers: 'not array' });
+  assert.ok(Array.isArray(r.answers));
+  assert.strictEqual(r.answers.length, 0);
+});
+
+await test('64. validateInput answers 过滤非字符串 + slice(0,2)', () => {
+  var r = validateInput({
+    storyText: 'x',
+    mode: 'follow_up_questions',
+    stage: 'more',
+    answers: ['答1', 123, '答2', null, '答3'],
+  });
+  assert.ok(Array.isArray(r.answers));
+  // 最多 2 条
+  assert.strictEqual(r.answers.length, 2);
+  assert.strictEqual(r.answers[0], '答1');
+  assert.strictEqual(r.answers[1], '答2');
+});
+
+await test('65. validateInput answers 单项超 500 字 → 截断', () => {
+  var long = 'a'.repeat(600);
+  var r = validateInput({
+    storyText: 'x',
+    mode: 'follow_up_questions',
+    stage: 'more',
+    answers: [long],
+  });
+  assert.strictEqual(r.answers.length, 1);
+  assert.strictEqual(r.answers[0].length, 500);
+});
+
+await test('66. normalizeFollowUpMore needMore=true + 2 questions → 透传', () => {
+  var r = normalizeFollowUpMore({ needMore: true, questions: ['追加1', '追加2'] });
+  assert.ok(r);
+  assert.strictEqual(r.needMore, true);
+  assert.strictEqual(r.questions.length, 2);
+});
+
+await test('67. normalizeFollowUpMore needMore=true + 1 question → 透传', () => {
+  var r = normalizeFollowUpMore({ needMore: true, questions: ['追加1'] });
+  assert.ok(r);
+  assert.strictEqual(r.needMore, true);
+  assert.strictEqual(r.questions.length, 1);
+});
+
+await test('68. normalizeFollowUpMore needMore=true + 空 questions → 强制 needMore=false', () => {
+  var r = normalizeFollowUpMore({ needMore: true, questions: [] });
+  assert.ok(r);
+  assert.strictEqual(r.needMore, false);
+  assert.strictEqual(r.questions.length, 0);
+});
+
+await test('69. normalizeFollowUpMore needMore=false + 非空 questions → 强制 questions=[]', () => {
+  var r = normalizeFollowUpMore({ needMore: false, questions: ['多余问题'] });
+  assert.ok(r);
+  assert.strictEqual(r.needMore, false);
+  assert.strictEqual(r.questions.length, 0);
+});
+
+await test('70. normalizeFollowUpMore questions 超过 2 条 → slice(0,2)', () => {
+  var r = normalizeFollowUpMore({ needMore: true, questions: ['q1', 'q2', 'q3'] });
+  assert.ok(r);
+  assert.strictEqual(r.needMore, true);
+  assert.strictEqual(r.questions.length, 2);
+});
+
+await test('71. normalizeFollowUpMore 非 object → null', () => {
+  assert.strictEqual(normalizeFollowUpMore(null), null);
+  assert.strictEqual(normalizeFollowUpMore(undefined), null);
+  assert.strictEqual(normalizeFollowUpMore('string'), null);
+});
+
+await test('72. normalizeFollowUpMore needMore 非 bool → null', () => {
+  assert.strictEqual(normalizeFollowUpMore({ needMore: 'yes', questions: [] }), null);
+  assert.strictEqual(normalizeFollowUpMore({ needMore: 1, questions: [] }), null);
+});
+
+await test('73. normalizeFollowUpMore questions 非数组 → null', () => {
+  assert.strictEqual(normalizeFollowUpMore({ needMore: true, questions: 'not array' }), null);
+  assert.strictEqual(normalizeFollowUpMore({ needMore: false, questions: 123 }), null);
+});
+
+await test('74. normalizeFollowUpMore 过滤医疗化词汇', () => {
+  var r = normalizeFollowUpMore({ needMore: true, questions: ['你有没有治疗焦虑的需求？', '现在感觉怎么样？'] });
+  assert.ok(r);
+  assert.strictEqual(r.needMore, true);
+  assert.strictEqual(r.questions.length, 2);
+  // 「治疗焦虑」应被替换
+  assert.ok(!r.questions[0].includes('治疗焦虑'), '应过滤医疗化词汇');
+});
+
+await test('75. localFollowUpMoreFallback 恒定 needMore=false + 空 questions', () => {
+  var r = localFollowUpMoreFallback('最近工作压力大', ['答1', '答2']);
+  assert.strictEqual(r.needMore, false);
+  assert.ok(Array.isArray(r.questions));
+  assert.strictEqual(r.questions.length, 0);
+  assert.strictEqual(r.reason, 'fallback');
+  // 多种输入下行为一致
+  var r2 = localFollowUpMoreFallback('提不起劲', []);
+  assert.strictEqual(r2.needMore, false);
+  assert.strictEqual(r2.questions.length, 0);
+});
+
+await test('76. localFollowUpFallback stage=initial 返回 2 条（向后兼容默认）', () => {
+  var r = localFollowUpFallback('和妈妈吵架了', { stage: 'initial' });
+  assert.strictEqual(r.questions.length, 2);
+  // 不传 options 也应默认 initial
+  var r2 = localFollowUpFallback('和妈妈吵架了');
+  assert.strictEqual(r2.questions.length, 2);
+});
+
+await test('77. localFollowUpFallback stage=more 返回空 questions', () => {
+  var r = localFollowUpFallback('和妈妈吵架了', { stage: 'more' });
+  assert.ok(r.category, '应仍返回 category');
+  assert.ok(Array.isArray(r.questions));
+  assert.strictEqual(r.questions.length, 0);
 });
 
 // ─── 结果汇总 ───────────────────────────────────────────────

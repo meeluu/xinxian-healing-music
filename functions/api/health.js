@@ -55,7 +55,8 @@ const SERVICE_VERSION = 'v1';
 // P4-playback-experience-2：AI 歌曲独立播放页 + 本地舒缓播放模式增强（4 种模式 + 定时强制持续播放）
 // P4-player-seek-refresh-workaround-1：首次进入本地播放器后软重建一次，临时规避 Web 首次 seek 回 0。
 // P5-music-metadata-foundation-1：本地音乐元数据基础改造，per-asset 时长 / 声音特征与具体音频绑定。
-const BUILD_LABEL = 'P5-music-metadata-foundation-1';
+// P4-dynamic-followup-depth-1：把「把困惑写成一首歌」固定三轮追问改为动态 2-4 轮（首轮 2 问 + 可选追加判定）。
+const BUILD_LABEL = 'P4-dynamic-followup-depth-1';
 
 // ─── 统一响应 helper ──────────────────────────────────────────
 function jsonResponse(payload, statusCode, origin) {

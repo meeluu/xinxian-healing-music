@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 import 'package:xinxian_healing_music/models/comfort_lyrics_result.dart';
+import 'package:xinxian_healing_music/models/follow_up_result.dart';
 
 /// 困惑解惑 + 歌词生成 Service（P4 新方向第一批 / 第二批）。
 ///
@@ -92,19 +93,24 @@ class ComfortLyricsService {
     return ComfortLyricsResult.fromJson(body);
   }
 
-  // ─── P4-conversation-song-flow-1-fix1：LLM 动态追问 ────────────
+  // ─── P4-conversation-song-flow-1-fix1 / P4-dynamic-followup-depth-1：LLM 动态追问 ──
   //
-  // 调用后端 mode='follow_up_questions' 分支，让 LLM 根据用户原文生成 2-3 个
-  // 简短追问（不再用固定模板）。任何失败都走 [_localFollowUpFallback] 返回本地
-  // 6 分类兜底问题，绝不抛异常，不让前端卡死。
+  // 调用后端 mode='follow_up_questions' 分支，按 stage 分两步：
+  // - [fetchFollowUpQuestions]（stage='initial'，缺省）：首轮生成 2 个核心追问
+  //   + 建议轮数（suggestedQuestionCount / canGenerateAfter）。
+  // - [fetchFollowUpMore]（stage='more'）：用户答完 2 个问题后，判定是否追加
+  //   1-2 个问题。needMore=true 时 questions 非空，needMore=false 时为空。
   //
+  // 总轮数控制在 2-4：首轮固定 2 个，追加判定最多再加 2 个。
+  // 任何失败都走本地兜底，绝不抛异常，不让前端卡死。
   // 与 generate() 的区别：只拉追问列表，不生成歌词；超时更短（12s）。
 
-  /// 拉取 LLM 动态追问问题。
+  /// 拉取首轮 LLM 动态追问问题（stage='initial'）。
   ///
-  /// 失败时（网络、非 200、JSON 解析失败、questions 为空/不足 2 条）调用
-  /// [_localFollowUpFallback] 返回本地兜底问题，绝不抛异常。
-  Future<List<String>> fetchFollowUpQuestions({
+  /// 返回 [FollowUpInitialResult]，含 2 个核心问题 + 建议轮数。
+  /// 失败时（网络、非 200、JSON 解析失败、questions 不足 2 条）调用
+  /// [_localFollowUpInitialFallback] 返回本地兜底问题，绝不抛异常。
+  Future<FollowUpInitialResult> fetchFollowUpQuestions({
     required String storyText,
     String sessionId = '',
     String language = 'zh-CN',
@@ -120,43 +126,117 @@ class ComfortLyricsService {
               'sessionId': sessionId,
               'language': language,
               'mode': 'follow_up_questions',
+              'stage': 'initial',
             }),
           )
           .timeout(const Duration(seconds: 12));
     } catch (_) {
-      return _localFollowUpFallback(storyText);
+      return _localFollowUpInitialFallback(storyText);
     }
 
     if (resp.statusCode != 200) {
-      return _localFollowUpFallback(storyText);
+      return _localFollowUpInitialFallback(storyText);
     }
 
     final Map<String, dynamic> body;
     try {
       body = jsonDecode(resp.body) as Map<String, dynamic>;
     } catch (_) {
-      return _localFollowUpFallback(storyText);
+      return _localFollowUpInitialFallback(storyText);
     }
 
-    final raw = body['questions'];
-    if (raw is! List) return _localFollowUpFallback(storyText);
-    final questions = raw
-        .whereType<String>()
-        .map((s) => s.trim())
-        .where((s) => s.isNotEmpty)
-        .toList();
-    if (questions.length < 2) return _localFollowUpFallback(storyText);
-    return questions.take(3).toList();
+    final result = FollowUpInitialResult.fromJson(body);
+    // questions 不足 2 条 → 走兜底（与后端 normalizeFollowUpQuestions 一致）
+    if (result.questions.length < 2) {
+      return _localFollowUpInitialFallback(storyText);
+    }
+    // 保证返回恰好 2 条（前端只展示前 2 条）
+    final questions = result.questions.take(2).toList();
+    return FollowUpInitialResult(
+      questions: questions,
+      suggestedQuestionCount: result.suggestedQuestionCount,
+      canGenerateAfter: result.canGenerateAfter,
+      source: result.source,
+      category: result.category,
+    );
   }
 
-  /// 追问本地兜底（LLM 不可达 / 返回无效时使用）。
+  /// P4-dynamic-followup-depth-1：拉取追加判定（stage='more'）。
   ///
-  /// 与后端 `localFollowUpFallback` 的 6 分类保持一致，通过 [_classifyConcern]
-  /// 关键词匹配选择对应问题。lowEnergy 优先级最高，避免在用户没力气时问"这件事里"。
-  List<String> _localFollowUpFallback(String storyText) {
+  /// 在用户答完首轮 2 个问题后调用一次。返回 [FollowUpMoreResult]：
+  /// - needMore=true：仍需追问，[questions] 含 1-2 条追加问题。
+  /// - needMore=false：不再追问，[questions] 为空，用户可直接进入生成。
+  ///
+  /// 失败时（网络、非 200、JSON 解析失败）调用 [_localFollowUpMoreFallback]
+  /// 返回保守兜底（needMore=false，保证用户在 2 轮后即可生成），绝不抛异常。
+  Future<FollowUpMoreResult> fetchFollowUpMore({
+    required String storyText,
+    required List<String> answers,
+    String sessionId = '',
+    String language = 'zh-CN',
+  }) async {
+    final http.Response resp;
+    try {
+      resp = await http
+          .post(
+            _endpoint(),
+            headers: {'Content-Type': 'application/json; charset=utf-8'},
+            body: jsonEncode({
+              'storyText': storyText,
+              'sessionId': sessionId,
+              'language': language,
+              'mode': 'follow_up_questions',
+              'stage': 'more',
+              'answers': answers.take(2).toList(),
+            }),
+          )
+          .timeout(const Duration(seconds: 12));
+    } catch (_) {
+      return _localFollowUpMoreFallback();
+    }
+
+    if (resp.statusCode != 200) {
+      return _localFollowUpMoreFallback();
+    }
+
+    final Map<String, dynamic> body;
+    try {
+      body = jsonDecode(resp.body) as Map<String, dynamic>;
+    } catch (_) {
+      return _localFollowUpMoreFallback();
+    }
+
+    return FollowUpMoreResult.fromJson(body);
+  }
+
+  /// 首轮追问本地兜底（LLM 不可达 / 返回无效时使用）。
+  ///
+  /// 与后端 `localFollowUpFallback(stage='initial')` 一致：取该分类前 2 条。
+  /// 通过 [_classifyConcern] 关键词匹配选择对应问题。lowEnergy 优先级最高，
+  /// 避免在用户没力气时问"这件事里"。
+  FollowUpInitialResult _localFollowUpInitialFallback(String storyText) {
     final category = _classifyConcern(storyText);
-    return _followUpFallbackQuestions[category] ??
+    final full = _followUpFallbackQuestions[category] ??
         _followUpFallbackQuestions['unknown']!;
+    return FollowUpInitialResult(
+      questions: full.take(2).toList(),
+      suggestedQuestionCount: 2,
+      canGenerateAfter: 2,
+      source: 'fallback',
+      category: category,
+    );
+  }
+
+  /// 追加判定本地兜底（LLM 不可达 / 返回无效时使用）。
+  ///
+  /// 与后端 `localFollowUpMoreFallback` 一致：恒定 needMore=false + 空 questions，
+  /// 保证用户在 2 轮后即可进入生成，不阻塞流程。
+  FollowUpMoreResult _localFollowUpMoreFallback() {
+    return const FollowUpMoreResult(
+      needMore: false,
+      questions: [],
+      source: 'fallback',
+    );
   }
 
   /// 根据 storyText 关键词识别追问分类（与后端 `classifyConcern` 一致）。

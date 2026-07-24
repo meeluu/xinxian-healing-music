@@ -55,8 +55,9 @@ class AppVersion {
   /// - `P{N}-quota-guard-{n}`：P 阶段第 n 批本地额度保护与成本安全（浏览器每日生成次数限制）
   /// - `P{N}-playback-experience-{n}`：P 阶段第 n 批播放体验优化（AI 歌曲独立播放页 + 本地播放模式增强）
   /// - `P{N}-music-metadata-foundation-{n}`：P 阶段第 n 批本地音乐元数据基础改造（per-asset 时长 / 声音特征结构打通）
+  /// - `P{N}-dynamic-followup-depth-{n}`：P 阶段第 n 批动态追问深度优化（固定三轮→动态 2-4 轮）
   /// - `P{N}-stable`：P 阶段收尾验收通过，正式发布
-  static const String buildLabel = 'P5-music-metadata-foundation-1';
+  static const String buildLabel = 'P4-dynamic-followup-depth-1';
 
   /// 构建日期（YYYY-MM-DD），手动维护。
   static const String buildDate = '2026-07-24';

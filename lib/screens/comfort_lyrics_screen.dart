@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:xinxian_healing_music/models/comfort_lyrics_result.dart';
+import 'package:xinxian_healing_music/models/follow_up_result.dart';
 import 'package:xinxian_healing_music/pipeline/llm/comfort_lyrics_service.dart';
 import 'package:xinxian_healing_music/pipeline/services.dart';
 import 'package:xinxian_healing_music/screens/analysis_screen.dart';
@@ -123,12 +124,20 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
   // 计数规则：只有 /api/generate-music 返回成功且拿到可播放音频时才计数（_callGenerateMusicApi 成功分支）。
   int? _quotaRemaining;
 
-  // ─── P4-conversation-song-flow-1：多轮困惑理解状态 ───
+  // ─── P4-conversation-song-flow-1 / P4-dynamic-followup-depth-1：多轮困惑理解状态 ───
   //
-  // 流程：input（输入困惑+选曲风）→ loadingFollowUp（调 LLM 拿动态追问）→
-  //       followUp（2-3 轮动态追问）→ done（生成结果）
+  // 流程：input（输入困惑+选曲风）→ loadingFollowUp（首轮 2 个核心追问）→
+  //       followUp（第 1/2 个问题）→ loadingFollowUpMore（判定是否追加）→
+  //       followUp（第 3/4 个追加问题，如 needMore=true）→ done（生成结果）
+  //
+  // P4-dynamic-followup-depth-1：追问轮数动态 2-4 轮。
+  // - 首轮固定 2 个核心问题（_dynamicQuestions 前 2 条）。
+  // - 第 2 个问题答完后调一次 fetchFollowUpMore，判定是否追加 1-2 个问题。
+  // - needMore=true：把追加问题拼到 _dynamicQuestions 末尾，继续 followUp 阶段。
+  // - needMore=false：直接进入 done 阶段生成。
+  // - 第 2 个问题答完后，用户也可主动点击「先写成歌」跳过追加判定。
+  //
   // 多轮数据只存在页面 state，不做长期保存（_reset 清空，不写入本地存储/云端）。
-  //
   // fix1：追问改为 LLM 动态生成（fetchFollowUpQuestions），失败走本地 6 分类兜底。
   // 不再用固定 _followUpQuestions 常量；所有回答统一计入 _followUpAnswers。
   _ConversationPhase _phase = _ConversationPhase.input;
@@ -148,8 +157,23 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
   /// 动态追问回答列表（每轮一个条目，统一计入，不再区分 desiredFeeling/comfortDirection）。
   List<String> _followUpAnswers = [];
 
-  /// fix1：当前动态问题列表（来自 LLM 或本地兜底）。空列表表示尚未加载。
+  /// 当前动态问题列表（来自 LLM 或本地兜底）。空列表表示尚未加载。
+  ///
+  /// P4-dynamic-followup-depth-1：首轮 2 条；如追加判定 needMore=true，
+  /// 会把追加问题拼到末尾，长度可能变为 3 或 4。
   List<String> _dynamicQuestions = [];
+
+  /// P4-dynamic-followup-depth-1：第几个问题答完后允许「先写成歌」（始终为 2）。
+  ///
+  /// 用于驱动 [isSecondInitial] 判定：当 `_followUpIndex == _canGenerateAfter - 1`
+  /// 且 `_dynamicQuestions.length == _canGenerateAfter` 时，显示「先写成歌」按钮。
+  int _canGenerateAfter = 2;
+
+  /// P4-dynamic-followup-depth-1：追加判定是否正在进行（防并发）。
+  ///
+  /// 用户答完第 2 个问题后触发 fetchFollowUpMore，期间置 true，
+  /// 避免 UI 重复触发或用户连续点击导致状态混乱。
+  bool _moreInFlight = false;
 
   /// 4 种曲风选项。
   static const List<_StyleOption> _styleOptions = [
@@ -264,10 +288,12 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
     }
   }
 
-  /// fix1：从 input 阶段进入 loadingFollowUp，调 LLM 拿动态追问。
+  /// fix1 / P4-dynamic-followup-depth-1：从 input 阶段进入 loadingFollowUp，
+  /// 调 LLM 拿首轮 2 个核心追问。
   ///
   /// 记录原始困惑为 [_initialConcern]，切到 loadingFollowUp 阶段，
-  /// 调 [_service.fetchFollowUpQuestions] 拿动态问题；失败走本地 6 分类兜底。
+  /// 调 [_service.fetchFollowUpQuestions] 拿 [FollowUpInitialResult]；
+  /// 失败走本地 6 分类兜底（service 内部已处理）。
   /// 拿到问题后切到 followUp 阶段，进入第 0 个追问。
   Future<void> _startFollowUp() async {
     final story = _storyController.text.trim();
@@ -279,6 +305,8 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
       _followUpIndex = 0;
       _followUpAnswers = [];
       _dynamicQuestions = [];
+      _canGenerateAfter = 2;
+      _moreInFlight = false;
       _followUpController.clear();
       _errorHint = null;
       _result = null;
@@ -287,21 +315,35 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
       _songPromptExpanded = false;
     });
 
-    List<String> questions;
+    FollowUpInitialResult result;
     try {
-      questions = await _service.fetchFollowUpQuestions(storyText: story);
+      result = await _service.fetchFollowUpQuestions(storyText: story);
     } catch (_) {
-      questions = const <String>[];
+      // service 内部已 fallback，这里再兜一层防意外
+      result = FollowUpInitialResult(
+        questions: const [
+          '今天最重的是哪一段心情？',
+          '现在更想被理解，还是想先平静下来？',
+        ],
+        suggestedQuestionCount: 2,
+        canGenerateAfter: 2,
+        source: 'fallback',
+      );
     }
     if (!mounted) return;
 
     // 防御性兜底：service 内部已 fallback，这里再检查空列表
-    if (questions.isEmpty) {
-      questions = const ['今天最重的是哪一段心情？', '现在更想被理解，还是想先平静下来？', '有想先放一放的事吗？'];
+    var questions = result.questions;
+    if (questions.length < 2) {
+      questions = const [
+        '今天最重的是哪一段心情？',
+        '现在更想被理解，还是想先平静下来？',
+      ];
     }
 
     setState(() {
       _dynamicQuestions = questions;
+      _canGenerateAfter = result.canGenerateAfter;
       _phase = _ConversationPhase.followUp;
     });
 
@@ -311,24 +353,43 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
     });
   }
 
-  /// fix1：记录当前追问回答并推进到下一轮或生成。
+  /// P4-dynamic-followup-depth-1：记录当前追问回答并推进到下一轮 / 追加判定 / 生成。
+  ///
+  /// 推进逻辑（总轮数动态 2-4）：
+  /// - 记录回答到 [_followUpAnswers]。
+  /// - 若还有未答的题（_followUpIndex < lastIndex）→ 推进到下一题。
+  /// - 若已答完当前所有题：
+  ///   · 若刚答完第 2 个问题（index==1）且未触发过追加判定（!_moreInFlight）
+  ///     且总轮数尚未达 4 → 触发 [_triggerFollowUpMore] 判定是否追加。
+  ///   · 否则（追加判定已完成 needMore=false，或已达 4 轮上限）→ 进入 done 生成。
   ///
   /// 所有回答统一计入 [_followUpAnswers]（不再区分 desiredFeeling/comfortDirection）。
-  /// 最后一轮记录后进入 done 阶段并调用 [_generate]；
-  /// 非最后一轮推进 [_followUpIndex] 并聚焦下一题输入框。
   void _recordAnswerAndAdvance(String answer) {
     FocusScope.of(context).unfocus();
     final lastIndex = _dynamicQuestions.length - 1;
+    final answeredCount = _followUpAnswers.length + 1; // 含本次回答
+
     setState(() {
       _followUpAnswers = [..._followUpAnswers, answer];
       _followUpController.clear();
       if (_followUpIndex < lastIndex) {
+        // 还有未答的题 → 推进到下一题
         _followUpIndex += 1;
+      } else if (answeredCount == 2 &&
+          !_moreInFlight &&
+          _dynamicQuestions.length < 4) {
+        // 刚答完第 2 个问题，且未触发过追加判定，且未达 4 轮上限 → 触发追加判定
+        _phase = _ConversationPhase.loadingFollowUpMore;
+        _moreInFlight = true;
       } else {
+        // 追加判定已完成（needMore=false）或已达 4 轮上限 → 进入生成
         _phase = _ConversationPhase.done;
       }
     });
-    if (_phase == _ConversationPhase.done) {
+
+    if (_phase == _ConversationPhase.loadingFollowUpMore) {
+      _triggerFollowUpMore();
+    } else if (_phase == _ConversationPhase.done) {
       _generate();
     } else {
       // 聚焦下一题输入框
@@ -336,6 +397,82 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
         if (mounted) _followUpFocus.requestFocus();
       });
     }
+  }
+
+  /// P4-dynamic-followup-depth-1：触发追加判定（stage='more'）。
+  ///
+  /// 在用户答完首轮 2 个问题后调用一次 [_service.fetchFollowUpMore]。
+  /// - needMore=true 且有可用问题 → 把追加问题拼到 [_dynamicQuestions] 末尾，
+  ///   推进 [_followUpIndex] 到第一个追加问题，回到 followUp 阶段。
+  /// - needMore=false 或无可用问题 → 直接进入 done 阶段生成。
+  ///
+  /// 任何异常都走保守兜底（不追加，直接生成），绝不阻塞流程。
+  /// [_moreInFlight] 在调用前已置 true，调用结束后置 false（无论成功失败）。
+  Future<void> _triggerFollowUpMore() async {
+    FollowUpMoreResult result;
+    try {
+      result = await _service.fetchFollowUpMore(
+        storyText: _initialConcern,
+        answers: _followUpAnswers,
+      );
+    } catch (_) {
+      // service 内部已 fallback，这里再兜一层防意外
+      result = const FollowUpMoreResult(
+        needMore: false,
+        questions: [],
+        source: 'fallback',
+      );
+    }
+    if (!mounted) return;
+
+    setState(() {
+      _moreInFlight = false;
+      if (result.needMore && result.questions.isNotEmpty) {
+        // 把追加问题拼到末尾，但总轮数不超过 4
+        final remainingSlots = 4 - _dynamicQuestions.length;
+        final additional = result.questions.take(remainingSlots).toList();
+        if (additional.isEmpty) {
+          // 无可用追加问题（已被 4 轮上限截断）→ 直接生成
+          _phase = _ConversationPhase.done;
+        } else {
+          _dynamicQuestions = [..._dynamicQuestions, ...additional];
+          _followUpIndex = _dynamicQuestions.length - additional.length;
+          _phase = _ConversationPhase.followUp;
+        }
+      } else {
+        // needMore=false 或无可用问题 → 直接生成
+        _phase = _ConversationPhase.done;
+      }
+    });
+
+    if (_phase == _ConversationPhase.done) {
+      _generate();
+    } else {
+      // 聚焦追加问题输入框
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _followUpFocus.requestFocus();
+      });
+    }
+  }
+
+  /// P4-dynamic-followup-depth-1：第 2 个问题时，用户主动点击「先写成歌」。
+  ///
+  /// 记录当前回答（如果非空）后跳过追加判定，直接进入 done 阶段生成。
+  /// 与 [_skipAndGenerate] 区别：
+  /// - [_skipMoreAndGenerate]：记录当前回答后再生成（不丢用户输入），仅在第 2 题显示。
+  /// - [_skipAndGenerate]：不记录当前回答，适用于任意轮次的低压力出口。
+  void _skipMoreAndGenerate() {
+    FocusScope.of(context).unfocus();
+    final answer = _followUpController.text.trim();
+    setState(() {
+      if (answer.isNotEmpty) {
+        _followUpAnswers = [..._followUpAnswers, answer];
+      }
+      _moreInFlight = false;
+      _phase = _ConversationPhase.done;
+      _followUpController.clear();
+    });
+    _generate();
   }
 
   /// P4-conversation-song-flow-1：跳过追问，直接进入 done 阶段生成。
@@ -371,12 +508,14 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
       _generatedSongMeta = null;
       _storageWarning = null;
       _musicErrorHint = null;
-      // P4-conversation-song-flow-1：清空多轮对话状态，回到 input 阶段
+      // P4-conversation-song-flow-1 / P4-dynamic-followup-depth-1：清空多轮对话状态，回到 input 阶段
       _phase = _ConversationPhase.input;
       _followUpIndex = 0;
       _initialConcern = '';
       _followUpAnswers = [];
       _dynamicQuestions = [];
+      _canGenerateAfter = 2;
+      _moreInFlight = false;
       _followUpController.clear();
     });
   }
@@ -392,8 +531,9 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // 顶部说明（followUp 阶段隐藏，避免与追问卡片视觉冲突）
-          if (_phase != _ConversationPhase.followUp) ...[
+          // 顶部说明（followUp / loadingFollowUpMore 阶段隐藏，避免与追问卡片视觉冲突）
+          if (_phase != _ConversationPhase.followUp &&
+              _phase != _ConversationPhase.loadingFollowUpMore) ...[
             const Text(
               '把你最近遇到的一件事、一个困惑，或者一段心情写下来。\n心弦会陪你把它重新看一遍，并写成一首属于你的歌。',
               style: TextStyle(
@@ -455,9 +595,15 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
             ),
           ],
 
-          // ── loadingFollowUp 阶段：LLM 动态追问生成中 ──
+          // ── loadingFollowUp 阶段：首轮 LLM 动态追问生成中 ──
           if (_phase == _ConversationPhase.loadingFollowUp) ...[
             _buildLoadingHint('正在根据你的文字整理几个更贴近的问题…'),
+          ],
+
+          // ── loadingFollowUpMore 阶段：追加判定中 ──
+          // P4-dynamic-followup-depth-1：用户答完第 2 个问题后，正在判定是否追加。
+          if (_phase == _ConversationPhase.loadingFollowUpMore) ...[
+            _buildLoadingHint('正在想想还要不要再问你一个问题…'),
           ],
 
           // ── followUp 阶段：多轮追问卡片 ──
@@ -517,19 +663,33 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
     );
   }
 
-  /// P4-conversation-song-flow-1：多轮追问卡片。
+  /// P4-conversation-song-flow-1 / P4-dynamic-followup-depth-1：多轮追问卡片。
   ///
   /// fix1：问题改为 LLM 动态生成（[_dynamicQuestions]），不再使用固定模板。
+  /// P4-dynamic-followup-depth-1：追问轮数动态 2-4 轮。
   ///
   /// 结构：
   /// - 原始困惑回显（compact，让用户感到"被听见"）
-  /// - 进度提示（第 N/M 个问题，可跳过）
+  /// - 进度提示（第 N 个问题；第 2 题答完可「先写成歌」或「继续」让系统判断是否追加）
   /// - 问题卡片：问题文案 + 输入框 + 跳过/继续按钮
+  ///
+  /// 按钮逻辑（P4-dynamic-followup-depth-1）：
+  /// - 第 1 题：左「跳过追问，直接生成」+ 右「继续」
+  /// - 第 2 题（首轮最后一个，尚未触发追加判定）：
+  ///   左「先写成歌」（记录回答后直接生成，跳过追加判定）+
+  ///   右「继续」（记录回答后触发追加判定，可能追加 1-2 个问题）
+  /// - 第 3/4 题（追加问题）：左「跳过追问，直接生成」+ 右「生成歌词」
   ///
   /// 文案短、自然、低压力，不像心理测评问卷。用户可随时跳过直接生成。
   Widget _buildFollowUpCard() {
     final prompt = _dynamicQuestions[_followUpIndex];
     final isLast = _followUpIndex == _dynamicQuestions.length - 1;
+    // P4-dynamic-followup-depth-1：第 2 题（首轮最后一个，尚未触发追加判定）
+    // 此时 _dynamicQuestions.length == _canGenerateAfter(2)，_followUpIndex == 1。
+    // 触发追加判定后若 needMore=true，length 会变为 3/4，index 推进到 2/3。
+    final isSecondInitial =
+        _followUpIndex == _canGenerateAfter - 1 &&
+        _dynamicQuestions.length == _canGenerateAfter;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -574,8 +734,11 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
         ),
         const SizedBox(height: 18),
         // 进度提示
+        // P4-dynamic-followup-depth-1：第 2 题时总轮数尚未确定，用不同文案提示。
         Text(
-          '第 ${_followUpIndex + 1} / ${_dynamicQuestions.length} 个问题 · 可以只写几个字，也可以跳过',
+          isSecondInitial
+              ? '第 2 个问题 · 答完可以先写成歌，也可以继续让我再想想'
+              : '第 ${_followUpIndex + 1} / ${_dynamicQuestions.length} 个问题 · 可以只写几个字，也可以跳过',
           style: const TextStyle(
             fontSize: 11,
             color: AppColors.textMuted,
@@ -673,26 +836,46 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
                 ),
               ),
               const SizedBox(height: 16),
-              // 跳过 + 继续/生成
+              // 左按钮 + 右按钮
+              // P4-dynamic-followup-depth-1：第 2 题显示「先写成歌」，其余显示「跳过追问，直接生成」。
               Row(
                 children: [
                   Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: _skipAndGenerate,
-                      icon: const Icon(Icons.skip_next_rounded, size: 16),
-                      label: const Text(
-                        '跳过追问，直接生成',
-                        style: TextStyle(fontSize: 13),
-                      ),
-                      style: OutlinedButton.styleFrom(
-                        minimumSize: const Size.fromHeight(42),
-                        foregroundColor: AppColors.textSecondary,
-                        side: const BorderSide(color: AppColors.cardBorder),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                      ),
-                    ),
+                    child: isSecondInitial
+                        ? OutlinedButton.icon(
+                            onPressed: _skipMoreAndGenerate,
+                            icon: const Icon(Icons.music_note_rounded, size: 16),
+                            label: const Text(
+                              '先写成歌',
+                              style: TextStyle(fontSize: 13),
+                            ),
+                            style: OutlinedButton.styleFrom(
+                              minimumSize: const Size.fromHeight(42),
+                              foregroundColor: AppColors.lavender,
+                              side: BorderSide(
+                                color: AppColors.lavender.withValues(alpha: 0.5),
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                            ),
+                          )
+                        : OutlinedButton.icon(
+                            onPressed: _skipAndGenerate,
+                            icon: const Icon(Icons.skip_next_rounded, size: 16),
+                            label: const Text(
+                              '跳过追问，直接生成',
+                              style: TextStyle(fontSize: 13),
+                            ),
+                            style: OutlinedButton.styleFrom(
+                              minimumSize: const Size.fromHeight(42),
+                              foregroundColor: AppColors.textSecondary,
+                              side: const BorderSide(color: AppColors.cardBorder),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                            ),
+                          ),
                   ),
                   const SizedBox(width: 10),
                   Expanded(
@@ -702,7 +885,7 @@ class _ComfortLyricsScreenState extends State<ComfortLyricsScreen> {
                       ),
                       icon: const Icon(Icons.arrow_forward_rounded, size: 16),
                       label: Text(
-                        isLast ? '生成歌词' : '继续',
+                        (isLast && !isSecondInitial) ? '生成歌词' : '继续',
                         style: const TextStyle(fontSize: 13),
                       ),
                       style: FilledButton.styleFrom(
@@ -2126,9 +2309,17 @@ class _StoryInputField extends StatelessWidget {
   }
 }
 
-/// P4-conversation-song-flow-1：多轮对话阶段。
-/// fix1：新增 loadingFollowUp 阶段（LLM 动态追问生成中）。
-enum _ConversationPhase { input, loadingFollowUp, followUp, done }
+/// P4-conversation-song-flow-1 / P4-dynamic-followup-depth-1：多轮对话阶段。
+/// fix1：新增 loadingFollowUp 阶段（首轮 LLM 动态追问生成中）。
+/// P4-dynamic-followup-depth-1：新增 loadingFollowUpMore 阶段
+/// （第 2 个问题答完后，判定是否追加 1-2 个问题）。
+enum _ConversationPhase {
+  input,
+  loadingFollowUp,
+  followUp,
+  loadingFollowUpMore,
+  done,
+}
 
 /// 曲风选项数据。
 class _StyleOption {

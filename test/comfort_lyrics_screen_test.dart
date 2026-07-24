@@ -32,6 +32,14 @@ import 'package:xinxian_healing_music/screens/comfort_lyrics_screen.dart';
 /// - 加载文案分阶段：loadingFollowUp → 「正在根据你的文字整理几个更贴近的问题…」
 /// - 低能量输入（提不起劲/疲惫/很空）的追问不包含「这件事」措辞
 ///
+/// P4-dynamic-followup-depth-1 更新（固定三轮→动态 2-4 轮）：
+/// - 首轮固定 2 个核心问题（兜底也固定 2 条，take(2)）
+/// - 第 2 题答完后调 fetchFollowUpMore 判定是否追加 1-2 个问题（总轮数 2-4）
+/// - 第 2 题左侧按钮变为「先写成歌」（跳过追加判定直接生成）
+/// - 第 2 题右侧按钮仍为「继续」（触发追加判定）
+/// - 追加判定兜底（needMore=false）→ 答完 2 轮即自动生成
+/// - 进度提示从「第 1 / 3」改为动态「第 1 / 2」（首轮 2 个问题）
+///
 /// P4-song-result-experience-1（已被 P4-playback-experience-2 取代）：
 /// - 旧版在歌词页内嵌播放器（`_buildSongResultSection` / `_buildMusicErrorSection`）
 /// - P4-playback-experience-2 移除内嵌播放，改为跳转 [GeneratedSongPlayerScreen] 独立播放页
@@ -54,7 +62,9 @@ import 'package:xinxian_healing_music/screens/comfort_lyrics_screen.dart';
 /// - 输入文本后按钮可点击
 /// - 点击「开始理解」进入 followUp 阶段
 /// - followUp 阶段可跳过直接生成
-/// - followUp 阶段回答 3 轮后自动生成
+/// - P4-dynamic-followup-depth-1：答完 2 轮 + 追加判定后自动生成
+/// - P4-dynamic-followup-depth-1：第 2 题显示「先写成歌」按钮
+/// - P4-dynamic-followup-depth-1：点「先写成歌」跳过追加判定直接生成
 /// - 生成后结果显示新标题「给现在的你」「写成歌的话」
 /// - songPrompt 默认收起，点击「后续生成参数」可展开
 /// - 场景标记可见
@@ -119,8 +129,8 @@ void main() {
     // fix1：「最近工作压力很大」→ classifyConcern=anxietyStress → 兜底第 1 问
     expect(find.textContaining('现在最担心'), findsOneWidget);
     expect(find.text('跳过追问，直接生成'), findsOneWidget);
-    // 进度提示
-    expect(find.textContaining('第 1 / 3'), findsOneWidget);
+    // P4-dynamic-followup-depth-1：首轮兜底固定 2 个问题，进度提示为「第 1 / 2」
+    expect(find.textContaining('第 1 / 2'), findsOneWidget);
   });
 
   testWidgets('P4-conversation-song-flow-1：followUp 阶段可跳过直接生成', (
@@ -143,7 +153,7 @@ void main() {
     expect(find.text('给现在的你'), findsOneWidget);
   });
 
-  testWidgets('P4-conversation-song-flow-1：followUp 阶段回答 3 轮后自动生成', (
+  testWidgets('P4-dynamic-followup-depth-1：followUp 阶段答完 2 轮 + 追加判定后自动生成', (
     WidgetTester tester,
   ) async {
     await tester.pumpWidget(const MaterialApp(home: ComfortLyricsScreen()));
@@ -156,7 +166,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 500));
     await tester.pumpAndSettle();
 
-    // fix1：所有追问都是开放式文本输入（不再有选项 chip）
+    // 所有追问都是开放式文本输入（不再有选项 chip）
     // Q1：输入回答 → 点「继续」
     await tester.enterText(find.byType(TextField), '最放不下的是没发出去的消息');
     await tester.pumpAndSettle();
@@ -164,20 +174,165 @@ void main() {
     await tester.pumpAndSettle();
 
     // Q2：输入回答 → 点「继续」
+    // P4-dynamic-followup-depth-1：第 2 题按钮文案仍为「继续」（isSecondInitial=true），
+    // 点击后触发 loadingFollowUpMore 阶段，HTTP 失败走保守兜底（needMore=false），
+    // 自动进入 done 阶段生成。
     await tester.enterText(find.byType(TextField), '想先平静下来');
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('继续'));
+    // 等待 loadingFollowUpMore 的 fetchFollowUpMore HTTP 失败 + _generate 的 HTTP 失败
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pumpAndSettle();
+
+    // 答完 2 轮 + 追加判定兜底（不追加）后自动生成结果
+    expect(find.text('给现在的你'), findsOneWidget);
+  });
+
+  // ─── P4-dynamic-followup-depth-1：动态追问 UI 行为测试 ──────────────
+
+  /// P4-dynamic-followup-depth-1：第 2 题时显示「先写成歌」按钮（左侧）。
+  /// 第 2 题是首轮最后一个问题（isSecondInitial=true），左侧按钮文案变为
+  /// 「先写成歌」，点击后记录回答 + 跳过追加判定 + 直接生成。
+  testWidgets('P4-dynamic-followup-depth-1：第 2 题显示「先写成歌」按钮', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(const MaterialApp(home: ComfortLyricsScreen()));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField), '最近工作压力很大');
+    await tester.pump();
+    await tester.tap(find.text('开始理解'));
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pumpAndSettle();
+
+    // Q1：第 1 题左侧按钮为「跳过追问，直接生成」（非 isSecondInitial）
+    expect(find.text('跳过追问，直接生成'), findsOneWidget);
+    expect(find.text('先写成歌'), findsNothing);
+
+    // 回答 Q1 → 点「继续」进入 Q2
+    await tester.enterText(find.byType(TextField), '最放不下的是没发出去的消息');
     await tester.pumpAndSettle();
     await tester.tap(find.text('继续'));
     await tester.pumpAndSettle();
 
-    // Q3：输入回答 → 点「生成歌词」（最后一轮按钮文案）
-    await tester.enterText(find.byType(TextField), '希望这首歌能陪我慢下来');
+    // Q2：第 2 题左侧按钮变为「先写成歌」（isSecondInitial=true）
+    expect(find.text('先写成歌'), findsOneWidget);
+    expect(find.text('跳过追问，直接生成'), findsNothing);
+    // 右侧按钮仍为「继续」（触发追加判定）
+    expect(find.text('继续'), findsOneWidget);
+    // 进度提示为第 2 题专用文案（含「先写成歌」字样，与按钮文案呼应）
+    expect(find.textContaining('第 2 个问题'), findsOneWidget);
+    expect(
+      find.text('第 2 个问题 · 答完可以先写成歌，也可以继续让我再想想'),
+      findsOneWidget,
+    );
+  });
+
+  /// P4-dynamic-followup-depth-1：第 2 题点击「先写成歌」→ 跳过追加判定，直接生成。
+  /// 与「继续」的区别：「继续」会触发 loadingFollowUpMore 判定是否追加；
+  /// 「先写成歌」记录当前回答后直接进入 done 阶段，不等追加判定。
+  testWidgets('P4-dynamic-followup-depth-1：第 2 题点「先写成歌」跳过追加判定直接生成', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(const MaterialApp(home: ComfortLyricsScreen()));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('生成歌词'));
+
+    await tester.enterText(find.byType(TextField), '最近工作压力很大');
+    await tester.pump();
+    await tester.tap(find.text('开始理解'));
     await tester.pump(const Duration(milliseconds: 500));
     await tester.pumpAndSettle();
 
-    // 3 轮回答后自动生成结果
+    // Q1：回答 → 点「继续」
+    await tester.enterText(find.byType(TextField), '最放不下的是没发出去的消息');
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('继续'));
+    await tester.pumpAndSettle();
+
+    // Q2：回答 → 点「先写成歌」（跳过追加判定）
+    await tester.enterText(find.byType(TextField), '想先平静下来');
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('先写成歌'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('先写成歌'));
+    // 等待 _generate 的 HTTP 失败 + 本地兜底
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pumpAndSettle();
+
+    // 跳过追加判定后直接生成结果
     expect(find.text('给现在的你'), findsOneWidget);
+  });
+
+  /// P4-dynamic-followup-depth-1：第 2 题点击「先写成歌」会记录当前回答。
+  /// 验证：点击「先写成歌」时输入框中的文字会被计入 followUpAnswers（不丢失）。
+  /// 通过生成的歌词来源标记确认流程正常完成（间接验证回答已被吸收）。
+  testWidgets('P4-dynamic-followup-depth-1：「先写成歌」记录当前回答后生成', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(const MaterialApp(home: ComfortLyricsScreen()));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField), '最近工作压力很大');
+    await tester.pump();
+    await tester.tap(find.text('开始理解'));
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pumpAndSettle();
+
+    // Q1：回答
+    await tester.enterText(find.byType(TextField), '今天最累的是开会');
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('继续'));
+    await tester.pumpAndSettle();
+
+    // Q2：输入回答但不点「继续」，直接点「先写成歌」
+    await tester.enterText(find.byType(TextField), '想让加班先停下来');
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('先写成歌'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('先写成歌'));
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pumpAndSettle();
+
+    // 生成完成（回答已被记录，不丢失）
+    expect(find.text('给现在的你'), findsOneWidget);
+    expect(find.textContaining('本地模板'), findsOneWidget);
+  });
+
+  /// P4-dynamic-followup-depth-1：追加判定阶段（loadingFollowUpMore）加载文案。
+  ///
+  /// 说明：Flutter 测试环境（TestWidgetsFlutterBinding）会将所有 HTTP 请求
+  /// 立即失败，导致 loadingFollowUpMore 阶段瞬时过渡到 done，无法稳定捕获中间态。
+  /// 本测试验证流程能正确从 Q2「继续」过渡到生成结果（间接验证追加判定阶段被
+  /// 触发并完成），且旧的统一加载文案不出现。
+  testWidgets('P4-dynamic-followup-depth-1：追加判定阶段文案不出现旧统一文案', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(const MaterialApp(home: ComfortLyricsScreen()));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField), '最近工作压力很大');
+    await tester.pump();
+    await tester.tap(find.text('开始理解'));
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pumpAndSettle();
+
+    // Q1 → 继续
+    await tester.enterText(find.byType(TextField), '最放不下的是没发出去的消息');
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('继续'));
+    await tester.pumpAndSettle();
+
+    // Q2 → 继续（触发追加判定）
+    await tester.enterText(find.byType(TextField), '想先平静下来');
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('继续'));
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pumpAndSettle();
+
+    // 追加判定完成（兜底不追加）→ 自动生成结果
+    expect(find.text('给现在的你'), findsOneWidget);
+    // 旧的统一加载文案不出现（已改为分阶段文案）
+    expect(find.textContaining('AI 正在理解你的状态'), findsNothing);
   });
 
   // ─── 基础渲染与交互测试 ──────────────────────────────────────────────

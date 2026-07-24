@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xinxian_healing_music/models/comfort_lyrics_result.dart';
+import 'package:xinxian_healing_music/models/follow_up_result.dart';
 import 'package:xinxian_healing_music/pipeline/llm/comfort_lyrics_service.dart';
 
 /// ComfortLyricsService 测试（P4 新方向第一批 / 第二批 / fix1）。
@@ -386,32 +387,40 @@ void main() {
     });
   });
 
-  // ─── P4-conversation-song-flow-1-fix1：fetchFollowUpQuestions + 本地兜底分类 ───
+  // ─── P4-conversation-song-flow-1-fix1 / P4-dynamic-followup-depth-1 ───
   //
   // 测试环境无真实后端，fetchFollowUpQuestions 的 HTTP 调用必然失败，
-  // 走 _localFollowUpFallback → _classifyConcern 的 6 分类关键词匹配。
-  // 验证：低能量输入不出现「这件事」、eventConflict 允许事件导向措辞、问题数量 2-3 条。
+  // 走 _localFollowUpInitialFallback → _classifyConcern 的 6 分类关键词匹配。
+  // P4-dynamic-followup-depth-1：首轮兜底固定返回 2 条（take(2)），
+  // 返回 FollowUpInitialResult（含 suggestedQuestionCount / canGenerateAfter）。
+  // 验证：低能量输入不出现「这件事」、eventConflict 允许事件导向措辞、问题数量 2 条。
   group('fix1：fetchFollowUpQuestions 本地兜底分类', () {
-    test('网络失败时返回本地兜底问题，不抛异常', () async {
-      final questions = await service.fetchFollowUpQuestions(
+    test('网络失败时返回本地兜底 FollowUpInitialResult，不抛异常', () async {
+      final result = await service.fetchFollowUpQuestions(
         storyText: '最近工作压力很大',
       );
 
-      expect(questions, isA<List<String>>());
-      expect(questions.length, greaterThanOrEqualTo(2));
-      expect(questions.length, lessThanOrEqualTo(3));
+      expect(result, isA<FollowUpInitialResult>());
+      expect(result.questions, isA<List<String>>());
+      expect(result.questions.length, 2);
+      expect(result.source, 'fallback');
+      expect(result.isFallback, isTrue);
+      // P4-dynamic-followup-depth-1：兜底 suggestedQuestionCount=2, canGenerateAfter=2
+      expect(result.suggestedQuestionCount, 2);
+      expect(result.canGenerateAfter, 2);
     });
 
     test('低能量输入（提不起劲/疲惫/很空）返回 lowEnergy 兜底问题', () async {
-      final questions = await service.fetchFollowUpQuestions(
+      final result = await service.fetchFollowUpQuestions(
         storyText: '最近总是提不起劲，感觉很疲惫、很空',
       );
 
-      expect(questions.length, 3);
+      expect(result.questions.length, 2);
+      expect(result.category, 'lowEnergy');
       // fix2：兜底第 1 问应包含「疲惫」或「空落」
-      expect(questions.first, anyOf(contains('疲惫'), contains('空落')));
+      expect(result.questions.first, anyOf(contains('疲惫'), contains('空落')));
       // 第 2 问应包含「没力气」
-      expect(questions[1], contains('没力气'));
+      expect(result.questions[1], contains('没力气'));
     });
 
     test('低能量兜底问题不包含「这件事」措辞', () async {
@@ -421,10 +430,10 @@ void main() {
         '感觉麻木，空的，没精神',
       ];
       for (final input in lowEnergyInputs) {
-        final questions = await service.fetchFollowUpQuestions(
+        final result = await service.fetchFollowUpQuestions(
           storyText: input,
         );
-        for (final q in questions) {
+        for (final q in result.questions) {
           expect(
             q.contains('这件事'),
             isFalse,
@@ -435,43 +444,47 @@ void main() {
     });
 
     test('事件冲突输入（和妈妈吵架了）返回 eventConflict 兜底问题', () async {
-      final questions = await service.fetchFollowUpQuestions(
+      final result = await service.fetchFollowUpQuestions(
         storyText: '和妈妈吵架了',
       );
 
-      expect(questions.length, 3);
+      expect(result.questions.length, 2);
+      expect(result.category, 'eventConflict');
       // eventConflict 兜底第 1 问应包含「最让你难受」
-      expect(questions.first, contains('最让你难受'));
+      expect(result.questions.first, contains('最让你难受'));
     });
 
     test('焦虑压力输入（焦虑/睡不着）返回 anxietyStress 兜底问题', () async {
-      final questions = await service.fetchFollowUpQuestions(
+      final result = await service.fetchFollowUpQuestions(
         storyText: '最近很焦虑，睡不着',
       );
 
-      expect(questions.length, 3);
+      expect(result.questions.length, 2);
+      expect(result.category, 'anxietyStress');
       // anxietyStress 兜底第 1 问应包含「最担心」
-      expect(questions.first, contains('最担心'));
+      expect(result.questions.first, contains('最担心'));
     });
 
     test('愧疚后悔输入（后悔/愧疚）返回 guiltRegret 兜底问题', () async {
-      final questions = await service.fetchFollowUpQuestions(
+      final result = await service.fetchFollowUpQuestions(
         storyText: '我很后悔，当时不该那样做',
       );
 
-      expect(questions.length, 3);
+      expect(result.questions.length, 2);
+      expect(result.category, 'guiltRegret');
       // guiltRegret 兜底第 1 问应包含「放不下」
-      expect(questions.first, contains('放不下'));
+      expect(result.questions.first, contains('放不下'));
     });
 
     test('孤独输入（孤独/没人理解）返回 loneliness 兜底问题', () async {
-      final questions = await service.fetchFollowUpQuestions(
+      final result = await service.fetchFollowUpQuestions(
         storyText: '感觉很孤独，没人理解我',
       );
 
-      expect(questions.length, 3);
+      expect(result.questions.length, 2);
+      expect(result.category, 'loneliness');
       // loneliness 兜底第 1 问应包含「有人陪」
-      expect(questions.first, contains('有人陪'));
+      expect(result.questions.first, contains('有人陪'));
     });
 
     test('兜底问题不含医疗化词汇', () async {
@@ -485,10 +498,10 @@ void main() {
       ];
       final bannedWords = ['治疗', '治愈', '疗法', '疗效', '症状', '抑郁', '焦虑症'];
       for (final input in testInputs) {
-        final questions = await service.fetchFollowUpQuestions(
+        final result = await service.fetchFollowUpQuestions(
           storyText: input,
         );
-        for (final q in questions) {
+        for (final q in result.questions) {
           for (final w in bannedWords) {
             expect(
               q.contains(w),
@@ -498,6 +511,148 @@ void main() {
           }
         }
       }
+    });
+  });
+
+  // ─── P4-dynamic-followup-depth-1：fetchFollowUpMore + 追加判定兜底 ───
+  //
+  // 测试环境无真实后端，fetchFollowUpMore 的 HTTP 调用必然失败，
+  // 走 _localFollowUpMoreFallback → 恒定 needMore=false + 空 questions。
+  // 验证：网络失败时不阻塞流程，保守返回不追加，用户可在 2 轮后生成。
+  group('P4-dynamic-followup-depth-1：fetchFollowUpMore 追加判定兜底', () {
+    test('网络失败时返回保守兜底（needMore=false），不抛异常', () async {
+      final result = await service.fetchFollowUpMore(
+        storyText: '最近工作压力很大',
+        answers: ['今天最累的是开会', '想让加班先停下来'],
+      );
+
+      expect(result, isA<FollowUpMoreResult>());
+      expect(result.needMore, isFalse);
+      expect(result.questions, isEmpty);
+      expect(result.source, 'fallback');
+      expect(result.isFallback, isTrue);
+    });
+
+    test('空 answers 也返回保守兜底，不抛异常', () async {
+      final result = await service.fetchFollowUpMore(
+        storyText: '很烦',
+        answers: const [],
+      );
+
+      expect(result.needMore, isFalse);
+      expect(result.questions, isEmpty);
+    });
+
+    test('低能量输入的追加判定也返回不追加', () async {
+      final result = await service.fetchFollowUpMore(
+        storyText: '提不起劲，很疲惫',
+        answers: ['身体累', '想安静'],
+      );
+
+      expect(result.needMore, isFalse);
+      expect(result.questions, isEmpty);
+    });
+  });
+
+  // ─── P4-dynamic-followup-depth-1：FollowUpInitialResult / FollowUpMoreResult 模型 ───
+  group('P4-dynamic-followup-depth-1：模型 fromJson', () {
+    test('FollowUpInitialResult.fromJson LLM 成功响应', () {
+      final result = FollowUpInitialResult.fromJson({
+        'ok': true,
+        'source': 'llm',
+        'questions': ['问题1', '问题2'],
+        'suggestedQuestionCount': 3,
+        'canGenerateAfter': 2,
+      });
+
+      expect(result.questions.length, 2);
+      expect(result.source, 'llm');
+      expect(result.isFallback, isFalse);
+      expect(result.suggestedQuestionCount, 3);
+      expect(result.canGenerateAfter, 2);
+    });
+
+    test('FollowUpInitialResult.fromJson 超过 2 条问题 → take(2)', () {
+      final result = FollowUpInitialResult.fromJson({
+        'questions': ['q1', 'q2', 'q3', 'q4'],
+        'suggestedQuestionCount': 4,
+      });
+
+      expect(result.questions.length, 2);
+      expect(result.suggestedQuestionCount, 4);
+    });
+
+    test('FollowUpInitialResult.fromJson suggestedQuestionCount 越界 → 截断', () {
+      final result = FollowUpInitialResult.fromJson({
+        'questions': ['q1', 'q2'],
+        'suggestedQuestionCount': 99,
+      });
+      expect(result.suggestedQuestionCount, 4);
+
+      final result2 = FollowUpInitialResult.fromJson({
+        'questions': ['q1', 'q2'],
+        'suggestedQuestionCount': 1,
+      });
+      expect(result2.suggestedQuestionCount, 2);
+    });
+
+    test('FollowUpInitialResult.fromJson suggestedQuestionCount 缺省 → 3', () {
+      final result = FollowUpInitialResult.fromJson({
+        'questions': ['q1', 'q2'],
+      });
+      expect(result.suggestedQuestionCount, 3);
+    });
+
+    test('FollowUpInitialResult.fromJson canGenerateAfter 始终为 2', () {
+      // 即使 LLM 返回 3，也应被截断为 2
+      final result = FollowUpInitialResult.fromJson({
+        'questions': ['q1', 'q2'],
+        'canGenerateAfter': 3,
+      });
+      expect(result.canGenerateAfter, 2);
+    });
+
+    test('FollowUpMoreResult.fromJson needMore=true + 2 questions → 透传', () {
+      final result = FollowUpMoreResult.fromJson({
+        'ok': true,
+        'source': 'llm',
+        'needMore': true,
+        'questions': ['追加1', '追加2'],
+      });
+
+      expect(result.needMore, isTrue);
+      expect(result.questions.length, 2);
+      expect(result.source, 'llm');
+    });
+
+    test('FollowUpMoreResult.fromJson needMore=false → questions 强制为空', () {
+      final result = FollowUpMoreResult.fromJson({
+        'needMore': false,
+        'questions': ['不应出现的问题'],
+      });
+
+      expect(result.needMore, isFalse);
+      expect(result.questions, isEmpty);
+    });
+
+    test('FollowUpMoreResult.fromJson needMore=true + 空 questions → 强制 false', () {
+      final result = FollowUpMoreResult.fromJson({
+        'needMore': true,
+        'questions': [],
+      });
+
+      expect(result.needMore, isFalse);
+      expect(result.questions, isEmpty);
+    });
+
+    test('FollowUpMoreResult.fromJson 超过 2 条问题 → take(2)', () {
+      final result = FollowUpMoreResult.fromJson({
+        'needMore': true,
+        'questions': ['q1', 'q2', 'q3'],
+      });
+
+      expect(result.needMore, isTrue);
+      expect(result.questions.length, 2);
     });
   });
 }

@@ -170,19 +170,21 @@ const SYSTEM_PROMPT = [
 ].join('\n');
 
 // ─── P4-conversation-song-flow-1-fix1：LLM 动态追问 prompt ──────
-// 独立于 SYSTEM_PROMPT，用于 mode='follow_up_questions' 分支。
-// 要求 LLM 基于用户原文生成 2-3 个简短追问，输出 { questions: string[] }。
+// 独立于 SYSTEM_PROMPT，用于 mode='follow_up_questions' stage='initial' 分支。
+// P4-dynamic-followup-depth-1：首轮固定生成 2 个核心追问，并附带建议总轮数。
+// 输出 { questions:[...2], suggestedQuestionCount:2|3|4, canGenerateAfter:2, reason }。
 // 问题必须基于用户具体内容，不能固定套模板；低能量类不用「这件事里」开头。
 var FOLLOW_UP_PROMPT = [
   '你是心弦的温和陪伴者，不是心理咨询师，不是诊断医生。用户会写下一段中文困惑 / 事件 / 情绪描述。',
-  '请基于用户的具体文字，生成 2-3 个简短的追问，让用户感到被听见、被理解，而不是被审问或被测评。',
+  '请基于用户的具体文字，生成 2 个简短的核心追问，让用户感到被听见、被理解，而不是被审问或被测评。',
   '',
-  '只输出一个 JSON 对象：{ "questions": ["问题1", "问题2", "问题3"] }',
+  '只输出一个 JSON 对象：',
+  '{ "questions": ["问题1", "问题2"], "suggestedQuestionCount": 2, "canGenerateAfter": 2, "reason": "..." }',
   '不要输出 markdown、解释、代码块标记或任何多余文字。',
   '',
   '──────── 硬性规则 ────────',
   '1. 问题必须基于用户原文中的具体内容（人物 / 事件 / 物件 / 时间 / 情绪），不能是固定模板',
-  '2. 问题数量 2-3 条，每条不超过 25 字',
+  '2. questions 数组恰好 2 条，每条不超过 25 字',
   '3. 低压力、像朋友随口问，不像心理测评问卷；不要让用户感到被诊断',
   '4. 不要医疗化表达（不要「症状 / 焦虑症 / 抑郁 / 治疗 / 疗法」）',
   '5. 不要审问式「为什么」，多用「是不是」「会不会」「想不想」「有没有」',
@@ -191,15 +193,54 @@ var FOLLOW_UP_PROMPT = [
   '8. 问题要让用户感到「不回答也没关系」，允许跳过',
   '9. 不要问「你需要怎样解决」「你下一步打算做什么」这种引导解决问题的提问',
   '',
+  '──────── suggestedQuestionCount 判定 ────────',
+  '根据用户原文的清晰度，建议总追问轮数（含这 2 个）。',
+  '- 2：用户已经说得很具体、事件 / 情绪 / 想法都清楚，2 个问题足够',
+  '- 3：用户说了大概，但某个关键细节（时间 / 对象 / 想要的方向）还不够明确',
+  '- 4：用户输入很短或很模糊（如「很烦」「很累」「不知道怎么办」），需要多问几轮才能贴近',
+  'canGenerateAfter 始终为 2（第 2 个问题答完后，用户随时可以选择直接生成）',
+  'reason 简短说明为何建议这个轮数（≤30 字）',
+  '',
   '──────── 风格示例（不要照抄，要根据用户文字调整）────────',
-  '- 用户写「工作压力很大，每天回家很累」 → 「今天最累的是哪一段？」「现在最想让哪件事先停下来？」「有想跟谁说一下吗？」',
-  '- 用户写「提不起劲，什么都不想做」 → 「今天最没力气的是什么时刻？」「现在更想要安静还是有人陪？」「有想先放一放的事吗？」',
-  '- 用户写「和妈妈吵架了」 → 「最让你难受的是哪一句？」「现在更想被理解，还是想先平静下来？」「有想跟她说但没说出口的话吗？」',
-  '- 用户写「考试挂了，感觉自己很没用」 → 「这次最让你放不下的是分数还是别的？」「现在最想先做的是停下来还是继续？」「有想跟谁聊一下吗？」',
+  '- 用户写「工作压力很大，每天回家很累」 → questions: ["今天最累的是哪一段？","现在最想让哪件事先停下来？"], suggestedQuestionCount: 3',
+  '- 用户写「提不起劲，什么都不想做」 → questions: ["今天最没力气的是什么时刻？","现在更想要安静还是有人陪？"], suggestedQuestionCount: 4',
+  '- 用户写「和妈妈吵架了，她说了很伤人的话」 → questions: ["最让你难受的是哪一句？","现在更想被理解，还是想先平静下来？"], suggestedQuestionCount: 2',
   '',
   '──────── 输出格式 ────────',
-  '严格 JSON：{ "questions": ["...", "...", "..."] }',
-  'questions 数组长度 2-3；每项为字符串；不要 null / 数字 / 嵌套对象',
+  '严格 JSON：{ "questions": ["...", "..."], "suggestedQuestionCount": 2, "canGenerateAfter": 2, "reason": "..." }',
+  'questions 数组长度必须为 2；每项为字符串；不要 null / 数字 / 嵌套对象',
+].join('\n');
+
+// ─── P4-dynamic-followup-depth-1：追加判定 prompt（stage='more'）────
+// 在用户答完首轮 2 个问题后调用一次。根据原始输入 + 已有回答判断是否还需追加 1-2 个问题。
+// 输出 { needMore:bool, questions:[...0-2], reason }。needMore=true 时 questions 1-2 条；
+// needMore=false 时 questions 必须为空数组。总轮数（含已问的 2 个）不超过 4。
+var FOLLOW_UP_MORE_PROMPT = [
+  '你是心弦的温和陪伴者。用户写下了一段困惑，并已经回答了 2 个追问。',
+  '请根据用户的原始困惑和已有回答，判断是否还需要再问 1-2 个问题，才能更贴近用户此刻的状态。',
+  '',
+  '只输出一个 JSON 对象：',
+  '{ "needMore": true, "questions": ["追加问题1"], "reason": "..." }',
+  '或 { "needMore": false, "questions": [], "reason": "..." }',
+  '不要输出 markdown、解释、代码块标记或任何多余文字。',
+  '',
+  '──────── 判定原则 ────────',
+  '- needMore=false：用户已有回答已经把困惑说清楚（事件 / 情绪 / 此刻想要的方向都明确），不再追问',
+  '- needMore=true：仍有关键空白（如不知道是想要被理解还是想平静、不知道最重的是哪一段、回答很简短模糊）',
+  '- needMore=true 时 questions 1-2 条；总追问轮数（含已问 2 个）不得超过 4，所以最多追加 2 条',
+  '- 倾向于 needMore=false：宁可少问，不要为凑数而问。只有真的信息不足才追加',
+  '',
+  '──────── 硬性规则 ────────',
+  '1. 追加问题不能与已问的 2 个语义重复',
+  '2. 每条不超过 25 字，低压力、不审问、不医疗化（不要「症状 / 焦虑症 / 抑郁 / 治疗 / 疗法」）',
+  '3. 不要「为什么」式提问，多用「是不是」「会不会」「想不想」「有没有」',
+  '4. 低能量 / 疲惫类不要用「这件事里」开头',
+  '5. 不要引导解决问题（不要「你打算怎么办」「下一步」）',
+  '6. reason 简短说明判定理由（≤30 字）',
+  '',
+  '──────── 输出格式 ────────',
+  '严格 JSON：{ "needMore": true|false, "questions": ["..."], "reason": "..." }',
+  'needMore=true → questions 长度 1-2；needMore=false → questions 必须为 []',
 ].join('\n');
 
 // ─── 输入校验 ──────────────────────────────────────────────────
@@ -263,12 +304,31 @@ export function validateInput(body) {
   }
 
   // P4-conversation-song-flow-1-fix1：mode 参数
-  // - 'follow_up_questions'：只生成 2-3 个追问，返回 { questions: string[] }
+  // - 'follow_up_questions'：动态追问，返回 { questions, suggestedQuestionCount, canGenerateAfter }
   // - 'comfort_song' 或缺省：生成 comfortInterpretation + lyricDraft + songPrompt（向后兼容）
   var mode = body.mode;
   var validModes = ['follow_up_questions', 'comfort_song'];
   if (typeof mode !== 'string' || validModes.indexOf(mode) === -1) {
     mode = 'comfort_song';
+  }
+
+  // P4-dynamic-followup-depth-1：追问 stage 参数（仅 follow_up_questions mode 使用）
+  // - 'initial'（缺省）：首轮，生成 2 个核心问题 + 建议轮数
+  // - 'more'：用户答完 2 个问题后，判定是否追加 1-2 个；answers 携带已有回答
+  var stage = body.stage;
+  if (typeof stage !== 'string' || (stage !== 'initial' && stage !== 'more')) {
+    stage = 'initial';
+  }
+
+  // answers：stage='more' 时携带的已有追问回答，最多 2 条，每条 ≤500 字
+  var answers = body.answers;
+  if (!Array.isArray(answers)) {
+    answers = [];
+  } else {
+    answers = answers
+      .filter(function (a) { return typeof a === 'string'; })
+      .slice(0, 2)
+      .map(function (a) { return a.slice(0, 500); });
   }
 
   return {
@@ -281,6 +341,8 @@ export function validateInput(body) {
     desiredFeeling: desiredFeeling,
     comfortDirection: comfortDirection,
     mode: mode,
+    stage: stage,
+    answers: answers,
   };
 }
 
@@ -466,12 +528,28 @@ var FOLLOW_UP_FALLBACK_QUESTIONS = {
 
 // P4-conversation-song-flow-1-fix1：LLM 追问失败时的本地兜底
 // 返回 { category, questions }，绝不抛异常。
-export function localFollowUpFallback(storyText) {
+// P4-dynamic-followup-depth-1：加 options.stage 参数。
+// - stage='initial'（缺省）：返回该分类的前 2 条（首轮固定 2 个核心问题）
+// - stage='more'：返回空 questions（保守不追加，保证 2 轮可生成）
+export function localFollowUpFallback(storyText, options) {
+  var stage = (options && options.stage) || 'initial';
   var category = classifyConcern(storyText);
-  var questions = FOLLOW_UP_FALLBACK_QUESTIONS[category] || FOLLOW_UP_FALLBACK_QUESTIONS.unknown;
+  var full = FOLLOW_UP_FALLBACK_QUESTIONS[category] || FOLLOW_UP_FALLBACK_QUESTIONS.unknown;
+  var questions = stage === 'more' ? [] : full.slice(0, 2);
   return {
     category: category,
-    questions: questions.slice(),
+    questions: questions,
+  };
+}
+
+// P4-dynamic-followup-depth-1：追加判定（stage='more'）的本地兜底。
+// LLM 不可达 / 返回无效 / 超时时使用。恒定 needMore=false + 空 questions，
+// 保证用户在 2 轮后即可进入生成，绝不抛异常。
+export function localFollowUpMoreFallback(storyText, answers) {
+  return {
+    needMore: false,
+    questions: [],
+    reason: 'fallback',
   };
 }
 
@@ -530,18 +608,23 @@ export function normalizeResult(raw) {
 }
 
 // ─── P4-conversation-song-flow-1-fix1：追问 LLM 输出规范化 ──────
-// 校验 questions 字段：必须是字符串数组，长度 2-3，每条 ≤30 字，过滤医疗化词汇。
+// 校验 questions 字段：必须是字符串数组，长度 2-maxQuestions，每条 ≤30 字，过滤医疗化词汇。
 // 校验失败返回 null，调用方走 localFollowUpFallback。
-export function normalizeFollowUpQuestions(raw) {
+// P4-dynamic-followup-depth-1：maxQuestions 参数从 3 放宽到默认 4（initial 阶段 LLM
+// 实际只产 2 条，但放宽上限保留弹性，前端再 slice(0,2)）。
+export function normalizeFollowUpQuestions(raw, maxQuestions) {
   if (!raw || typeof raw !== 'object') return null;
   var questions = raw.questions;
   if (!Array.isArray(questions)) return null;
+  if (typeof maxQuestions !== 'number' || maxQuestions < 2) {
+    maxQuestions = 4;
+  }
   // 过滤非字符串项 + 去空白 + 截断超长项
   questions = questions
     .filter(function (q) { return typeof q === 'string'; })
     .map(function (q) { return q.trim(); })
     .filter(function (q) { return q.length > 0; })
-    .slice(0, 3)
+    .slice(0, maxQuestions)
     .map(function (q) { return q.slice(0, 30); });
   if (questions.length < 2) return null; // 至少 2 条
   // 医疗化词汇兜底过滤
@@ -550,6 +633,41 @@ export function normalizeFollowUpQuestions(raw) {
     return r.text;
   });
   return sanitized;
+}
+
+// ─── P4-dynamic-followup-depth-1：追加判定（stage='more'）输出规范化 ──
+// 校验 LLM 返回的 { needMore, questions }。
+// 一致性约束：
+// - needMore=true 但 questions 为空 → 强制 needMore=false（无法追加就别追加）
+// - needMore=false → 强制 questions=[]（忽略 LLM 可能误填的问题）
+// questions 最多 2 条，每条 ≤30 字，过滤医疗化词汇。
+// 校验失败返回 null，调用方走 localFollowUpMoreFallback。
+export function normalizeFollowUpMore(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  var needMore = raw.needMore;
+  if (typeof needMore !== 'boolean') return null;
+  var questions = raw.questions;
+  if (!Array.isArray(questions)) return null;
+  questions = questions
+    .filter(function (q) { return typeof q === 'string'; })
+    .map(function (q) { return q.trim(); })
+    .filter(function (q) { return q.length > 0; })
+    .slice(0, 2)
+    .map(function (q) { return q.slice(0, 30); });
+  // 医疗化词汇兜底过滤
+  questions = questions.map(function (q) {
+    var r = sanitizeText(q);
+    return r.text;
+  });
+  // 一致性约束
+  if (!needMore) {
+    return { needMore: false, questions: [] };
+  }
+  if (questions.length === 0) {
+    // needMore=true 但无可用问题 → 视为不再追加
+    return { needMore: false, questions: [] };
+  }
+  return { needMore: true, questions: questions };
 }
 
 // ─── LLM 配置 ──────────────────────────────────────────────────
@@ -651,6 +769,53 @@ async function callLlmForFollowUpQuestions(config, userText) {
         ],
         temperature: 0.7,
         max_tokens: 400,
+        response_format: { type: 'json_object' },
+      }),
+      signal: controller.signal,
+    });
+    if (!resp.ok) {
+      throw new Error('llm_http_' + resp.status);
+    }
+    const data = await resp.json();
+    const content = data && data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
+    if (!content) throw new Error('LLM 返回空内容');
+    return JSON.parse(content);
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+// ─── P4-dynamic-followup-depth-1：追加判定 LLM 调用（stage='more'）──
+// 在用户答完首轮 2 个问题后调用一次。用 FOLLOW_UP_MORE_PROMPT，8s 超时，
+// temperature 0.5（更确定性的判定）。返回 LLM 解析后的 { needMore, questions }，
+// 调用方用 normalizeFollowUpMore 校验。
+async function callLlmForFollowUpMore(config, userText, answers) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(function () { controller.abort(); }, 8000);
+  try {
+    // 拼装 user content：原始困惑 + 已有回答
+    var userContent = '用户困惑：' + userText + '\n追问回答：';
+    if (Array.isArray(answers) && answers.length > 0) {
+      for (var i = 0; i < answers.length; i++) {
+        userContent += '\n  ' + (i + 1) + '. ' + answers[i];
+      }
+    } else {
+      userContent += '\n  （无回答）';
+    }
+    const resp = await fetch(config.baseURL + '/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + config.apiKey,
+      },
+      body: JSON.stringify({
+        model: config.model,
+        messages: [
+          { role: 'system', content: FOLLOW_UP_MORE_PROMPT },
+          { role: 'user', content: userContent },
+        ],
+        temperature: 0.5,
+        max_tokens: 300,
         response_format: { type: 'json_object' },
       }),
       signal: controller.signal,
@@ -867,15 +1032,27 @@ export async function onRequestPost(context) {
 
     // LLM 功能开关
     if (env.ENABLE_LLM === 'false') {
-      // P4-conversation-song-flow-1-fix1：追问模式走追问兜底
+      // P4-dynamic-followup-depth-1：追问模式按 stage 分流走兜底
       if (validation.mode === 'follow_up_questions') {
-        const fbf = localFollowUpFallback(validation.storyText);
+        if (validation.stage === 'more') {
+          const fbm = localFollowUpMoreFallback(validation.storyText, validation.answers);
+          return jsonResponse({
+            ok: false,
+            source: 'fallback',
+            reason: 'llm_disabled',
+            needMore: fbm.needMore,
+            questions: fbm.questions,
+          }, 200, origin);
+        }
+        const fbf = localFollowUpFallback(validation.storyText, { stage: 'initial' });
         return jsonResponse({
           ok: false,
           source: 'fallback',
           reason: 'llm_disabled',
           questions: fbf.questions,
           category: fbf.category,
+          suggestedQuestionCount: 2,
+          canGenerateAfter: 2,
         }, 200, origin);
       }
       const fb = localFallback(validation.storyText, validation.targetStyle);
@@ -897,15 +1074,27 @@ export async function onRequestPost(context) {
     // API Key 检查
     if (!config.apiKey) {
       console.error('[comfort-lyrics] OPENAI_API_KEY 未配置');
-      // P4-conversation-song-flow-1-fix1：追问模式走追问兜底
+      // P4-dynamic-followup-depth-1：追问模式按 stage 分流走兜底
       if (validation.mode === 'follow_up_questions') {
-        const fbf = localFollowUpFallback(validation.storyText);
+        if (validation.stage === 'more') {
+          const fbm = localFollowUpMoreFallback(validation.storyText, validation.answers);
+          return jsonResponse({
+            ok: false,
+            source: 'fallback',
+            reason: 'no_api_key',
+            needMore: fbm.needMore,
+            questions: fbm.questions,
+          }, 200, origin);
+        }
+        const fbf = localFollowUpFallback(validation.storyText, { stage: 'initial' });
         return jsonResponse({
           ok: false,
           source: 'fallback',
           reason: 'no_api_key',
           questions: fbf.questions,
           category: fbf.category,
+          suggestedQuestionCount: 2,
+          canGenerateAfter: 2,
         }, 200, origin);
       }
       const fb = localFallback(validation.storyText, validation.targetStyle);
@@ -921,39 +1110,91 @@ export async function onRequestPost(context) {
       }, 200, origin);
     }
 
-    // P4-conversation-song-flow-1-fix1：追问模式分支（只生成 2-3 个动态追问）
-    // 与 comfort_song 分支独立，用 FOLLOW_UP_PROMPT + callLlmForFollowUpQuestions。
-    // LLM 失败 / 输出无效 / 超时都走 localFollowUpFallback，绝不抛异常给前端。
+    // P4-dynamic-followup-depth-1：追问模式分支（按 stage 分流）
+    // - stage='initial'（缺省）：首轮，用 FOLLOW_UP_PROMPT + callLlmForFollowUpQuestions
+    //   生成 2 个核心问题 + 建议轮数。
+    // - stage='more'：用户答完 2 个问题后，用 FOLLOW_UP_MORE_PROMPT +
+    //   callLlmForFollowUpMore 判定是否追加 1-2 个问题。
+    // 两条路径都独立于 comfort_song 分支，LLM 失败 / 输出无效 / 超时都走兜底，绝不抛异常。
     if (validation.mode === 'follow_up_questions') {
+      if (validation.stage === 'more') {
+        // 追加判定分支
+        try {
+          const raw = await callLlmForFollowUpMore(config, validation.storyText, validation.answers);
+          const result = normalizeFollowUpMore(raw);
+          if (!result) {
+            console.error('[comfort-lyrics] 追加判定 LLM 返回数据无法规范化');
+            const fbm = localFollowUpMoreFallback(validation.storyText, validation.answers);
+            return jsonResponse({
+              ok: false,
+              source: 'fallback',
+              reason: 'llm_output_invalid',
+              needMore: fbm.needMore,
+              questions: fbm.questions,
+            }, 200, origin);
+          }
+          return jsonResponse({
+            ok: true,
+            source: 'llm',
+            needMore: result.needMore,
+            questions: result.questions,
+          }, 200, origin);
+        } catch (err) {
+          const reason = isTimeoutError(err) ? 'llm_timeout' : 'llm_error';
+          console.error('[comfort-lyrics] 追加判定 LLM 调用失败 (' + reason + '):', err && err.message);
+          const fbm = localFollowUpMoreFallback(validation.storyText, validation.answers);
+          return jsonResponse({
+            ok: false,
+            source: 'fallback',
+            reason: reason,
+            needMore: fbm.needMore,
+            questions: fbm.questions,
+          }, 200, origin);
+        }
+      }
+      // initial 分支：首轮生成 2 个核心追问
       try {
         const raw = await callLlmForFollowUpQuestions(config, validation.storyText);
         const questions = normalizeFollowUpQuestions(raw);
         if (!questions) {
           console.error('[comfort-lyrics] 追问 LLM 返回数据无法规范化');
-          const fbf = localFollowUpFallback(validation.storyText);
+          const fbf = localFollowUpFallback(validation.storyText, { stage: 'initial' });
           return jsonResponse({
             ok: false,
             source: 'fallback',
             reason: 'llm_output_invalid',
             questions: fbf.questions,
             category: fbf.category,
+            suggestedQuestionCount: 2,
+            canGenerateAfter: 2,
           }, 200, origin);
         }
+        // 从 LLM 原始输出中提取建议轮数（如果有且合法）
+        var suggestedCount = raw && typeof raw.suggestedQuestionCount === 'number'
+          ? Math.max(2, Math.min(4, Math.floor(raw.suggestedQuestionCount)))
+          : 3;
+        var canGenerateAfter = raw && typeof raw.canGenerateAfter === 'number'
+          ? Math.max(2, Math.min(2, Math.floor(raw.canGenerateAfter)))
+          : 2;
         return jsonResponse({
           ok: true,
           source: 'llm',
           questions: questions,
+          suggestedQuestionCount: suggestedCount,
+          canGenerateAfter: canGenerateAfter,
         }, 200, origin);
       } catch (err) {
         const reason = isTimeoutError(err) ? 'llm_timeout' : 'llm_error';
         console.error('[comfort-lyrics] 追问 LLM 调用失败 (' + reason + '):', err && err.message);
-        const fbf = localFollowUpFallback(validation.storyText);
+        const fbf = localFollowUpFallback(validation.storyText, { stage: 'initial' });
         return jsonResponse({
           ok: false,
           source: 'fallback',
           reason: reason,
           questions: fbf.questions,
           category: fbf.category,
+          suggestedQuestionCount: 2,
+          canGenerateAfter: 2,
         }, 200, origin);
       }
     }

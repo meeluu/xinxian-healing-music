@@ -5,7 +5,7 @@
 心弦是一款基于 Flutter Web 的情绪陪伴 Demo。用户输入当下心境后，系统通过 LLM 生成情绪画像与音乐参数，并播放匹配的本地音频素材，形成「自然语言 → AI 情绪解析 → 音乐方案 → 音频体验 → 用户反馈」的完整闭环。
 
 - **正式体验地址**：[https://xinxian-music.xyz](https://xinxian-music.xyz)
-- **当前版本**：`v1.0.0 · P5-music-metadata-foundation-1 · Cloudflare Pages`
+- **当前版本**：`v1.0.0 · P4-dynamic-followup-depth-1 · Cloudflare Pages`
 - **定位**：辅助情绪调节、睡前舒缓、正念陪伴、温和充能的轻量化工具，**不提供医疗诊断或治疗**，不替代专业心理咨询与医疗建议（详见[第十二章 免责声明](#十二免责声明)）
 
 ---
@@ -40,6 +40,8 @@
 6.24. [P4-player-seek-bugfix-2：await seek + 延迟确认](#六点二十四p4-player-seek-bugfix-2await-seek--延迟确认)
 6.25. [P4-player-seek-bugfix-3：首次 ready 前禁用 seek](#六点二十五p4-player-seek-bugfix-3首次-ready-前禁用-seek)
 6.26. [P4-player-seek-refresh-workaround-1：首次进入播放器自动软重建](#六点二十六p4-player-seek-refresh-workaround-1首次进入播放器自动软重建)
+6.27. [P5-music-metadata-foundation-1：本地音乐元数据基础改造](#六点二十七p5-music-metadata-foundation-1本地音乐元数据基础改造)
+6.28. [P4-dynamic-followup-depth-1：动态追问深度优化（固定三轮 → 动态 2-4 轮）](#六点二十八p4-dynamic-followup-depth-1动态追问深度优化固定三轮--动态-2-4-轮)
 7. [数据与隐私](#七数据与隐私)
 8. [环境变量与部署](#八环境变量与部署)
 9. [本地开发与验证](#九本地开发与验证)
@@ -90,11 +92,11 @@
 
 ### 2.1 当前阶段
 
-- **阶段**：`P4-AI-Music-v1.0 / P4-player-seek-refresh-workaround-1（快速舒缓本地播放页首次进入后短时间自动软重建一次，用作首次加载 seek 回 0 的临时兜底；不是底层 Web audio / just_audio 首次 seek ready 根因的最终修复；P4 歌曲生成链路不变；REAL_CALLS 由 Cloudflare 环境变量/配置管理，本批未修改）`
-- **版本号**：`v1.0.0 · P4-player-seek-refresh-workaround-1 · Cloudflare Pages`（首页底部显示 `心弦 v1.0.0 · P4-player-seek-refresh-workaround-1 · Cloudflare Pages`）
+- **阶段**：`P4-AI-Music-v1.0 / P4-dynamic-followup-depth-1（「把困惑写成一首歌」追问由固定三轮改为动态 2-4 轮：首轮批量 2 个核心问题 + 第 2 题答完后调一次后端 stage='more' 判定是否追加 1-2 个问题，总轮数 2-4；第 2 题后允许用户点击「先写成歌」跳过追加判定；不修改 AI 歌曲生成链路与快速舒缓本地音乐链路；REAL_CALLS 由 Cloudflare 环境变量/配置管理，本批未修改）`
+- **版本号**：`v1.0.0 · P4-dynamic-followup-depth-1 · Cloudflare Pages`（首页底部显示 `心弦 v1.0.0 · P4-dynamic-followup-depth-1 · Cloudflare Pages`）
 - **构建日期**：2026-07-24
 - **部署目标**：Cloudflare Pages
-- **上一阶段**：P4-conversation-song-flow-1-fix2 已上线（low_energy 场景 + lowEnergy 追问问题对齐 + 歌词低能量指引 + 快速舒缓纯本地化复核，2026-07-24 部署）；P4-conversation-song-flow-1-fix1 已完成（LLM 动态追问 + 歌词贴合度增强 + 快速舒缓纯本地化核查 + 加载文案分阶段，2026-07-23）；P4-conversation-song-flow-1 已上线（多轮困惑理解 + 纯音乐本地舒缓 + 定时关闭，2026-07-23）；P6-quota-guard-1 已完成（本地额度保护与文档整理，2026-07-23）；P4-song-result-experience-1 已上线（2026-07-23）；P3-Web-v1.0 已完成（`P3-data-3`）；P2-Web-v1.0 已完成（`P2-stable`）
+- **上一阶段**：P5-music-metadata-foundation-1 已完成（本地音乐元数据基础改造，2026-07-24）；P4-player-seek-refresh-workaround-1 已上线（快速舒缓本地播放页首次进入自动软重建兜底，2026-07-24）；P4-conversation-song-flow-1-fix2 已上线（low_energy 场景 + lowEnergy 追问问题对齐 + 歌词低能量指引 + 快速舒缓纯本地化复核，2026-07-24 部署）；P4-conversation-song-flow-1-fix1 已完成（LLM 动态追问 + 歌词贴合度增强 + 快速舒缓纯本地化核查 + 加载文案分阶段，2026-07-23）；P4-conversation-song-flow-1 已上线（多轮困惑理解 + 纯音乐本地舒缓 + 定时关闭，2026-07-23）；P6-quota-guard-1 已完成（本地额度保护与文档整理，2026-07-23）；P4-song-result-experience-1 已上线（2026-07-23）；P3-Web-v1.0 已完成（`P3-data-3`）；P2-Web-v1.0 已完成（`P2-stable`）
 
 ### 2.2 当前部署架构
 
@@ -3315,6 +3317,74 @@ bugfix-1 主要是“视觉上先按住目标值”和“completed 后手动 see
 
 ---
 
+### 6.28 P4-dynamic-followup-depth-1：动态追问深度优化（固定三轮 → 动态 2-4 轮）
+
+把「把困惑写成一首歌」流程的**固定三轮追问**改为**动态 2-4 轮追问**。核心目标是根据用户原始输入 + 已有回答动态决定是否还需要追问，避免机械凑轮数：输入清楚时 2 轮即可生成，输入模糊时最多问 4 轮把困惑问清楚。采用「混合：首轮批量 + 可选追加」架构，不每轮都强制调 LLM，平衡贴合度、成本与等待时间。
+
+#### 6.28.1 整体策略
+
+- **首轮**：批量生成 **2 个核心问题**（不再固定 3 个），覆盖「情绪落点」+「此刻需求」两个维度。
+- **追加判定**：用户答完首轮 2 个问题后，前端调一次后端 `stage='more'`，由 LLM 根据原始输入 + 已有回答判断是否还需要追问 1-2 个问题。
+- **总轮数**：2-4 轮（`minQuestions=2`，`maxQuestions=4`）。
+  - LLM 判定 `needMore=false` 或兜底 → 答完 2 轮即自动生成。
+  - LLM 判定 `needMore=true` 且返回问题 → 拼到问题列表末尾继续追问，最多到 4 轮。
+- **用户掌控**：第 2 题答完后，左侧按钮变为「先写成歌」，允许用户主动跳过追加判定直接生成；右侧「继续」按钮触发追加判定。
+- **不每轮都调 LLM**：只在第 2 题答完后调一次追加判定，避免每轮等待。
+
+#### 6.28.2 后端 / LLM 追问策略调整（`functions/api/comfort-lyrics.js`）
+
+- `follow_up_questions` mode 新增 `stage` 参数（`'initial'` 默认 / `'more'`）与 `answers` 字段，区分首轮与追加判定。
+- 首轮（`stage='initial'`）：保持原有 LLM 生成逻辑，但 `normalizeFollowUpQuestions` 的 `maxQuestions` 由 3 调整为 4（允许后续追加），首轮仍只返回 2 个问题。
+- 追加判定（`stage='more'`）：
+  - 新增 `FOLLOW_UP_MORE_PROMPT`：要求 LLM 只输出 `{ "needMore": bool, "questions": [...], "reason": "..." }` JSON，规则包括「输入已足够清楚 → needMore=false」「输入很模糊只有很烦/很累/不知道 → 可追加 1-2 问」「不超过 4 轮」「不用医疗化表达」。
+  - 新增 `callLlmForFollowUpMore`：8 秒超时、`temperature=0.5`、`response_format=json_object`、把原始困惑 + 已有回答拼成 user content。
+  - 新增 `normalizeFollowUpMore`：保证一致性——`needMore=true` 时 `questions` 必须非空且每条 4-60 字、最多 2 条、总数不超过 4-已答数；`needMore=false` 时 `questions` 强制为空数组。
+  - 新增 `localFollowUpMoreFallback`：保守返回 `needMore=false`（兜底不追加，避免阻塞流程）。
+  - `validateInput` 新增 `stage` / `answers` 校验。
+
+#### 6.28.3 前端追问状态机（`lib/screens/comfort_lyrics_screen.dart`）
+
+- 新增 `_ConversationPhase.loadingFollowUpMore` 阶段，位于 `followUp`（答首轮 2 题）与 `done`（生成）之间。
+- 新增状态字段：`_canGenerateAfter`（始终为 2，驱动「先写成歌」按钮显示）、`_moreInFlight`（防并发，追加判定期间置 true）。
+- `_recordAnswerAndAdvance` 重构推进逻辑：
+  - 还有未答的题 → 推进下一题。
+  - 刚答完第 2 题（`answeredCount==2`）且未触发过追加判定且未达 4 轮上限 → 进入 `loadingFollowUpMore`。
+  - 否则（追加判定已完成或已达 4 轮上限）→ 进入 `done` 生成。
+- 新增 `_triggerFollowUpMore`：调 `service.fetchFollowUpMore`，`needMore=true` 时把追加问题拼到 `_dynamicQuestions` 末尾（受 4 轮上限截断）回到 `followUp`；`needMore=false` 直接生成。任何异常走保守兜底（不追加直接生成）。
+- 新增 `_skipMoreAndGenerate`：第 2 题点击「先写成歌」时调用，记录回答后直接进入 `done`，不等追加判定。
+- UI 调整：
+  - 第 2 题（`isSecondInitial`）左侧按钮文案变为「先写成歌」，其余题为「跳过追问，直接生成」。
+  - 第 2 题进度提示改为「第 2 个问题 · 答完可以先写成歌，也可以继续让我再想想」。
+  - `loadingFollowUpMore` 阶段显示「正在根据你的回答，想想还需要再问什么…」。
+  - 右侧按钮文案：第 2 题仍为「继续」（触发追加判定），最后一题为「生成歌词」，其余为「继续」。
+
+#### 6.28.4 Service 层与模型（`lib/pipeline/llm/comfort_lyrics_service.dart` + `lib/models/follow_up_result.dart`）
+
+- 新增 `lib/models/follow_up_result.dart`：
+  - `FollowUpInitialResult`：`questions` / `suggestedQuestionCount` / `canGenerateAfter` / `source` / `category`，`isFallback` getter。
+  - `FollowUpMoreResult`：`needMore` / `questions` / `source`，`isFallback` getter。
+- `fetchFollowUpQuestions` 返回类型由 `List<String>` 改为 `FollowUpInitialResult`，内部 `_localFollowUpFallback` 改为 `take(2)`。
+- 新增 `fetchFollowUpMore`：POST `/api/comfort-lyrics`，body 带 `stage='more'` 与 `answers`，解析 `FollowUpMoreResult`；任何异常走保守兜底（`needMore=false`）。
+
+#### 6.28.5 明确边界
+
+- 不修改 `MUSIC_GENERATION_REAL_CALLS_ENABLED`，不打开真实 MiniMax 调用，不改 AI 歌曲生成链路（`/api/generate-music` / provider adapter / 三重门 / `manualTest=true` 不动）。
+- 不改快速舒缓本地音乐链路（仍只播放本地 `AudioAssetCatalog` assets）。
+- 不新增账号系统 / 数据库字段 / D1 schema（多轮追问数据只存页面 state，不写入本地存储 / 云端）。
+- 不使用医疗化表达，不承诺治疗效果；文案保持「辅助情绪调节 / 睡前舒缓 / 正念陪伴 / 温和充能」等谨慎表述。
+- 不把 R2、历史歌曲、分享链接、付费、用户系统、4090 部署写成已完成。
+
+#### 6.28.6 版本号同步与测试
+
+- `lib/config/app_version.dart`：`buildLabel = P4-dynamic-followup-depth-1`、`buildDate = 2026-07-24`（milestone / versionName / deployTarget 不变）。
+- `functions/api/health.js`：`BUILD_LABEL = P4-dynamic-followup-depth-1`。
+- `scripts/verify-comfort-lyrics.mjs`：新增 `stage='more'` / `answers` 字段断言、`normalizeFollowUpMore` 一致性断言、首轮问题数=2 断言。
+- `test/comfort_lyrics_service_test.dart`：`fetchFollowUpQuestions` 返回 `FollowUpInitialResult`，兜底问题数=2，`suggestedQuestionCount=2` / `canGenerateAfter=2`。
+- `test/comfort_lyrics_screen_test.dart`：新增「第 2 题显示『先写成歌』按钮」「点『先写成歌』跳过追加判定直接生成」「答完 2 轮 + 追加判定兜底后自动生成」等 UI 行为测试。
+- 验证：`flutter analyze` / `flutter test` / `flutter build web --release` / `node scripts/verify-comfort-lyrics.mjs` / `node scripts/verify-provider-adapter.mjs` 全部通过。
+
+---
+
 ## 七、数据与隐私
 
 ### 7.1 心境文本处理
@@ -3676,6 +3746,8 @@ Web 与 Android 的构建链路相互独立：Android 的 Gradle 配置不参与
 | 2026-07-24 | v1.0.0 / P4-player-seek-bugfix-2 | P4 播放体验 bugfix | 继续修复快速舒缓本地播放页首次 seek 被 0 拉回：bugfix-1 已加入 `_pendingSeek` 和 `completedFlag`，但 `onChangeEnd` 仍 fire-and-forget 调 `player.seek(target)`，并在 800ms 后无条件清 pending；Web 音频首次 seek 尚未完成时会重新读取 `positionStream` 旧位置 0。本批仅改 `lib/screens/player_screen.dart` 的 `_ProgressSection`：先设置 `_pendingSeek`/`_pendingSeekTarget`，调用 `onSeekStart` 清 `_completed`，`await player.seek(target)` 后读取真实 position，确认到达目标才清 pending，未到达则短延迟复查，3 秒兜底窗口最后释放；seek 前记录播放状态，seek 后播放中继续、暂停中保持暂停；新增 `lib/utils/seek_progress_guard.dart` + `test/seek_progress_guard_test.dart` 测试目标换算、容差判断和兜底时长；debug 日志仅 `kDebugMode` 下输出 `[DEBUG-SEEK-2]`，不记录隐私内容或 Secret。版本号同步 `app_version.dart`(`buildLabel=P4-player-seek-bugfix-2`/`buildDate=2026-07-24`) + `health.js` + `verify-provider-adapter.mjs` + README + ROADMAP。快速舒缓仍只播放本地 assets，不调 `/api/generate-music`、不调 MiniMax、不改 AI 歌曲生成链路、不修改 `MUSIC_GENERATION_REAL_CALLS_ENABLED`。 |
 | 2026-07-24 | v1.0.0 / P4-player-seek-bugfix-3 | P4 播放体验 bugfix | 修复快速舒缓本地播放页首次打开拖动进度条回 0、第二次打开正常：在本地播放器新增 `_audioReadyForSeek` 门控，仅 duration 已知且 processingState 为 ready/completed 时启用 Slider；未 ready 时显示「音频正在准备中…」且不触发 seek；setAudioSources 重建音源时先关闭 seek，ready 后自动恢复；保留 bugfix-2 await seek + pending 确认；新增 `audio_seek_readiness.dart` 纯逻辑和测试；临时 debug 仅 `kDebugMode` 下输出 `[DEBUG-FIRST-SEEK]`，不记录隐私或 Secret。不改 AI 歌曲生成链路、不修改 `MUSIC_GENERATION_REAL_CALLS_ENABLED`、不触发 MiniMax。 |
 | 2026-07-24 | v1.0.0 / P4-player-seek-refresh-workaround-1 | P4 播放体验 workaround | 为快速舒缓本地播放页增加首次进入自动软重建兜底：仅快速舒缓入口传入 `enableFirstOpenWarmReload=true`，`PlayerScreen` 在本次 session 尚未 warm reload 时延迟 500ms，先停止当前 `AudioPlayer`，再 `Navigator.pushReplacement` 到携带相同 `plan` / `moodText` 的新 `PlayerScreen`，并关闭 warm reload 标记，避免无限刷新；等待窗口内禁用播放、seek、播放模式和定时按钮，显示「正在准备播放器…」。这是临时 workaround，不是底层 Web audio / just_audio 首次 seek ready 根因最终修复；快速舒缓仍只播放本地 assets，不改 `GeneratedSongPlayerScreen`、不改 AI 生成链路、不修改 `MUSIC_GENERATION_REAL_CALLS_ENABLED`、不打开真实 MiniMax。 |
+| 2026-07-24 | v1.0.0 / P5-music-metadata-foundation-1 | P5 本地音乐元数据基础 | 为后续本地音乐内容库与推荐质量增强做准备：`lib/models/music_profile.dart` 新增 `MusicParameterStatus` 枚举与 `MusicProfile` 类；`lib/data/audio_asset_catalog.dart` 为 5 首专属音频填入真实测量 `durationSeconds` 与初步 `MusicProfile`，新增 `findByAssetPath` 反查；`lib/utils/recommendation_reason.dart` 新增纯函数 helper（时长格式化 / 声音特征 / 聆听建议 / 初步版本注记）与 `AssetMetadataView.fromPlan` 视图模型；`lib/screens/plan_screen.dart`「为什么推荐这段音乐」区域改为读取 per-asset 元数据，不再写死统一时长；折叠「音乐参数」卡采用混合策略（顶部 per-asset 声音特征 + 下方算法派生参数）。本批不扩充内容库（仍 5 首）、不改推荐算法、不改 AI 歌曲生成链路、不修改 `MUSIC_GENERATION_REAL_CALLS_ENABLED`、不打开真实 MiniMax；参数标为 `preliminary / 待校准`；未做 R2 / 历史歌曲 / 分享 / 付费 / 用户系统 / 4090。 |
+| 2026-07-24 | v1.0.0 / P4-dynamic-followup-depth-1 | P4 动态追问深度优化 | 固定三轮追问改为动态 2-4 轮（首轮 2 问 + 可选追加 1-2 问），采用「混合：首轮批量+可选追加」架构；后端 `functions/api/comfort-lyrics.js` 新增 `stage` 参数（`initial`/`more`）与 `answers` 字段，新增 `FOLLOW_UP_MORE_PROMPT` / `callLlmForFollowUpMore` / `normalizeFollowUpMore` / `localFollowUpMoreFallback`，`normalizeFollowUpQuestions` 上限调整为 4；前端 `lib/screens/comfort_lyrics_screen.dart` 新增 `loadingFollowUpMore` 阶段与 `_moreInFlight` / `_canGenerateAfter` 状态，重构 `_recordAnswerAndAdvance` 推进逻辑，新增 `_triggerFollowUpMore` / `_skipMoreAndGenerate`，第 2 题左侧按钮变为「先写成歌」跳过追加判定；新增 `lib/models/follow_up_result.dart`（`FollowUpInitialResult` / `FollowUpMoreResult`），`fetchFollowUpQuestions` 返回类型改为 `FollowUpInitialResult`，新增 `fetchFollowUpMore`；本地兜底首轮 `take(2)`、追加判定保守返回 `needMore=false`。不修改 AI 歌曲生成链路与快速舒缓本地音乐链路、不修改 `MUSIC_GENERATION_REAL_CALLS_ENABLED`、不打开真实 MiniMax、不新增账号 / D1 schema、不使用医疗化表达；版本号同步 `app_version.dart` + `health.js` + `verify-comfort-lyrics.mjs` + README。 |
 
 ### 13.7 项目结构
 
