@@ -199,6 +199,21 @@ await test('22. 愧疚关键词 → guilt_regret', () => {
   assert.strictEqual(detectScene('我伤害了她'), 'guilt_regret');
 });
 
+// fix2：新增 low_energy 场景检测
+await test('22b. 低能量关键词 → low_energy（fix2 新增）', () => {
+  assert.strictEqual(detectScene('最近总是提不起劲，感觉很疲惫、很空'), 'low_energy');
+  assert.strictEqual(detectScene('什么都不想做，很累'), 'low_energy');
+  assert.strictEqual(detectScene('感觉麻木，没动力'), 'low_energy');
+  assert.strictEqual(detectScene('没精神，不想动'), 'low_energy');
+});
+
+await test('22c. low_energy 不覆盖具体事件场景（fix2 优先级）', () => {
+  // 含工作关键词 + 低能量词 → 仍为 work_pressure（事件优先于状态）
+  assert.strictEqual(detectScene('工作太累了，提不起劲'), 'work_pressure');
+  // 含愧疚关键词 + 低能量词 → 仍为 guilt_regret
+  assert.strictEqual(detectScene('对不起，我太累了'), 'guilt_regret');
+});
+
 await test('23. 无匹配 → default', () => {
   assert.strictEqual(detectScene('今晚睡不着，脑子里停不下来'), 'default');
   assert.strictEqual(detectScene('感觉自己很迷茫'), 'default');
@@ -282,7 +297,7 @@ await test('30. scene 非法 → 回退 default', () => {
   assert.strictEqual(r2.scene, 'default');
 });
 
-// ─── localFallback（P4 第二批：5 场景独立模板）──────────────
+// ─── localFallback（P4 第二批：5 场景 + fix2 新增 low_energy = 6 场景）──
 console.log('─ localFallback ─');
 
 const SCENES = [
@@ -290,6 +305,7 @@ const SCENES = [
   'relationship_conflict',
   'work_pressure',
   'guilt_regret',
+  'low_energy',
   'default',
 ];
 
@@ -298,10 +314,11 @@ const SCENE_STORIES = {
   relationship_conflict: '和妈妈大吵一架，她已读不回我',
   work_pressure: '工作压力太大，天天加班到深夜',
   guilt_regret: '我对不起他，当时不该说那些话',
+  low_energy: '最近总是提不起劲，感觉很疲惫、很空',
   default: '今晚睡不着，脑子里停不下来',
 };
 
-await test('31. 5 场景返回结构完整 + 歌词结构标记', () => {
+await test('31. 6 场景返回结构完整 + 歌词结构标记', () => {
   SCENES.forEach(function (scene) {
     var story = SCENE_STORIES[scene];
     var r = localFallback(story, 'gentle_pop');

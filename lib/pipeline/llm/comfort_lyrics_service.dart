@@ -277,7 +277,11 @@ class ComfortLyricsService {
   ///
   /// 全部低压力、不医疗化；lowEnergy / unknown 不带"这件事里"措辞。
   static const Map<String, List<String>> _followUpFallbackQuestions = {
-    'lowEnergy': ['今天最没力气的是什么时刻？', '现在更想要安静，还是有人陪？', '有想先放一放的事吗？'],
+    'lowEnergy': [
+      '这种疲惫和空落感，通常什么时候最明显？',
+      '你更像是身体累，还是心里没力气？',
+      '想让这首歌陪你慢慢休息，还是给你一点重新开始的力气？',
+    ],
     'eventConflict': ['最让你难受的是哪一句？', '现在更想被理解，还是想先平静下来？', '有想跟对方说、但没说出口的话吗？'],
     'anxietyStress': ['现在最担心的是哪件事？', '有没有哪一段想法，一直绕着不走？', '想先停一下，还是想找个人说一说？'],
     'guiltRegret': ['最放不下的是当时的哪一句话？', '现在更想先原谅自己，还是先想清楚？', '有想跟对方说、但还没说出口的吗？'],
@@ -306,7 +310,10 @@ class ComfortLyricsService {
 
   /// 根据 storyText 关键词识别场景（与后端 `detectScene` 一致）。
   ///
-  /// 5 类：academic_failure / relationship_conflict / work_pressure / guilt_regret / default
+  /// 6 类：academic_failure / relationship_conflict / work_pressure /
+  /// guilt_regret / low_energy / default
+  /// P4-conversation-song-flow-1-fix2：新增 low_energy，避免低能量输入
+  /// 落入 default 模板的「夜色/窗」泛化意象。
   static String _detectScene(String storyText) {
     if (storyText.isEmpty) return 'default';
     final lower = storyText.toLowerCase();
@@ -399,10 +406,35 @@ class ComfortLyricsService {
       if (storyText.contains(k)) return 'guilt_regret';
     }
 
+    // P4-conversation-song-flow-1-fix2：低能量 / 疲惫 / 空 / 提不起劲
+    // 与 _classifyConcern 的 lowEnergy 关键词一致，优先级在具体事件场景之后、default 之前。
+    const lowEnergyKeywords = [
+      '提不起劲',
+      '疲惫',
+      '很累',
+      '好累',
+      '太累了',
+      '很空',
+      '空的',
+      '空落',
+      '麻木',
+      '没动力',
+      '不想动',
+      '没力气',
+      '什么都不想做',
+      '没意思',
+      '没劲儿',
+      '提不起精神',
+      '没精神',
+    ];
+    for (final k in lowEnergyKeywords) {
+      if (storyText.contains(k)) return 'low_energy';
+    }
+
     return 'default';
   }
 
-  /// 5 场景 fallback 模板（与后端 `FALLBACK_TEMPLATES` 一致）。
+  /// 6 场景 fallback 模板（与后端 `FALLBACK_TEMPLATES` 一致）。
   ///
   /// 每个 scene 的 comfortInterpretation 严格按 4 段结构
   /// （复述 / 重新框架 / 小行动 / 过渡到歌）。
@@ -460,6 +492,21 @@ class ComfortLyricsService {
           '【尾声】\n想道歉的人，明天再练习开口。',
       'songPrompt':
           'gentle mandarin ballad, soft intimate vocal, acoustic guitar and warm piano, slow tempo, reflective and forgiving mood, sparse arrangement',
+    },
+    // P4-conversation-song-flow-1-fix2：低能量 / 疲惫 / 空 / 提不起劲
+    // 不用「夜色/窗/城市」泛化意象，直接承接低能量状态。
+    'low_energy': {
+      'comfortInterpretation':
+          '听起来你最近提不起劲，整个人像是被抽空了一点。不是哪一件事压着你，而是什么都没力气去做，连解释都觉得累。\n\n'
+          '也许这种感觉最重的地方不是「我怎么了」，而是「你已经撑了很久，现在真的没电了」。空空的不是因为你不好，是身体和心都在说「先停一下」。\n\n'
+          '可以先把目标放小一点。今天不用变好，不用打起精神，不用逼自己振作。可以先允许自己什么都不做，就只是坐着，或者躺一会儿。\n\n'
+          '这首歌不急着推你往前，只想陪你慢慢待着。',
+      'lyricDraft':
+          '【主歌】\n什么都不想做的一天\n力气不知道去了哪里\n你不是偷懒，是真的空了\n今天先不用变好也没关系\n\n'
+          '【副歌】\n慢一点也可以，我在这里\n今天先不用变好，先不用撑\n慢一点也可以，我在这里\n空空的也没关系，允许自己停\n\n'
+          '【尾声】\n明天的事，等有了力气再认得它。',
+      'songPrompt':
+          'gentle mandarin ballad, soft breathy vocal, minimal piano with warm pads, very slow tempo, low energy and comforting mood, spacious and quiet arrangement',
     },
     'default': {
       'comfortInterpretation':

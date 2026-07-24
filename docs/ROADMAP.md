@@ -8,33 +8,32 @@
 
 ## 当前阶段
 
-**P4-conversation-song-flow-1-fix1（LLM 动态追问 + 歌词贴合度增强 + 快速舒缓纯本地化核查 + 加载文案分阶段）**
+**P4-playback-experience-2（AI 歌曲独立播放页 + 本地舒缓播放模式增强）**
 
-基于 P4-conversation-song-flow-1 上线后的体验反馈做定向修复，不部署、不真实调用 MiniMax：
+在 fix2 已上线的基础上优化播放体验，解决两个问题：①AI 歌曲生成后仍停留在歌词页内嵌播放，页面信息较多、播放体验不够清晰；②本地纯音乐播放时，若定时关闭时间大于单曲时长，音乐可能在单曲播完就停止。本批不部署、不真实调用 MiniMax、不依赖 R2：
 
-- **LLM 动态追问**：追问由 LLM 根据用户输入动态生成（`/api/comfort-lyrics` 新增 `mode=follow_up_questions`），不再套固定模板；用户说的是低能量/疲惫/空（状态）时，不问「这件事里」（事件导向）。
-- **本地兜底 6 分类**：LLM 追问失败时，使用本地关键词分类兜底（`lowEnergy` 优先级最高 / `eventConflict` / `anxietyStress` / `guiltRegret` / `loneliness` / `unknown`），前后端镜像实现。
-- **歌词贴合度增强**：`SYSTEM_PROMPT` 明确主歌承接用户具体困境，不编造未提及场景（窗台/手机/枕头边），意象服务于用户困境；针对「提不起劲/疲惫/空」围绕低能量、空落、允许慢下来。
-- **「给现在的你」不大改**：保持原结构，使用多轮上下文轻微增强，不鸡汤不说教不医疗化。
-- **快速舒缓纯本地化核查**：确认「快速舒缓一下」只调用本地 `AudioAssetCatalog`，不调 `/api/generate-music`、不调 MiniMax、不扣 P6 额度，无 `MusicGenerationScreen` 残留；「把困惑写成一首歌」的 MiniMax 歌曲生成能力与 provider adapter 保留。
-- **加载文案分阶段**：生成追问 / 生成歌词 / 生成 AI 歌曲 / 快速舒缓本地分析各显示不同文案，不再统一显示「AI 正在理解你的状态」。
-- 多轮数据只存页面 state，不做长期保存。
+- **AI 歌曲独立播放页**：新增 `lib/screens/generated_song_player_screen.dart`。生成成功（拿到可播放 `playableUrl`）后 `Navigator.push` 跳转到独立页，展示歌曲标题 / 「给现在的你」/ 歌词 / 播放暂停 / 进度条 / 当前时间·总时长 / 重新播放 / 返回 / 定时关闭 / 单曲循环开关。不依赖 R2，仍用 `audioDataUrl` 临时播放；失败显示温和错误提示 + 重试 + 返回，不白屏。歌词页缓存 `GeneratedSongMeta` + 轻量入口卡片「这首歌已经生成好了」，支持返回后重新进入不重复生成不重复扣费。
+- **本地舒缓播放模式增强**：`lib/screens/player_screen.dart` 新增 4 种播放模式（单曲播放 / 单曲循环 / 列表循环 / 顺序播放，默认单曲循环）。播放列表按 `targetState` 过滤 `AudioAssetCatalog` 同类曲目（当前每类 1 首，后续扩展自动生效）。模式切换用 `setAudioSources`（替代已废弃 `ConcatenatingAudioSource`）保留进度不中断播放。
+- **定时关闭持续播放保证**：`lib/widgets/sleep_timer_button.dart` 新增 `onForceLoopStart` / `onForceLoopEnd` 回调。进入倒计时强制单曲循环（保留进度），保证「单曲 3 分钟 + 定时 5 分钟」不会 3 分钟就停；结束 / 取消恢复原模式。
+- **生成链路不变**：「给现在的你」与歌词仍由 LLM 生成；AI 歌曲音频仍由 MiniMax 生成（受三重门保护，默认 REAL_CALLS=false）；「快速舒缓一下」只调用本地 `AudioAssetCatalog`，不调 `/api/generate-music`、不调 MiniMax、不扣 P6 额度。
 - 保留 P6-quota-guard-1 本地额度保护；额度只限制 AI 歌曲生成，不限制本地纯音乐。
 - `MUSIC_GENERATION_REAL_CALLS_ENABLED` 保持 `"false"`，`manualTest=true` 保护保留。
 - 本批不部署上线，不新增自动调用 / 轮询 / 重试，不引入新依赖。
 
-### 上一阶段（已完成并上线）
+### 上一阶段（已完成）
 
-**P4-conversation-song-flow-1（多轮困惑理解 + 歌词增强 + 纯音乐本地舒缓 + 定时关闭）** 已于 2026-07-23 上线，详见 README 6.19。
+**P4-conversation-song-flow-1-fix2（low_energy 场景 + lowEnergy 追问问题对齐 + 歌词低能量指引 + 快速舒缓纯本地化复核）** 已于 2026-07-24 上线，详见 README 6.21。**P4-conversation-song-flow-1-fix1** 已完成，详见 README 6.20。**P4-conversation-song-flow-1** 已于 2026-07-23 上线，详见 README 6.19。
 
 ## 阶段划分
 
 ### 短期：安全小范围内测（当前）
 
-- **P4-conversation-song-flow-1-fix1（本批）**：LLM 动态追问 + 歌词贴合度增强 + 快速舒缓纯本地化核查 + 加载文案分阶段。
+- **P4-playback-experience-2（本批）**：AI 歌曲独立播放页 + 本地舒缓播放模式增强 + 定时关闭持续播放保证。
+- **P4-conversation-song-flow-1-fix2（已上线）**：low_energy 场景 + lowEnergy 追问问题对齐 + 歌词低能量指引 + 快速舒缓纯本地化复核。
+- **P4-conversation-song-flow-1-fix1（已完成）**：LLM 动态追问 + 歌词贴合度增强 + 快速舒缓纯本地化核查 + 加载文案分阶段。
 - **P4-conversation-song-flow-1（已上线）**：多轮困惑理解 + 歌词增强 + 纯音乐本地舒缓 + 定时关闭。
 - **P6-quota-guard-1（已完成）**：浏览器本地每日额度保护 + service 单元测试 + 文档整理。
-- 目标：在真实调用仍关闭的前提下，修复多轮流程的追问贴合度 / 歌词贴合度 / 加载文案分阶段三类体验问题，并核查快速舒缓纯本地化，同时保留成本保护。
+- 目标：在真实调用仍关闭的前提下，优化 AI 歌曲生成后的播放体验（独立播放页）与本地舒缓播放模式（4 种模式 + 定时持续播放），同时保留成本保护。
 - **不做什么**：不打开真实调用、不部署上线、不做付费、不做用户系统、不做 R2 持久化、不做历史歌曲、不做分享链接、不做 4090 部署、不做真实 MiniMax 测试。
 
 ### 中期：持久化 · 历史 · 分享 · 用户 · 付费
@@ -65,7 +64,9 @@
 | P4-AI-Music-v1.0 | AI 音乐生成接入（MiniMax 打通 + audioDataUrl 临时播放 + 结果页体验） | ✅ 已完成（默认 REAL_CALLS=false） |
 | P6-quota-guard-1 | 本地额度保护与成本安全（首批） | ✅ 已完成 |
 | P4-conversation-song-flow-1 | 多轮困惑理解 + 歌词增强 + 纯音乐本地舒缓 + 定时关闭 | ✅ 已上线（2026-07-23） |
-| P4-conversation-song-flow-1-fix1 | LLM 动态追问 + 歌词贴合度增强 + 快速舒缓纯本地化核查 + 加载文案分阶段 | ✅ 本批完成 |
+| P4-conversation-song-flow-1-fix1 | LLM 动态追问 + 歌词贴合度增强 + 快速舒缓纯本地化核查 + 加载文案分阶段 | ✅ 已完成 |
+| P4-conversation-song-flow-1-fix2 | low_energy 场景 + lowEnergy 追问问题对齐 + 歌词低能量指引 + 快速舒缓纯本地化复核 | ✅ 已上线（2026-07-24） |
+| P4-playback-experience-2 | AI 歌曲独立播放页 + 本地舒缓播放模式增强 + 定时关闭持续播放保证 | ✅ 本批完成 |
 | 中期 | R2 持久化 / 历史生成歌曲 / 分享链接 / 用户系统 / 付费会员 | ⏳ 计划中 |
 | 长期 | 4090 后端迁移 / 自有音乐模型 / 增长 Agent | ⏳ 计划中 |
 

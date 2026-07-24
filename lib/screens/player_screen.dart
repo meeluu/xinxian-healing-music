@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:just_audio/just_audio.dart';
+import 'package:xinxian_healing_music/data/audio_asset_catalog.dart';
 import 'package:xinxian_healing_music/models/music_plan.dart';
 import 'package:xinxian_healing_music/pipeline/services.dart';
 import 'package:xinxian_healing_music/screens/feedback_screen.dart';
@@ -10,10 +11,54 @@ import 'package:xinxian_healing_music/utils/recommendation_reason.dart';
 import 'package:xinxian_healing_music/widgets/centered_page.dart';
 import 'package:xinxian_healing_music/widgets/sleep_timer_button.dart';
 
+/// 本地播放模式（P4-playback-experience-2）。
+///
+/// - [singlePlay] 单曲播放：当前曲播完即停（LoopMode.off + 单一源）
+/// - [singleLoop] 单曲循环：当前曲播完重播（LoopMode.one + 单一源）
+/// - [listLoop] 列表循环：列表末尾回到第一首（LoopMode.all + 同类全部）
+/// - [sequential] 顺序播放：列表末尾停止（LoopMode.off + 同类全部）
+///
+/// 播放列表按当前 targetState 过滤 [AudioAssetCatalog.assets]：
+/// 当前每类 1 首，未来每类添加更多曲目后列表模式自动生效。
+enum PlayMode { singlePlay, singleLoop, listLoop, sequential }
+
+extension PlayModeX on PlayMode {
+  String get label => const {
+    PlayMode.singlePlay: '单曲播放',
+    PlayMode.singleLoop: '单曲循环',
+    PlayMode.listLoop: '列表循环',
+    PlayMode.sequential: '顺序播放',
+  }[this]!;
+
+  IconData get icon => const {
+    PlayMode.singlePlay: Icons.play_circle_outline_rounded,
+    PlayMode.singleLoop: Icons.repeat_one_rounded,
+    PlayMode.listLoop: Icons.repeat_rounded,
+    PlayMode.sequential: Icons.low_priority_rounded,
+  }[this]!;
+
+  /// 映射到 just_audio LoopMode。
+  /// 顺序播放用 LoopMode.off（列表播完停止）；单曲播放也用 off（单一源播完停止）。
+  LoopMode get loopMode => const {
+    PlayMode.singlePlay: LoopMode.off,
+    PlayMode.singleLoop: LoopMode.one,
+    PlayMode.listLoop: LoopMode.all,
+    PlayMode.sequential: LoopMode.off,
+  }[this]!;
+
+  /// 是否使用列表音频源（ConcatenatingAudioSource）。
+  /// 单曲模式用单一源，避免播完自动进下一曲。
+  bool get useList => this == PlayMode.listLoop || this == PlayMode.sequential;
+}
+
 /// 播放页：使用 just_audio 播放本地音频，浅色疗愈风。
 ///
 /// 播放时呼吸可视化缓慢起伏，暂停时动画停止；按钮点击有轻微缩放反馈。
 /// Web 端浏览器自动播放限制：只在用户点击播放按钮时调用 play()。
+///
+/// P4-playback-experience-2：支持 4 种播放模式（单曲播放 / 单曲循环 /
+/// 列表循环 / 顺序播放），默认单曲循环。定时关闭开启后强制单曲循环，
+/// 保证音乐持续播放到定时时间结束，结束/取消后恢复原模式。
 class PlayerScreen extends StatefulWidget {
   final HealingMusicPlan plan;
   final String moodText;
@@ -34,6 +79,25 @@ class _PlayerScreenState extends State<PlayerScreen>
   // P2-Web-v1.0 第三批：播放完成后展示反馈 CTA，引导用户记录感受。
   // 重播（seek(0) + play）时重置为 false。
   bool _completed = false;
+
+  // ─── P4-playback-experience-2：播放模式与播放列表状态 ───
+  //
+  // 当前播放模式（默认单曲循环，最符合舒缓陪伴场景）。
+  PlayMode _playMode = PlayMode.singleLoop;
+
+  /// 定时强制循环前的用户选择（null 表示未在强制态）。
+  /// 倒计时期间强制单曲循环，结束/取消后恢复 [_playMode]。
+  PlayMode? _preForceMode;
+
+  /// 模式切换中防抖（避免连续点击导致音频源重建冲突）。
+  bool _switchingMode = false;
+
+  /// 当前 targetState 同类曲目列表（用于列表循环 / 顺序播放）。
+  /// 当前每类 1 首，未来扩展后自动生效。
+  List<AudioAsset> _playlistTracks = const [];
+
+  /// 当前曲在 [_playlistTracks] 中的索引。
+  int _currentIndex = 0;
 
   @override
   void initState() {
@@ -65,14 +129,23 @@ class _PlayerScreenState extends State<PlayerScreen>
   }
 
   Future<void> _initAudio() async {
+    // 构建同类曲目播放列表：按当前 targetState 过滤 AudioAssetCatalog.assets
+    final targetState = widget.plan.mood.targetState;
+    final matched = AudioAssetCatalog.assets
+        .where((a) => a.targetStates.contains(targetState))
+        .toList();
+    _playlistTracks = matched.isNotEmpty
+        ? matched
+        : [AudioAssetCatalog.fallback];
+    // 按 assetPath 定位当前曲（plan.audio 是 ProcessedAudio，与 AudioAsset 不同类型）
+    final currentAssetPath = widget.plan.audio.assetPath;
+    _currentIndex = _playlistTracks.indexWhere(
+      (a) => a.assetPath == currentAssetPath,
+    );
+    if (_currentIndex < 0) _currentIndex = 0;
+
     try {
-      // 统一调用 AudioAssetUriResolver：
-      // Web 下用 AudioSource.uri 指向 assets/<key>，避免 just_audio 的
-      // AudioSource.asset 在 Flutter Web 报 "asset does not exist"。
-      // 非 Web 下继续用 AudioSource.asset 走 AssetBundle。
-      await _player.setAudioSource(
-        AudioAssetUriResolver.resolveAudioSource(widget.plan.audio.assetPath),
-      );
+      await _applyPlayMode(_playMode, initialPosition: Duration.zero);
       if (!mounted) return;
       setState(() => _loading = false);
     } catch (_) {
@@ -83,6 +156,107 @@ class _PlayerScreenState extends State<PlayerScreen>
         _error = true;
       });
     }
+  }
+
+  /// 根据 [mode] 构建音频源列表。
+  ///
+  /// - 单曲模式（singlePlay / singleLoop）：仅当前曲（1 个 AudioSource）
+  /// - 列表模式（listLoop / sequential）：同类全部（多个 AudioSource）
+  ///
+  /// 返回 `List<AudioSource>`，统一交给 [AudioPlayer.setAudioSources] 装载。
+  /// 单曲模式传 1 个元素的列表，列表模式传同类全部。
+  List<AudioSource> _buildAudioSources(PlayMode mode) {
+    final resolver = AudioAssetUriResolver.resolveAudioSource;
+    if (!mode.useList) {
+      return [resolver(_playlistTracks[_currentIndex].assetPath)];
+    }
+    return _playlistTracks.map((a) => resolver(a.assetPath)).toList();
+  }
+
+  /// 应用播放模式：构建音频源 + setAudioSources（保留进度）+ 设 LoopMode。
+  ///
+  /// [initialPosition] 用于模式切换时保留播放进度。
+  /// 列表模式下通过 [initialIndex] 定位到当前曲。
+  Future<void> _applyPlayMode(
+    PlayMode mode, {
+    Duration? initialPosition,
+  }) async {
+    final sources = _buildAudioSources(mode);
+    // setAudioSources 替代已废弃的 ConcatenatingAudioSource：
+    // - 单曲模式：1 个元素 + initialIndex=0
+    // - 列表模式：同类全部 + initialIndex=当前曲索引
+    await _player.setAudioSources(
+      sources,
+      initialIndex: mode.useList ? _currentIndex : 0,
+      initialPosition: initialPosition,
+    );
+    await _player.setLoopMode(mode.loopMode);
+  }
+
+  /// 用户切换播放模式。
+  ///
+  /// - 防抖：模式相同或切换中直接返回。
+  /// - 定时强制态：只更新 [_preForceMode] 记录，实际源保持单曲循环，
+  ///   强制态结束后再应用新模式。
+  /// - 正常态：捕获进度 + 播放状态 → 重建源 → 恢复播放。
+  Future<void> _setPlayMode(PlayMode newMode) async {
+    if (newMode == _playMode || _switchingMode) return;
+
+    // 定时强制态：记录用户选择，待强制态结束后恢复
+    if (_preForceMode != null) {
+      setState(() => _preForceMode = newMode);
+      return;
+    }
+
+    setState(() => _switchingMode = true);
+    try {
+      final pos = _player.position;
+      final wasPlaying = _player.playing;
+      await _applyPlayMode(newMode, initialPosition: pos);
+      if (wasPlaying) await _player.play();
+      if (!mounted) return;
+      setState(() {
+        _playMode = newMode;
+        _switchingMode = false;
+        _completed = false;
+      });
+    } catch (_) {
+      // 切换失败不卡死，回滚切换态
+      if (!mounted) return;
+      setState(() => _switchingMode = false);
+    }
+  }
+
+  /// 定时关闭强制循环：进入倒计时时强制单曲循环，保证音乐持续播放。
+  void _onForceLoopStart() {
+    if (_preForceMode != null) return; // 已在强制态
+    final wasPlaying = _player.playing;
+    setState(() => _preForceMode = _playMode);
+    // 强制切到单曲循环（保留进度）
+    _applyPlayMode(PlayMode.singleLoop, initialPosition: _player.position)
+        .then((_) {
+          if (wasPlaying && !_player.playing) {
+            _player.play().catchError((_) {});
+          }
+        })
+        .catchError((_) {});
+  }
+
+  /// 定时关闭结束：恢复用户原播放模式。
+  void _onForceLoopEnd() {
+    final restore = _preForceMode;
+    _preForceMode = null;
+    if (restore == null) return;
+    if (restore == _playMode) return; // 本就是单曲循环，无需切换
+    final wasPlaying = _player.playing;
+    _applyPlayMode(restore, initialPosition: _player.position)
+        .then((_) {
+          if (wasPlaying && !_player.playing) {
+            _player.play().catchError((_) {});
+          }
+        })
+        .catchError((_) {});
+    if (mounted) setState(() {});
   }
 
   /// 重试加载音频：重置错误态后重新初始化。
@@ -129,6 +303,86 @@ class _PlayerScreenState extends State<PlayerScreen>
     final m = d.inMinutes.remainder(60).toString().padLeft(2, '0');
     final s = d.inSeconds.remainder(60).toString().padLeft(2, '0');
     return '$m:$s';
+  }
+
+  /// P4-playback-experience-2：播放模式按钮 + 定时关闭（并排）。
+  ///
+  /// - 播放模式：PopupMenuButton 切换单曲播放 / 单曲循环 / 列表循环 / 顺序播放
+  /// - 定时关闭：SleepTimerButton，接入强制循环回调
+  /// - 定时强制态时显示"定时中"小标，提示用户当前为强制循环
+  Widget _buildPlaybackControls() {
+    final inForce = _preForceMode != null;
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        // 播放模式按钮
+        PopupMenuButton<PlayMode>(
+          onSelected: _setPlayMode,
+          tooltip: '播放模式',
+          itemBuilder: (context) => [
+            for (final m in PlayMode.values)
+              PopupMenuItem(
+                value: m,
+                child: Row(
+                  children: [
+                    Icon(m.icon, size: 16, color: AppColors.primary),
+                    const SizedBox(width: 8),
+                    Text(m.label),
+                    if (m == _playMode && !inForce) ...[
+                      const SizedBox(width: 6),
+                      const Icon(
+                        Icons.check_rounded,
+                        size: 14,
+                        color: AppColors.primary,
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+          ],
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              color: inForce
+                  ? AppColors.lavender.withValues(alpha: 0.12)
+                  : const Color(0xFFE6F1F9),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: inForce
+                    ? AppColors.lavender.withValues(alpha: 0.4)
+                    : Colors.transparent,
+              ),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  inForce ? Icons.repeat_one_rounded : _playMode.icon,
+                  size: 14,
+                  color: inForce ? AppColors.lavender : AppColors.primary,
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  inForce ? '定时中·循环' : _playMode.label,
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: inForce ? AppColors.lavender : AppColors.primaryDeep,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(width: 10),
+        // 定时关闭
+        SleepTimerButton(
+          player: _player,
+          onForceLoopStart: _onForceLoopStart,
+          onForceLoopEnd: _onForceLoopEnd,
+        ),
+      ],
+    );
   }
 
   /// P2-Web-v1.0 第二批 fix1：播放页只展示主要音乐目标的简短文案，
@@ -281,10 +535,10 @@ class _PlayerScreenState extends State<PlayerScreen>
           // 进度条 + 时长（柔和蓝绿）
           _ProgressSection(player: _player, fmt: _fmt, enabled: !_error),
 
-          // P4-conversation-song-flow-1：定时关闭（轻量，不挤压播放按钮）
+          // P4-playback-experience-2：播放模式选择 + 定时关闭（并排，轻量）
           if (!_error) ...[
             const SizedBox(height: 12),
-            Center(child: SleepTimerButton(player: _player)),
+            _buildPlaybackControls(),
           ],
 
           const SizedBox(height: 28),

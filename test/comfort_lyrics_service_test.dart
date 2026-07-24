@@ -174,6 +174,29 @@ void main() {
       expect(result.scene, 'default');
     });
 
+    // P4-conversation-song-flow-1-fix2：新增 low_energy 场景测试
+    test('低能量场景（提不起劲/疲惫/空）返回 low_energy 模板', () async {
+      final result = await service.generate(
+        storyText: '最近总是提不起劲，感觉很疲惫、很空',
+        targetStyle: 'gentle_pop',
+      );
+
+      expect(result.scene, 'low_energy');
+      // 歌词应围绕低能量状态，含「慢一点也可以」hook
+      expect(result.lyricDraft, contains('慢一点也可以'));
+      // 不应含「夜色/窗/城市」泛化意象
+      expect(result.lyricDraft, isNot(contains('夜色')));
+      expect(result.lyricDraft, isNot(contains('没亮的窗')));
+      // 解惑文本应含低能量特征词
+      expect(
+        result.comfortInterpretation.contains('提不起劲') ||
+            result.comfortInterpretation.contains('没电') ||
+            result.comfortInterpretation.contains('空'),
+        isTrue,
+        reason: '低能量场景解惑文本应含低能量特征词',
+      );
+    });
+
     test('不同场景返回不同 comfortInterpretation', () async {
       final academicResult = await service.generate(
         storyText: '考研没考上',
@@ -385,8 +408,10 @@ void main() {
       );
 
       expect(questions.length, 3);
-      // lowEnergy 兜底第 1 问应包含「没力气」
-      expect(questions.first, contains('没力气'));
+      // fix2：兜底第 1 问应包含「疲惫」或「空落」
+      expect(questions.first, anyOf(contains('疲惫'), contains('空落')));
+      // 第 2 问应包含「没力气」
+      expect(questions[1], contains('没力气'));
     });
 
     test('低能量兜底问题不包含「这件事」措辞', () async {

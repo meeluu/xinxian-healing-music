@@ -53,11 +53,12 @@ class AppVersion {
   /// - `P{N}-temp-audio-playback-{n}-cleanup`：P 阶段第 n 批临时播放闭环的代码审计清理版本（线上试听验证通过后的收尾）
   /// - `P{N}-song-result-experience-{n}`：P 阶段第 n 批生成歌曲结果页体验优化（纯前端，不改后端真实调用策略）
   /// - `P{N}-quota-guard-{n}`：P 阶段第 n 批本地额度保护与成本安全（浏览器每日生成次数限制）
+  /// - `P{N}-playback-experience-{n}`：P 阶段第 n 批播放体验优化（AI 歌曲独立播放页 + 本地播放模式增强）
   /// - `P{N}-stable`：P 阶段收尾验收通过，正式发布
-  static const String buildLabel = 'P4-conversation-song-flow-1-fix1';
+  static const String buildLabel = 'P4-playback-experience-2';
 
   /// 构建日期（YYYY-MM-DD），手动维护。
-  static const String buildDate = '2026-07-23';
+  static const String buildDate = '2026-07-24';
 
   /// 部署目标平台。
   static const String deployTarget = 'Cloudflare Pages';

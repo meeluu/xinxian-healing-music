@@ -51,7 +51,9 @@ const SERVICE_VERSION = 'v1';
 // P6 本地额度保护：同步更新为 P6-quota-guard-1
 // P4-conversation-song-flow-1：多轮困惑理解 + 更贴合困境的歌词 + 纯音乐本地舒缓 + 定时关闭
 // P4-conversation-song-flow-1-fix1：LLM 动态追问 + 歌词贴合度增强 + 加载文案分阶段
-const BUILD_LABEL = 'P4-conversation-song-flow-1-fix1';
+// P4-conversation-song-flow-1-fix2：low_energy 场景 + lowEnergy 追问问题对齐 + 歌词低能量指引
+// P4-playback-experience-2：AI 歌曲独立播放页 + 本地舒缓播放模式增强（4 种模式 + 定时强制持续播放）
+const BUILD_LABEL = 'P4-playback-experience-2';
 
 // ─── 统一响应 helper ──────────────────────────────────────────
 function jsonResponse(payload, statusCode, origin) {

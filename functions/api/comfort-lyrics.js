@@ -87,12 +87,13 @@ const SYSTEM_PROMPT = [
   '',
   '──────── 输出 JSON 字段 ────────',
   '',
-  '- scene：识别用户困惑的叙事场景类型，只能是以下五个之一：',
+  '- scene：识别用户困惑的叙事场景类型，只能是以下六个之一：',
   '  · academic_failure（学业失败 / 挂科 / 考研受挫 / 高考失利 / 成绩焦虑）',
   '  · relationship_conflict（争吵 / 关系冲突 / 分手 / 冷战 / 亲情摩擦）',
   '  · work_pressure（工作压力 / 加班 / 项目崩溃 / 职场疲惫 / deadline）',
   '  · guilt_regret（愧疚 / 后悔 / 觉得自己错了 / 伤害了别人 / 没做到）',
-  '  · default（不属于以上四类的孤独 / 迷茫 / 睡前焦虑 / 自我怀疑 / 低落）',
+  '  · low_energy（提不起劲 / 疲惫 / 空 / 没动力 / 不想动 / 麻木 / 没精神 — 不是具体事件，是低能量状态）',
+  '  · default（不属于以上五类的孤独 / 迷茫 / 睡前焦虑 / 自我怀疑）',
   '',
   '- comfortInterpretation：温和解惑文本（180-320 字，4 段）',
   '  · 第 1 段：复述处境，让用户感到「被听见」。用「听起来你正在……」开头，不要分析、不要总结',
@@ -160,6 +161,11 @@ const SYSTEM_PROMPT = [
   '- 关系场景：侧重「没说出口的话比争吵更重」，意象可用消息框 / 已读未回 / 关上的门 / 没接的电话',
   '- 工作场景：侧重「累不是因为你不够强」，意象可用桌面 / 屏幕光 / 末班车 / 没关的灯',
   '- 愧疚场景：侧重「做错了不等于你是错的」，意象可用没寄出的道歉 / 改不了的昨天 / 想拨没拨的电话',
+  '- 低能量场景（low_energy）：用户说的是状态（提不起劲 / 疲惫 / 空 / 什么都不想做），不是具体事件',
+  '  · 歌词围绕：提不起劲 / 很累 / 空空的 / 什么都不想做 / 慢一点也可以 / 今天先不用变好',
+  '  · 不要强行写窗台 / 手机 / 枕头边 / 夜色 / 雨夜 / 房间等具象场景（除非用户原文或追问回答中提到）',
+  '  · 副歌 hook 方向：「慢一点也可以」「今天先不用变好」「空空的也没关系」「允许自己停一会儿」',
+  '  · 解惑侧重：不是「你哪里不对」，而是「你已经撑了很久，现在真的没电了」「空空的不是因为你不好」',
   '- 默认场景：侧重「现在不需要找到答案」，意象可用夜色 / 风 / 没亮的窗 / 还没醒的城市',
 ].join('\n');
 
@@ -345,7 +351,9 @@ export function sanitizeText(text) {
 
 // ─── 场景识别（本地，用于 fallback）──────────────────────────────
 // LLM 路径下 scene 由 LLM 自己判断；fallback 路径下用本地关键词匹配。
-// 5 类：academic_failure / relationship_conflict / work_pressure / guilt_regret / default
+// 6 类：academic_failure / relationship_conflict / work_pressure / guilt_regret / low_energy / default
+// P4-conversation-song-flow-1-fix2：新增 low_energy（提不起劲/疲惫/空），
+// 避免低能量输入落入 default 模板的「夜色/窗」泛化意象。
 export function detectScene(storyText) {
   if (typeof storyText !== 'string' || storyText.length === 0) return 'default';
   var lower = storyText.toLowerCase();
@@ -368,6 +376,13 @@ export function detectScene(storyText) {
   var guiltKeywords = ['对不起', '后悔', '愧疚', '错了', '伤害', '辜负', '没能', '没做到', '我害了', '都是我的错', '自责', '内疚'];
   for (var m = 0; m < guiltKeywords.length; m++) {
     if (storyText.indexOf(guiltKeywords[m]) !== -1) return 'guilt_regret';
+  }
+  // P4-conversation-song-flow-1-fix2：低能量 / 疲惫 / 空 / 提不起劲
+  // 与 classifyConcern 的 lowEnergy 关键词一致，优先级在具体事件场景之后、default 之前。
+  // 避免低能量输入落入 default 模板的「夜色/没亮的窗」泛化意象。
+  var lowEnergyKeywords = ['提不起劲', '疲惫', '很累', '好累', '太累了', '很空', '空的', '空落', '麻木', '没动力', '不想动', '没力气', '什么都不想做', '没意思', '没劲儿', '提不起精神', '没精神'];
+  for (var n = 0; n < lowEnergyKeywords.length; n++) {
+    if (storyText.indexOf(lowEnergyKeywords[n]) !== -1) return 'low_energy';
   }
   // 默认：孤独 / 迷茫 / 睡前焦虑 / 自我怀疑 / 低落
   return 'default';
@@ -418,9 +433,9 @@ export function classifyConcern(storyText) {
 // 6 分类 × 3 问题，全部低压力、不医疗化、lowEnergy/eventConflict 不带"这件事里"。
 var FOLLOW_UP_FALLBACK_QUESTIONS = {
   lowEnergy: [
-    '今天最没力气的是什么时刻？',
-    '现在更想要安静，还是有人陪？',
-    '有想先放一放的事吗？',
+    '这种疲惫和空落感，通常什么时候最明显？',
+    '你更像是身体累，还是心里没力气？',
+    '想让这首歌陪你慢慢休息，还是给你一点重新开始的力气？',
   ],
   eventConflict: [
     '最让你难受的是哪一句？',
@@ -493,8 +508,8 @@ export function normalizeResult(raw) {
     safetyNotes = safetyNotes.slice(0, 80);
   }
 
-  // scene 校验：必须是 5 类之一
-  var validScenes = ['academic_failure', 'relationship_conflict', 'work_pressure', 'guilt_regret', 'default'];
+  // scene 校验：必须是 6 类之一（fix2 新增 low_energy）
+  var validScenes = ['academic_failure', 'relationship_conflict', 'work_pressure', 'guilt_regret', 'low_energy', 'default'];
   var scene = raw.scene;
   if (typeof scene !== 'string' || validScenes.indexOf(scene) === -1) {
     scene = 'default';
@@ -775,6 +790,33 @@ var FALLBACK_TEMPLATES = {
       '想道歉的人，明天再练习开口。',
     ].join('\n'),
     songPrompt: 'gentle mandarin ballad, soft intimate vocal, acoustic guitar and warm piano, slow tempo, reflective and forgiving mood, sparse arrangement',
+  },
+  // P4-conversation-song-flow-1-fix2：低能量 / 疲惫 / 空 / 提不起劲
+  // 不用「夜色/窗/城市」泛化意象，直接承接低能量状态：什么都不想做 / 慢一点也可以 / 今天先不用变好。
+  low_energy: {
+    comfortInterpretation: [
+      '听起来你最近提不起劲，整个人像是被抽空了一点。不是哪一件事压着你，而是什么都没力气去做，连解释都觉得累。',
+      '也许这种感觉最重的地方不是「我怎么了」，而是「你已经撑了很久，现在真的没电了」。空空的不是因为你不好，是身体和心都在说「先停一下」。',
+      '可以先把目标放小一点。今天不用变好，不用打起精神，不用逼自己振作。可以先允许自己什么都不做，就只是坐着，或者躺一会儿。',
+      '这首歌不急着推你往前，只想陪你慢慢待着。',
+    ].join('\n\n'),
+    lyricDraft: [
+      '【主歌】',
+      '什么都不想做的一天',
+      '力气不知道去了哪里',
+      '你不是偷懒，是真的空了',
+      '今天先不用变好也没关系',
+      '',
+      '【副歌】',
+      '慢一点也可以，我在这里',
+      '今天先不用变好，先不用撑',
+      '慢一点也可以，我在这里',
+      '空空的也没关系，允许自己停',
+      '',
+      '【尾声】',
+      '明天的事，等有了力气再认得它。',
+    ].join('\n'),
+    songPrompt: 'gentle mandarin ballad, soft breathy vocal, minimal piano with warm pads, very slow tempo, low energy and comforting mood, spacious and quiet arrangement',
   },
   // 默认：孤独 / 迷茫 / 睡前焦虑 / 自我怀疑 / 低落
   default: {

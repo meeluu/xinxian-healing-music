@@ -5,7 +5,7 @@
 心弦是一款基于 Flutter Web 的情绪陪伴 Demo。用户输入当下心境后，系统通过 LLM 生成情绪画像与音乐参数，并播放匹配的本地音频素材，形成「自然语言 → AI 情绪解析 → 音乐方案 → 音频体验 → 用户反馈」的完整闭环。
 
 - **正式体验地址**：[https://xinxian-music.xyz](https://xinxian-music.xyz)
-- **当前版本**：`v1.0.0 · P4-conversation-song-flow-1-fix1 · Cloudflare Pages`
+- **当前版本**：`v1.0.0 · P4-playback-experience-2 · Cloudflare Pages`
 - **定位**：辅助情绪调节、睡前舒缓、正念陪伴、温和充能的轻量化工具，**不提供医疗诊断或治疗**，不替代专业心理咨询与医疗建议（详见[第十二章 免责声明](#十二免责声明)）
 
 ---
@@ -34,6 +34,8 @@
 6.18. [P6-quota-guard-1：本地额度保护 + 文档整理](#六点十八p6-quota-guard-1本地额度保护--文档整理)
 6.19. [P4-conversation-song-flow-1：多轮困惑理解 + 歌词增强 + 纯音乐本地舒缓 + 定时关闭](#六点十九p4-conversation-song-flow-1多轮困惑理解--歌词增强--纯音乐本地舒缓--定时关闭)
 6.20. [P4-conversation-song-flow-1-fix1：LLM 动态追问 + 歌词贴合度增强 + 加载文案分阶段](#六点二十p4-conversation-song-flow-1-fix1llm-动态追问--歌词贴合度增强--加载文案分阶段)
+6.21. [P4-conversation-song-flow-1-fix2：low_energy 场景 + lowEnergy 追问问题对齐 + 歌词低能量指引 + 快速舒缓纯本地化复核](#六点二十一p4-conversation-song-flow-1-fix2low_energy-场景--lowenergy-追问问题对齐--歌词低能量指引--快速舒缓纯本地化复核)
+6.22. [P4-playback-experience-2：AI 歌曲独立播放页 + 本地舒缓播放模式增强](#六点二十二p4-playback-experience-2ai-歌曲独立播放页--本地舒缓播放模式增强)
 7. [数据与隐私](#七数据与隐私)
 8. [环境变量与部署](#八环境变量与部署)
 9. [本地开发与验证](#九本地开发与验证)
@@ -84,11 +86,11 @@
 
 ### 2.1 当前阶段
 
-- **阶段**：`P4-AI-Music-v1.0 / P4-conversation-song-flow-1-fix1（LLM 动态追问 + 歌词贴合度增强 + 快速舒缓纯本地化核查 + 加载文案分阶段；P4 歌曲生成链路已打通并上线，默认 REAL_CALLS=false）`
-- **版本号**：`v1.0.0 · P4-conversation-song-flow-1-fix1 · Cloudflare Pages`（首页底部显示 `心弦 v1.0.0 · P4-conversation-song-flow-1-fix1 · Cloudflare Pages`）
-- **构建日期**：2026-07-23
+- **阶段**：`P4-AI-Music-v1.0 / P4-playback-experience-2（AI 歌曲生成成功后跳转独立播放页 + 本地舒缓播放模式增强 + 定时关闭持续播放保证；P4 歌曲生成链路已打通并上线，默认 REAL_CALLS=false）`
+- **版本号**：`v1.0.0 · P4-playback-experience-2 · Cloudflare Pages`（首页底部显示 `心弦 v1.0.0 · P4-playback-experience-2 · Cloudflare Pages`）
+- **构建日期**：2026-07-24
 - **部署目标**：Cloudflare Pages
-- **上一阶段**：P4-conversation-song-flow-1 已上线（多轮困惑理解 + 纯音乐本地舒缓 + 定时关闭，2026-07-23）；P6-quota-guard-1 已完成（本地额度保护与文档整理，2026-07-23）；P4-song-result-experience-1 已上线（2026-07-23）；P3-Web-v1.0 已完成（`P3-data-3`）；P2-Web-v1.0 已完成（`P2-stable`）
+- **上一阶段**：P4-conversation-song-flow-1-fix2 已上线（low_energy 场景 + lowEnergy 追问问题对齐 + 歌词低能量指引 + 快速舒缓纯本地化复核，2026-07-24 部署）；P4-conversation-song-flow-1-fix1 已完成（LLM 动态追问 + 歌词贴合度增强 + 快速舒缓纯本地化核查 + 加载文案分阶段，2026-07-23）；P4-conversation-song-flow-1 已上线（多轮困惑理解 + 纯音乐本地舒缓 + 定时关闭，2026-07-23）；P6-quota-guard-1 已完成（本地额度保护与文档整理，2026-07-23）；P4-song-result-experience-1 已上线（2026-07-23）；P3-Web-v1.0 已完成（`P3-data-3`）；P2-Web-v1.0 已完成（`P2-stable`）
 
 ### 2.2 当前部署架构
 
@@ -2934,6 +2936,202 @@ realCallsEnabled 保持 false / manualTest 保护保留 / P6 额度保护保留 
 
 ---
 
+### 6.21 P4-conversation-song-flow-1-fix2：low_energy 场景 + lowEnergy 追问问题对齐 + 歌词低能量指引 + 快速舒缓纯本地化复核（2026-07-23）
+
+#### 6.21.1 定位
+
+fix1 上线后仍有一处不贴合：用户输入「最近总是提不起劲，感觉很疲惫、很空」（低能量 / 状态描述，不是具体事件）时，追问仍可能落入泛化模板或事件导向措辞；歌词也仍可能写出窗台 / 夜色等用户没提过的具象场景。本批在不部署、不真实调用 MiniMax 的前提下，新增 `low_energy` 场景分类、对齐 `lowEnergy` 兜底追问问题、为低能量场景写专属歌词指引与模板，并复核「快速舒缓一下」彻底纯本地化。
+
+#### 6.21.2 生成链路确认（与 fix1 一致）
+
+- 「给现在的你」由 LLM 生成（`/api/comfort-lyrics` → `comfortInterpretation`），不大改
+- 「写成歌的话」歌词由 LLM 生成（`/api/comfort-lyrics` → `lyricDraft`），本批重点增强低能量场景贴合度
+- AI 歌曲音频由 MiniMax 生成（`/api/generate-music`，受三重门保护，默认 REAL_CALLS=false）
+- 「快速舒缓一下」只使用本地 assets 音乐（`AudioAssetCatalog`），不调用 `/api/generate-music`，不调用 MiniMax，不扣 P6 额度
+
+#### 6.21.3 多轮追问仍调用 LLM（失败有本地兜底）
+
+追问生成方式与 fix1 一致，未改变调用策略：
+
+- 多轮追问由 LLM 根据用户原始输入动态生成（`/api/comfort-lyrics` 的 `mode=follow_up_questions`）
+- LLM 失败时走本地兜底（`classifyConcern` 6 分类关键词匹配，前后端镜像）
+- `lowEnergy` 优先级最高：只要命中低能量关键词（提不起劲 / 疲惫 / 累 / 空 / 麻木 / 没动力 / 不想动），即使同时含其他类别词，也归 `lowEnergy`，避免对「提不起劲」误问「这件事里」
+
+#### 6.21.4 lowEnergy 兜底追问问题对齐
+
+把 `lowEnergy` 兜底问题库从泛化版本改为贴合低能量状态，前后端镜像一致：
+
+| 顺序 | 兜底问题 |
+|---|---|
+| 1 | `这种疲惫和空落感，通常什么时候最明显？` |
+| 2 | `你更像是身体累，还是心里没力气？` |
+| 3 | `想让这首歌陪你慢慢休息，还是给你一点重新开始的力气？` |
+
+**不含「这件事里」**，围绕疲惫 / 空落 / 身体累 / 心里没力气 / 休息还是恢复力气。
+
+#### 6.21.5 新增 low_energy 场景（歌词专属模板）
+
+在 `detectScene` 与 `FALLBACK_TEMPLATES` 中新增 `low_energy` 场景（场景总数 5 → 6），用于 LLM 失败时的本地兜底歌词：
+
+- `detectScene` 新增低能量关键词检测，优先级在具体事件场景（学业 / 关系 / 工作 / 愧疚）之后、`default` 之前
+  - 含事件关键词 + 低能量词 → 仍归事件场景（事件优先于状态），避免误吞具体困境
+- `low_energy` 模板歌词围绕：提不起劲、力气不知道去了哪里、不是偷懒是真的空了、今天先不用变好、慢一点也可以
+- 副歌 hook：`慢一点也可以，我在这里`
+- **不写窗台 / 手机 / 夜色 / 城市**等用户没提过的具象场景
+- `SYSTEM_PROMPT` 同步新增 `low_energy` 场景选项与低能量歌词指引：围绕提不起劲 / 疲惫 / 空，不强行具象场景，副歌给温和陪伴话
+
+#### 6.21.6 歌词如何使用原始输入与追问回答
+
+LLM 调用时透传 `initialConcern` + `followUpAnswers`（与 fix1 一致）：
+
+- 主歌必须承接用户在 `storyText` / 追问回答中提到的具体困境（人物 / 场景 / 物件 / 关系），意象化处理
+- **不编造用户没说过的具体场景**（窗台 / 手机 / 枕头边 / 雨夜 / 房间），意象必须服务于用户困境
+- 第一段让用户感觉「这首歌是在写我」
+- 副歌给一句温和、有记忆点、能陪伴用户的句子
+- 避免医疗化表达（不用「治疗」/「治愈」/「诊断」，不承诺疗效），使用「陪伴 / 理解 / 慢慢放松 / 情绪支持 / 给自己一点空间 / 先停下来也可以」
+
+#### 6.21.7 快速舒缓纯本地化复核
+
+再次全局核查确认（与 fix1 结论一致，本批未改变该链路）：
+
+- 「快速舒缓一下」点击后跳转 `AnalysisScreen`，走本地 `AudioAssetCatalog` 纯音乐推荐与播放流程
+- 不调用 `/api/generate-music`、不调用 MiniMax、不扣 P6 额度
+- 不存在「生成专属音乐（实验）」入口 / 文案
+- 不存在 `MusicGenerationScreen` 路由 / 入口 / 残留 import
+- 后续新增纯音乐只扩展本地曲库配置，不走 AI 生成
+- 「把困惑写成一首歌」的 MiniMax 歌曲生成能力与 provider adapter 保留
+
+#### 6.21.8 加载文案分阶段（保持 fix1）
+
+不同阶段仍显示不同文案，本批未改动：
+
+| 阶段 | 文案 |
+|---|---|
+| 生成追问（loadingFollowUp） | `正在根据你的文字整理几个更贴近的问题…` |
+| 生成「给现在的你」+ 歌词 | `正在整理你的文字，写成一首更贴近你的歌…` |
+| 生成 AI 歌曲音频 | `正在生成这首歌，请保持页面打开…` |
+| 快速舒缓本地音乐分析 | `正在为你选择一段适合此刻的纯音乐…` |
+
+#### 6.21.9 版本号同步
+
+- `lib/config/app_version.dart`：`milestone = P4-AI-Music-v1.0`、`versionName = v1.0.0`、`buildLabel = P4-conversation-song-flow-1-fix2`、`buildDate = 2026-07-23`、`deployTarget = Cloudflare Pages`
+- `functions/api/health.js`：`BUILD_LABEL = P4-conversation-song-flow-1-fix2`
+- `scripts/verify-provider-adapter.mjs`：`buildLabel` 断言同步
+
+#### 6.21.10 本批不做
+
+- 本批代码不真实调用 MiniMax，`manualTest=true` 三重门保护保留（`MUSIC_GENERATION_PROVIDER` + `MUSIC_GENERATION_REAL_CALLS_ENABLED` + 请求体 `manualTest=true` 三者同时满足才发真实请求）
+- `MUSIC_GENERATION_REAL_CALLS_ENABLED` 是 Cloudflare Pages 环境变量，不在代码仓库中，由用户在 Dashboard 手动管理与确认
+- 不做 R2 持久化 / 历史歌曲 / 分享链接 / 付费系统 / 用户系统 / 4090 部署
+- 不删除「把困惑写成一首歌」的 MiniMax 歌曲生成能力与 provider adapter
+
+#### 6.21.11 验证
+
+`flutter analyze`（No issues found）/ `flutter test`（300 passed, 5 skipped）/ `flutter build web --release` / `node scripts/verify-provider-adapter.mjs`（64 passed）/ `node scripts/verify-comfort-lyrics.mjs`（59 passed：新增 low_energy 场景检测 + 6 场景模板结构验证 + low_energy 不覆盖事件场景优先级测试）。
+
+manualTest 三重门保护保留 / P6 额度保护保留 / 不使用医疗化表达。
+
+#### 6.21.12 部署上线（2026-07-24）
+
+本批已部署至 Cloudflare Pages 正式域名（`xinxian-music.xyz`）：
+
+- `flutter build web --release` → `wrangler pages deploy build/web --project-name=xinxian-healing-music`
+- `/api/health` 验证（2026-07-24）：
+  - `buildLabel = P4-conversation-song-flow-1-fix2` ✅
+  - `musicProvider = minimax_music` ✅
+  - `hasMinimaxKey = true` ✅
+  - `realCallsEnabled` 为 Cloudflare 环境变量，由用户手动确认与管理（不在代码中）
+- 线上「快速舒缓一下」只走本地 `AudioAssetCatalog`，不调 `/api/generate-music`、不调 MiniMax、不扣 P6 额度
+- 线上「把困惑写成一首歌」AI 歌曲生成仍受三重门 + P6 本地额度保护
+
+---
+
+### 6.22 P4-playback-experience-2：AI 歌曲独立播放页 + 本地舒缓播放模式增强
+
+#### 6.22.1 定位
+
+fix2 上线后，「把困惑写成一首歌」生成 AI 歌曲成功后仍停留在歌词页内嵌播放，页面信息较多、播放体验不够清晰；「快速舒缓一下」本地纯音乐播放时，若用户设置 5 分钟定时关闭但单曲只有 3 分钟，音乐可能在 3 分钟就停止，体验不完整。本批在**不部署、不真实调用 MiniMax、不依赖 R2** 的前提下：
+
+1. AI 歌曲生成成功后跳转到独立播放页 `GeneratedSongPlayerScreen`，不在歌词页内嵌播放
+2. 本地舒缓播放页新增 4 种播放模式（单曲播放 / 单曲循环 / 列表循环 / 顺序播放）
+3. 定时关闭开启后强制持续播放，保证音乐持续到用户设定时间结束
+
+#### 6.22.2 生成链路确认（与 fix2 一致）
+
+- 「给现在的你」由 LLM 生成（`/api/comfort-lyrics` → `comfortInterpretation`），不大改
+- 「写成歌的话」歌词由 LLM 生成（`/api/comfort-lyrics` → `lyricDraft`），不大改
+- AI 歌曲音频由 MiniMax 生成（`/api/generate-music`，受三重门保护，默认 REAL_CALLS=false）
+- 「快速舒缓一下」只使用本地 assets 音乐（`AudioAssetCatalog`），不调用 `/api/generate-music`，不调用 MiniMax，不扣 P6 额度
+
+#### 6.22.3 AI 歌曲独立播放页（GeneratedSongPlayerScreen）
+
+新增 `lib/screens/generated_song_player_screen.dart`，从「把困惑写成一首歌」生成成功后跳转至此，专门播放这首生成歌曲，不在歌词页内嵌播放。
+
+- **跳转时机**：用户点击「生成这首歌（实验）」→ 费用确认 → `/api/generate-music` 返回成功 + 拿到可播放 URL 后，自动 `Navigator.push` 到 `GeneratedSongPlayerScreen`
+- **展示内容**：歌曲标题 / 副文案「根据你刚才写下的内容生成，适合现在慢慢听一遍。」/ 「给现在的你」温和解惑 / 歌词 / 播放·暂停 / 进度条（可拖动）/ 当前时间·总时长 / 重新播放 / 返回歌词页 / 定时关闭入口 / 单曲循环开关
+- **不依赖 R2**：当前仍使用 `playableUrl`（`generatedAudioUrl` 相对路径或 `audioDataUrl` base64 dataUrl）临时播放，不做历史歌曲 / 分享链接 / 永久保存
+- **失败处理**：`audioDataUrl` 不存在或播放失败时显示温和错误提示「音频暂时无法加载」+ 重试 + 返回歌词页，不白屏 / 不卡死
+- **歌词页缓存**：`ComfortLyricsScreen` 缓存 `GeneratedSongMeta`（playableUrl / title / comfortInterpretation / lyricDraft / targetState），显示轻量入口卡片「这首歌已经生成好了」+「进入播放页」按钮，支持返回后重新进入播放页，不重复生成、不重复扣费
+- **生成失败 / 用户取消 / 未生成成功**：不跳转、不扣成功额度，保持当前错误处理逻辑
+
+#### 6.22.4 本地舒缓播放模式增强（PlayerScreen）
+
+`lib/screens/player_screen.dart` 新增 4 种播放模式，默认单曲循环（最符合舒缓陪伴场景）：
+
+| 模式 | 行为 | just_audio 实现 |
+|---|---|---|
+| 单曲播放 | 当前曲播完即停 | `LoopMode.off` + 单一源 |
+| 单曲循环 | 当前曲播完重播 | `LoopMode.one` + 单一源 |
+| 列表循环 | 列表末尾回到第一首 | `LoopMode.all` + 同类全部 |
+| 顺序播放 | 列表末尾停止 | `LoopMode.off` + 同类全部 |
+
+- **播放列表组成**：按当前 `targetState` 过滤 `AudioAssetCatalog.assets`（sleep / regulate / soothe / focus / energize 各 1 首）。当前每类 1 首，列表模式与单曲模式行为一致；后续每类添加更多曲目后，列表循环 / 顺序播放自动生效
+- **模式切换**：`PopupMenuButton` 切换，切换时通过 `setAudioSources`（替代已废弃的 `ConcatenatingAudioSource`）重建音频源并保留播放进度，不中断当前播放
+- **UI**：播放模式按钮 + 定时关闭按钮并排；定时强制态时按钮显示「定时中·循环」小标，提示当前为强制循环
+- **不影响 AI 生成歌曲页**：AI 生成歌曲播放页只支持单曲播放 / 单曲循环 / 定时关闭，不涉及列表模式
+
+#### 6.22.5 定时关闭持续播放保证
+
+解决「单曲 3 分钟 + 定时 5 分钟 → 3 分钟就停」的体验问题：
+
+- `lib/widgets/sleep_timer_button.dart` 新增 `onForceLoopStart` / `onForceLoopEnd` 回调
+- 进入倒计时模式时触发 `onForceLoopStart`：强制切到单曲循环（保留进度），保证音乐持续播放
+- 倒计时结束 / 用户取消定时触发 `onForceLoopEnd`：恢复用户原播放模式
+- 定时强制态期间用户切换模式只更新缓存（`_preForceMode`），实际源保持单曲循环，强制态结束后再应用
+- 到达定时时间后停止播放
+
+**播放行为边界验证**：
+
+| 场景 | 预期行为 |
+|---|---|
+| 单曲播放 + 不开定时 | 播完停止 |
+| 单曲循环 | 播完自动重播 |
+| 列表循环 | 播完当前曲进下一曲，末尾回到第一首 |
+| 顺序播放 | 播完列表末尾后停止 |
+| 开启 5 分钟定时 + 单曲 3 分钟 | 3 分钟时不停止，继续循环，5 分钟到达后停止 |
+| 取消定时 | 停止倒计时，播放模式恢复正常，不影响当前播放 |
+
+#### 6.22.6 版本号同步
+
+- `lib/config/app_version.dart`：`milestone = P4-AI-Music-v1.0`、`versionName = v1.0.0`、`buildLabel = P4-playback-experience-2`、`buildDate = 2026-07-24`、`deployTarget = Cloudflare Pages`
+- `functions/api/health.js`：`BUILD_LABEL = P4-playback-experience-2`
+- `scripts/verify-provider-adapter.mjs`：`buildLabel` 断言同步
+
+#### 6.22.7 本批不做
+
+- 本批代码不真实调用 MiniMax，`manualTest=true` 三重门保护保留（`MUSIC_GENERATION_PROVIDER` + `MUSIC_GENERATION_REAL_CALLS_ENABLED` + 请求体 `manualTest=true` 三者同时满足才发真实请求）
+- `MUSIC_GENERATION_REAL_CALLS_ENABLED` 是 Cloudflare Pages 环境变量，不在代码仓库中，由用户在 Dashboard 手动管理与确认
+- 不做 R2 持久化 / 历史歌曲 / 分享链接 / 付费系统 / 用户系统 / 4090 部署
+- AI 歌曲仍使用 `audioDataUrl` 临时播放，不依赖 R2
+
+#### 6.22.8 验证
+
+`flutter analyze`（No issues found）/ `flutter test`（310 passed, 5 skipped，新增 `test/generated_song_player_screen_test.dart` 10 项独立播放页静态 UI 测试）/ `flutter build web --release` / `node scripts/verify-provider-adapter.mjs`（64 passed）/ `node scripts/verify-comfort-lyrics.mjs`（59 passed）。
+
+manualTest 三重门保护保留 / P6 额度保护保留 / 不使用医疗化表达 / 快速舒缓仍完全本地化。
+
+---
+
 ## 七、数据与隐私
 
 ### 7.1 心境文本处理
@@ -3288,6 +3486,9 @@ Web 与 Android 的构建链路相互独立：Android 的 Gradle 配置不参与
 | 2026-07-23 | v1.0.0 / P6-quota-guard-1 | P6 首批 | 本地额度保护与成本安全 + 文档整理：新增 `LocalGenerationQuotaService`（每日 1 次成功生成上限 / 同步方法 / 时钟注入 / JSON 持久化 / 损坏容错）+ service 单元测试（9 项）；`services.dart` 注册 nullable 全局变量 + `main.dart` 第 9 步装配（独立 try/catch + 自检）；`comfort_lyrics_screen.dart` 额度 UI 集成（`_quotaRemaining` 字段 / initState / `_refreshQuotaState` / 两个 guard / `_buildGenerateSongButton` Column 重写 / `_buildQuotaHint` / 成功分支计数 / `_buildSongActionButtons` 重新生成禁用）；版本号同步 `app_version.dart`(`milestone=P6-Quota-v1.0` / `buildLabel=P6-quota-guard-1`) + `health.js` + `verify-provider-adapter.mjs`(测试 45/63)；新增 `docs/ROADMAP.md`；README 定向更新（2.1 / 2.3 / 6.18 / 十 / 十一 / 十三 / 目录）；`docs/mureka-api-integration-plan.md` 历史标注。realCallsEnabled 保持 false / manualTest 保护保留 / 不部署上线 / 不做 R2/付费/用户系统/4090 / 不使用医疗化表达 |
 | 2026-07-23 | v1.0.0 / P4-conversation-song-flow-1 | P4 多轮流程 | 多轮困惑理解 + 歌词增强 + 纯音乐本地舒缓 + 定时关闭：`comfort_lyrics_screen.dart` 改为 input→followUp→done 三阶段多轮对话流程（3 轮温和追问 + 跳过 + state 字段 `initialConcern`/`followUpAnswers`/`desiredFeeling`/`comfortDirection`，只存页面 state 不做长期保存）；`comfort_lyrics_service.dart` + `functions/api/comfort-lyrics.js` 多轮上下文校验 + LLM prompt 增强（歌词吸收具体细节 + 结构化要求 + 意象化隐私保护）；`plan_screen.dart` 删除「生成专属音乐（实验）」入口 + 删除 `music_generation_screen.dart` 及测试；新增「快速舒缓一下」CTA（跳转 AnalysisScreen 走本地纯音乐，不触发 MiniMax 不扣额度）；新增 `lib/widgets/sleep_timer_button.dart` 共享定时关闭组件（关闭/5/10/15/30 分钟/播放完当前音频）接入 PlayerScreen + ComfortLyricsScreen AI 歌曲播放区；版本号同步 `app_version.dart`(`milestone=P4-AI-Music-v1.0` / `buildLabel=P4-conversation-song-flow-1`) + `health.js` + `verify-provider-adapter.mjs`；测试文件全面更新适配多轮流程 + 新增 4 个多轮对话测试。realCallsEnabled 保持 false / manualTest 保护保留 / P6 额度保护保留 / 已部署上线（2026-07-23，health 验证 realCallsEnabled=false / buildLabel=P4-conversation-song-flow-1，未触发真实 MiniMax）/ 不做 R2/历史歌曲/分享/付费/用户系统/4090/真实 MiniMax 测试 / 不使用医疗化表达 |
 | 2026-07-23 | v1.0.0 / P4-conversation-song-flow-1-fix1 | P4 多轮流程 fix1 | LLM 动态追问 + 歌词贴合度增强 + 快速舒缓纯本地化核查 + 加载文案分阶段：`functions/api/comfort-lyrics.js` 新增 `mode` 参数（`follow_up_questions` 只生成 2-3 个追问 / `comfort_song` 生成歌词）+ `FOLLOW_UP_PROMPT` 引导 LLM 基于用户文字动态生成追问 + `classifyConcern` 6 分类本地兜底（lowEnergy 优先级最高，eventConflict/anxietyStress/guiltRegret/loneliness/unknown）+ `localFollowUpFallback` 兜底问题库 + `normalizeFollowUpQuestions` 规范化；`SYSTEM_PROMPT` 修改：主歌承接用户具体困境，不编造未提及场景（窗台/手机/枕头边），意象服务于用户困境；`lib/pipeline/llm/comfort_lyrics_service.dart` 新增 `fetchFollowUpQuestions` + 本地 6 分类兜底（前后端镜像）；`comfort_lyrics_screen.dart` 新增 `loadingFollowUp` 阶段 + `_dynamicQuestions` + `_buildLoadingHint` 分阶段文案（生成追问/生成歌词/生成歌曲/快速舒缓本地分析各一句）+ 移除 `_loadingFollowUp`/`_desiredFeeling`/`_comfortDirection`/`_FollowUpQuestion`/`_FollowUpOptionChip` 冗余字段与类；`analysis_screen.dart` 加载文案改为「正在为你选择一段适合此刻的纯音乐…」；核查「快速舒缓一下」纯本地化（不调 generate-music/不调 MiniMax/不扣额度/无 MusicGenerationScreen 残留）；版本号同步 `app_version.dart`(`buildLabel=P4-conversation-song-flow-1-fix1`) + `health.js` + `verify-provider-adapter.mjs`；新增 `comfort_lyrics_service_test.dart` 8 项 fix1 测试 + `verify-comfort-lyrics.mjs` 22 项 fix1 测试。realCallsEnabled 保持 false / manualTest 保护保留 / P6 额度保护保留 / 不部署上线 / 不真实调用 MiniMax / 不使用医疗化表达 |
+| 2026-07-23 | v1.0.0 / P4-conversation-song-flow-1-fix2 | P4 多轮流程 fix2 | low_energy 场景 + lowEnergy 追问问题对齐 + 歌词低能量指引 + 快速舒缓纯本地化复核：`functions/api/comfort-lyrics.js` 新增 `low_energy` 场景（场景总数 5→6）—— `detectScene` 添加低能量关键词检测（提不起劲/疲惫/累/空/麻木/没动力/不想动），优先级在具体事件场景之后、default 之前（含事件词+低能量词仍归事件场景）；`FALLBACK_TEMPLATES` 新增 `low_energy` 模板（歌词围绕提不起劲/力气不知道去了哪里/不是偷懒是真的空了/今天先不用变好，副歌 hook「慢一点也可以，我在这里」，不写窗台/手机/夜色/城市）；`FOLLOW_UP_FALLBACK_QUESTIONS.lowEnergy` 三问对齐为「这种疲惫和空落感，通常什么时候最明显？/ 你更像是身体累，还是心里没力气？/ 想让这首歌陪你慢慢休息，还是给你一点重新开始的力气？」（不含「这件事里」）；`SYSTEM_PROMPT` 新增 low_energy 场景选项与低能量歌词指引；`lib/pipeline/llm/comfort_lyrics_service.dart` 前后端镜像同步（low_energy 检测 + 模板 + 兜底问题库）；歌词生成仍透传 `initialConcern`+`followUpAnswers`，主歌承接用户困境、不编造未提及场景、副歌温和陪伴话、避免医疗化表达；复核「快速舒缓一下」纯本地化（跳转 AnalysisScreen 走 AudioAssetCatalog，不调 generate-music/不调 MiniMax/不扣额度/无「生成专属音乐（实验）」/无 MusicGenerationScreen 残留），加载文案分阶段保持 fix1；版本号同步 `app_version.dart`(`buildLabel=P4-conversation-song-flow-1-fix2`) + `health.js` + `verify-provider-adapter.mjs`；新增 `low_energy` 场景测试 + low_energy 不覆盖事件场景优先级测试 + 6 场景模板结构验证。manualTest 三重门保护保留 / P6 额度保护保留 / 不真实调用 MiniMax / 不使用医疗化表达 / 未做 R2/历史歌曲/分享/付费/用户系统/4090 |
+| 2026-07-24 | v1.0.0 / P4-conversation-song-flow-1-fix2 部署上线 | P4 多轮流程 fix2 部署 | **已部署至 Cloudflare Pages 正式域名**：`flutter build web --release` → `wrangler pages deploy build/web --project-name=xinxian-healing-music`；`/api/health` 验证 `buildLabel=P4-conversation-song-flow-1-fix2` ✅ / `musicProvider=minimax_music` ✅ / `hasMinimaxKey=true` ✅；线上多轮追问已支持 low_energy 场景（LLM 动态生成 + 失败本地 6 分类兜底，lowEnergy 优先级最高，不含「这件事里」）；线上歌词由 LLM 生成并结合原始输入与追问回答；线上「快速舒缓一下」只走本地 AudioAssetCatalog 纯音乐（不调 generate-music / 不调 MiniMax / 不扣额度）；`realCallsEnabled` 为 Cloudflare 环境变量由用户手动管理（不在代码中），manualTest 三重门 + P6 额度保护保留；未做 R2/历史歌曲/分享链接/支付/用户系统/4090 |
+| 2026-07-24 | v1.0.0 / P4-playback-experience-2 | P4 播放体验优化 | AI 歌曲独立播放页 + 本地舒缓播放模式增强：新增 `lib/screens/generated_song_player_screen.dart`（AI 歌曲生成成功后跳转至此独立播放，展示歌曲标题/给现在的你/歌词/播放暂停/进度条/重新播放/返回/定时关闭/单曲循环开关，不依赖 R2，使用 `playableUrl` 临时播放，失败显示温和错误提示+重试+返回不白屏）；`lib/screens/comfort_lyrics_screen.dart` 移除内嵌播放器，改为缓存 `GeneratedSongMeta` + 轻量入口卡片「这首歌已经生成好了」+「进入播放页」按钮（支持返回后重新进入不重复生成不重复扣费），生成失败/取消/未成功不跳转不扣额度；`lib/screens/player_screen.dart` 新增 4 种播放模式（单曲播放/单曲循环/列表循环/顺序播放，默认单曲循环），按 targetState 过滤 AudioAssetCatalog 同类曲目组成播放列表（当前每类 1 首，后续扩展自动生效），模式切换用 `setAudioSources`（替代已废弃 ConcatenatingAudioSource）保留进度不中断播放，PopupMenuButton UI + 定时强制态显示「定时中·循环」小标；`lib/widgets/sleep_timer_button.dart` 新增 `onForceLoopStart`/`onForceLoopEnd` 回调，进入倒计时强制单曲循环（保留进度），结束/取消恢复原模式，保证「单曲 3 分钟+定时 5 分钟」不会 3 分钟就停；版本号同步 `app_version.dart`(`buildLabel=P4-playback-experience-2`/`buildDate=2026-07-24`) + `health.js` + `verify-provider-adapter.mjs`；新增 `test/generated_song_player_screen_test.dart` 10 项独立播放页静态 UI 测试 + 更新 `comfort_lyrics_screen_test.dart` 头部注释。manualTest 三重门保护保留 / P6 额度保护保留 / 不真实调用 MiniMax / 不使用医疗化表达 / 快速舒缓仍完全本地化 / 未做 R2/历史歌曲/分享链接/支付/用户系统/4090；详见 6.22 章节 |
 
 ### 13.7 项目结构
 
@@ -3325,7 +3526,8 @@ lib/
 │   ├── feedback_screen.dart       # 用户反馈页
 │   ├── history_screen.dart        # 历史记录页
 │   ├── privacy_screen.dart        # 隐私政策页
-│   └── comfort_lyrics_screen.dart # P4 新方向第一批：困惑解惑+歌词生成页面
+│   ├── comfort_lyrics_screen.dart # P4 新方向第一批：困惑解惑+歌词生成页面
+│   └── generated_song_player_screen.dart # P4-playback-experience-2：AI 歌曲独立播放页
 ├── theme/                         # 配色与主题
 ├── utils/                         # 工具函数
 │   ├── audio_asset_uri.dart       # Web / 非 Web 平台 AudioSource 路径解析

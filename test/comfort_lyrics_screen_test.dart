@@ -32,11 +32,13 @@ import 'package:xinxian_healing_music/screens/comfort_lyrics_screen.dart';
 /// - 加载文案分阶段：loadingFollowUp → 「正在根据你的文字整理几个更贴近的问题…」
 /// - 低能量输入（提不起劲/疲惫/很空）的追问不包含「这件事」措辞
 ///
-/// P4-song-result-experience-1 新增（未纳入 widget 测试，需 API mock 才能触发）：
-/// - 生成成功结果区 `_buildSongResultSection`：歌曲标题 + 试听 + 歌词 + 操作按钮 + 快速舒缓 CTA
-/// - 生成失败区 `_buildMusicErrorSection`：温和错误 + 重试生成 / 编辑歌词
-/// - 以上两个区域仅在 `_generatedAudioUrl != null` 或 `_musicErrorHint != null` 时渲染，
-///   测试环境无真实后端不会触发，故现有断言不受影响
+/// P4-song-result-experience-1（已被 P4-playback-experience-2 取代）：
+/// - 旧版在歌词页内嵌播放器（`_buildSongResultSection` / `_buildMusicErrorSection`）
+/// - P4-playback-experience-2 移除内嵌播放，改为跳转 [GeneratedSongPlayerScreen] 独立播放页
+/// - 歌词页仅保留 [_generatedSongMeta] 缓存 + 轻量入口卡片（`_buildGeneratedSongEntry`），
+///   点击「进入播放页」重新跳转
+/// - 以上区域仅在 `_generatedSongMeta != null` 时渲染，测试环境无真实后端不会触发，
+///   故现有断言不受影响。独立播放页的渲染由 `test/generated_song_player_screen_test.dart` 覆盖。
 ///
 /// P6-quota-guard-1 新增（额度保护）：
 /// - 额度逻辑由 `test/local_generation_quota_service_test.dart` 在 service 层覆盖
@@ -533,8 +535,9 @@ void main() {
 
     // 进入 followUp 阶段
     expect(find.text('跳过追问，直接生成'), findsOneWidget);
-    // lowEnergy 兜底第 1 问应包含「没力气」等低能量表达
-    expect(find.textContaining('没力气'), findsOneWidget);
+    // fix2：lowEnergy 兜底第 1 问为「这种疲惫和空落感，通常什么时候最明显？」
+    // 用完整文案匹配，避免与输入回显文本（也含「疲惫」）冲突
+    expect(find.text('这种疲惫和空落感，通常什么时候最明显？'), findsOneWidget);
     // 不应出现「这件事里」这种事件导向措辞
     expect(find.textContaining('这件事'), findsNothing);
   });
