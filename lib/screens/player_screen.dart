@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:xinxian_healing_music/data/audio_asset_catalog.dart';
@@ -7,6 +8,7 @@ import 'package:xinxian_healing_music/pipeline/services.dart';
 import 'package:xinxian_healing_music/screens/feedback_screen.dart';
 import 'package:xinxian_healing_music/theme/app_colors.dart';
 import 'package:xinxian_healing_music/utils/audio_asset_uri.dart';
+import 'package:xinxian_healing_music/utils/play_button_decision.dart';
 import 'package:xinxian_healing_music/utils/recommendation_reason.dart';
 import 'package:xinxian_healing_music/widgets/centered_page.dart';
 import 'package:xinxian_healing_music/widgets/sleep_timer_button.dart';
@@ -271,22 +273,47 @@ class _PlayerScreenState extends State<PlayerScreen>
   Future<void> _toggle() async {
     if (_loading || _error) return;
     final state = _player.playerState;
+    // P4-player-seek-bugfix-1：用纯函数决定动作，把"自然播完→点击重播"和
+    // "用户手动 seek 后点击继续"两条路径分开。
+    // completedFlag=_completed：用户手动拖动进度条时会被 _onUserSeek 清空，
+    // 因此 completed 状态下若 _completed=false，点击播放只 play() 不 seek(0)，
+    // 避免拖到中间后点击播放被强制回到 0 秒。
+    final action = decidePlayButtonAction(
+      processingState: state.processingState,
+      playing: state.playing,
+      completedFlag: _completed,
+    );
     try {
-      if (state.processingState == ProcessingState.completed) {
-        await _player.seek(Duration.zero);
-        await _player.play();
-        // 重播时收回 CTA，回到播放中状态
-        if (_completed) setState(() => _completed = false);
-      } else if (state.playing) {
-        await _player.pause();
-      } else {
-        await _player.play();
+      switch (action) {
+        case PlayButtonAction.replayFromStart:
+          await _player.seek(Duration.zero);
+          await _player.play();
+          if (_completed) setState(() => _completed = false);
+          break;
+        case PlayButtonAction.play:
+          await _player.play();
+          // completed 但用户已 seek（_completed 已清空）：收回 CTA，从 seek 位置继续
+          if (_completed) setState(() => _completed = false);
+          break;
+        case PlayButtonAction.pause:
+          await _player.pause();
+          break;
       }
     } catch (_) {
       // 播放过程中出错：标记错误态，提供重试入口
       if (!mounted) return;
       setState(() => _error = true);
     }
+  }
+
+  /// 用户手动拖动进度条 seek 后的回调（P4-player-seek-bugfix-1）。
+  ///
+  /// 清除 [_completed]，使下次点击播放按钮走 [PlayButtonAction.play]（从 seek
+  /// 位置继续），而非 [PlayButtonAction.replayFromStart]（seek(0) 重头播）。
+  /// 即使 just_audio 的 processingState 仍残留 completed，_completed=false 也能
+  /// 阻止 _toggle() 进入 seek(Duration.zero) 分支。
+  void _onUserSeek() {
+    if (_completed) setState(() => _completed = false);
   }
 
   @override
@@ -533,7 +560,14 @@ class _PlayerScreenState extends State<PlayerScreen>
           const SizedBox(height: 24),
 
           // 进度条 + 时长（柔和蓝绿）
-          _ProgressSection(player: _player, fmt: _fmt, enabled: !_error),
+          // P4-player-seek-bugfix-1：onSeekStart 在用户拖动结束时清空 _completed，
+          // 避免下次点击播放走 seek(0) 重播分支。
+          _ProgressSection(
+            player: _player,
+            fmt: _fmt,
+            enabled: !_error,
+            onSeekStart: _onUserSeek,
+          ),
 
           // P4-playback-experience-2：播放模式选择 + 定时关闭（并排，轻量）
           if (!_error) ...[
@@ -745,12 +779,17 @@ class _PlayButtonState extends State<_PlayButton> {
 
 /// 进度条 + 当前时间 / 总时长。柔和蓝绿。
 ///
-/// 拖动逻辑（M6.1 修复）：
+/// 拖动逻辑（M6.1 修复 + P4-player-seek-bugfix-1 防回弹）：
 /// - `onChanged`：只更新临时 [_dragValue]，不调用 `player.seek`，
 ///   避免拖动时频繁 seek 导致 Web 端 30 分钟音频被重置回 0。
 /// - `onChangeEnd`：拖动结束才调用一次 `player.seek`，目标位置 clamp
-///   在 `0..total` 之间。
+///   在 `0..total` 之间；同时触发 [onSeekStart] 让宿主清空完成态。
 /// - 拖动期间 slider 显示 [_dragValue]，不跟随 positionStream，避免抖动。
+/// - **P4-player-seek-bugfix-1**：拖动结束后不再立即清空 [_dragValue]，
+///   而是把目标值存入 [_pendingSeek]，在 positionStream 确认到达目标前
+///   slider 持续显示该目标值。避免 seek 异步未完成时 positionStream 仍发射
+///   旧位置（首次进入时≈0）导致 slider 视觉回弹到 0 秒。positionStream 到达
+///   目标（容差内）或保护计时器（800ms）到期后，交还控制权给 positionStream。
 /// - seek 后保持原播放状态（just_audio 的 seek 不会改变 playing/paused）。
 /// - duration 未加载完成时禁用拖动（`onChanged: null`）。
 class _ProgressSection extends StatefulWidget {
@@ -758,10 +797,15 @@ class _ProgressSection extends StatefulWidget {
   final String Function(Duration) fmt;
   final bool enabled;
 
+  /// 用户拖动结束 seek 后的回调（P4-player-seek-bugfix-1）。
+  /// 宿主用以清空 _completed，避免下次点击播放走 seek(0) 重播分支。
+  final VoidCallback? onSeekStart;
+
   const _ProgressSection({
     required this.player,
     required this.fmt,
     required this.enabled,
+    this.onSeekStart,
   });
 
   @override
@@ -770,9 +814,39 @@ class _ProgressSection extends StatefulWidget {
 
 class _ProgressSectionState extends State<_ProgressSection> {
   /// 拖动期间的临时 slider 值（0..1）。
-  /// null 表示未在拖动，slider 跟随 positionStream。
+  /// null 表示未在拖动，slider 跟随 positionStream / [_pendingSeek]。
   /// 非 null 表示用户正在拖动，slider 显示临时值，不跟随 positionStream。
   double? _dragValue;
+
+  /// 拖动结束后的 seek 目标值（0..1）。
+  ///
+  /// P4-player-seek-bugfix-1：在 positionStream 确认到达目标前，slider 持续
+  /// 显示该值，避免因 seek 异步未完成、positionStream 仍发射旧位置（首次进入
+  /// 时旧位置≈0）导致 slider 视觉回弹到 0 秒。
+  double? _pendingSeek;
+
+  /// seek 保护计时器：若 positionStream 长时间未确认到达目标（如 seek 失败、
+  /// 音频未播放时 positionStream 不活跃），800ms 后强制清空 [_pendingSeek]，
+  /// 交还控制权给 positionStream，避免 slider 永久卡在目标值。
+  Timer? _pendingSeekGuard;
+
+  @override
+  void dispose() {
+    _pendingSeekGuard?.cancel();
+    super.dispose();
+  }
+
+  /// positionStream 当前位置是否已追上 [_pendingSeek] 目标（容差内）。
+  ///
+  /// 容差取 `总时长 2%` 与 `300ms` 的较大者，兼容正向/反向 seek：
+  /// - 正向 seek（如 0:10→1:20）：position 从小变大，到达 1:20 附近即清空
+  /// - 反向 seek（如 2:00→0:30）：position 从大变小，到达 0:30 附近即清空
+  bool _positionReachedTarget(Duration pos, Duration total) {
+    if (_pendingSeek == null || total.inMilliseconds <= 0) return false;
+    final targetMs = (_pendingSeek! * total.inMilliseconds).round();
+    final tolerance = math.max(total.inMilliseconds * 0.02, 300).round();
+    return (pos.inMilliseconds - targetMs).abs() <= tolerance;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -789,8 +863,15 @@ class _ProgressSectionState extends State<_ProgressSection> {
             if (totalMs > 0) {
               value = (pos.inMilliseconds / totalMs).clamp(0.0, 1.0);
             }
-            // 拖动期间显示临时值，避免 slider 抖动回旧位置
-            final displayValue = _dragValue ?? value;
+            // P4-player-seek-bugfix-1：positionStream 到达目标后清空 _pendingSeek，
+            // 交还控制权给 positionStream（用 if 避免 build 中无谓 setState）。
+            if (_pendingSeek != null && _positionReachedTarget(pos, total)) {
+              _pendingSeek = null;
+              _pendingSeekGuard?.cancel();
+              _pendingSeekGuard = null;
+            }
+            // 优先级：拖动中 > seek 待确认 > positionStream 实时值
+            final displayValue = _dragValue ?? _pendingSeek ?? value;
             final canDrag = widget.enabled && totalMs > 0;
             return Column(
               children: [
@@ -813,11 +894,27 @@ class _ProgressSectionState extends State<_ProgressSection> {
                             total.inMilliseconds,
                           );
                           widget.player.seek(Duration(milliseconds: targetMs));
-                          // 清除临时值，让 slider 重新跟随 positionStream。
-                          // just_audio 的 seek 是异步的，positionStream 会在
-                          // 几十~几百 ms 内更新到目标位置。seek 不会改变
-                          // playing/paused 状态，原状态自动保持。
-                          setState(() => _dragValue = null);
+                          // 通知宿主清空 _completed（避免下次播放走 seek(0)）
+                          widget.onSeekStart?.call();
+                          // P4-player-seek-bugfix-1：不立即清空 _dragValue，
+                          // 而是把目标存入 _pendingSeek，等 positionStream 确认。
+                          // 启动保护计时器，防止 positionStream 不活跃时卡死。
+                          _pendingSeekGuard?.cancel();
+                          _pendingSeekGuard = Timer(
+                            const Duration(milliseconds: 800),
+                            () {
+                              if (mounted) {
+                                setState(() {
+                                  _pendingSeek = null;
+                                  _pendingSeekGuard = null;
+                                });
+                              }
+                            },
+                          );
+                          setState(() {
+                            _dragValue = null;
+                            _pendingSeek = v;
+                          });
                         }
                       : null,
                 ),

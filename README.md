@@ -5,7 +5,7 @@
 心弦是一款基于 Flutter Web 的情绪陪伴 Demo。用户输入当下心境后，系统通过 LLM 生成情绪画像与音乐参数，并播放匹配的本地音频素材，形成「自然语言 → AI 情绪解析 → 音乐方案 → 音频体验 → 用户反馈」的完整闭环。
 
 - **正式体验地址**：[https://xinxian-music.xyz](https://xinxian-music.xyz)
-- **当前版本**：`v1.0.0 · P4-playback-experience-2 · Cloudflare Pages`
+- **当前版本**：`v1.0.0 · P4-player-seek-bugfix-1 · Cloudflare Pages`
 - **定位**：辅助情绪调节、睡前舒缓、正念陪伴、温和充能的轻量化工具，**不提供医疗诊断或治疗**，不替代专业心理咨询与医疗建议（详见[第十二章 免责声明](#十二免责声明)）
 
 ---
@@ -36,6 +36,7 @@
 6.20. [P4-conversation-song-flow-1-fix1：LLM 动态追问 + 歌词贴合度增强 + 加载文案分阶段](#六点二十p4-conversation-song-flow-1-fix1llm-动态追问--歌词贴合度增强--加载文案分阶段)
 6.21. [P4-conversation-song-flow-1-fix2：low_energy 场景 + lowEnergy 追问问题对齐 + 歌词低能量指引 + 快速舒缓纯本地化复核](#六点二十一p4-conversation-song-flow-1-fix2low_energy-场景--lowenergy-追问问题对齐--歌词低能量指引--快速舒缓纯本地化复核)
 6.22. [P4-playback-experience-2：AI 歌曲独立播放页 + 本地舒缓播放模式增强](#六点二十二p4-playback-experience-2ai-歌曲独立播放页--本地舒缓播放模式增强)
+6.23. [P4-player-seek-bugfix-1：修复快速舒缓播放页拖动进度条回到 0 秒](#六点二十三p4-player-seek-bugfix-1修复快速舒缓播放页拖动进度条回到-0-秒)
 7. [数据与隐私](#七数据与隐私)
 8. [环境变量与部署](#八环境变量与部署)
 9. [本地开发与验证](#九本地开发与验证)
@@ -86,8 +87,8 @@
 
 ### 2.1 当前阶段
 
-- **阶段**：`P4-AI-Music-v1.0 / P4-playback-experience-2（AI 歌曲生成成功后跳转独立播放页 + 本地舒缓播放模式增强 + 定时关闭持续播放保证；P4 歌曲生成链路已打通并上线，默认 REAL_CALLS=false）`
-- **版本号**：`v1.0.0 · P4-playback-experience-2 · Cloudflare Pages`（首页底部显示 `心弦 v1.0.0 · P4-playback-experience-2 · Cloudflare Pages`）
+- **阶段**：`P4-AI-Music-v1.0 / P4-player-seek-bugfix-1（修复快速舒缓播放页首次进入拖动进度条回到 0 秒的问题；P4 歌曲生成链路已打通并上线，默认 REAL_CALLS=false）`
+- **版本号**：`v1.0.0 · P4-player-seek-bugfix-1 · Cloudflare Pages`（首页底部显示 `心弦 v1.0.0 · P4-player-seek-bugfix-1 · Cloudflare Pages`）
 - **构建日期**：2026-07-24
 - **部署目标**：Cloudflare Pages
 - **上一阶段**：P4-conversation-song-flow-1-fix2 已上线（low_energy 场景 + lowEnergy 追问问题对齐 + 歌词低能量指引 + 快速舒缓纯本地化复核，2026-07-24 部署）；P4-conversation-song-flow-1-fix1 已完成（LLM 动态追问 + 歌词贴合度增强 + 快速舒缓纯本地化核查 + 加载文案分阶段，2026-07-23）；P4-conversation-song-flow-1 已上线（多轮困惑理解 + 纯音乐本地舒缓 + 定时关闭，2026-07-23）；P6-quota-guard-1 已完成（本地额度保护与文档整理，2026-07-23）；P4-song-result-experience-1 已上线（2026-07-23）；P3-Web-v1.0 已完成（`P3-data-3`）；P2-Web-v1.0 已完成（`P2-stable`）
@@ -3132,6 +3133,64 @@ manualTest 三重门保护保留 / P6 额度保护保留 / 不使用医疗化表
 
 ---
 
+### 6.23 P4-player-seek-bugfix-1：修复快速舒缓播放页拖动进度条回到 0 秒
+
+修复「快速舒缓一下」进入本地音乐播放页后，新用户首次拖动进度条会自动回到 0 秒、并从头重新播放的早期遗留 bug。本批为纯前端播放体验修复，不改 AI 歌曲生成链路、不真实调用 MiniMax、快速舒缓仍完全本地化。
+
+#### 6.23.1 根因
+
+`lib/screens/player_screen.dart` 的进度条存在两个问题：
+
+1. **视觉回弹到 0（首次进入主因）**：`_ProgressSection.onChangeEnd` 调用 `player.seek(target)` 后**未 await**，且**立即清空** `_dragValue`。清空后 slider 显示 `positionStream` 的旧快照值——首次进入时旧位置≈0，导致 slider 视觉回弹到 0，直到 `positionStream` 发射新位置（约 200ms）。用户感知为"进度条跳回 0"。
+2. **completed 状态未清空导致真正重播**：`_ProgressSection` 直接调 `player.seek()`，不通知 `_PlayerScreenState` 清空 `_completed`。歌曲播完后用户拖到中间，`_completed` 仍为 true；点击播放按钮时 `_toggle()` 检测到 `processingState==completed` 走 `seek(Duration.zero)+play()` 分支 → 真正从头重播。
+
+代码中唯一的 `seek(Duration.zero)` 在 `_toggle()`，且仅 completed 时触发；首次进入（未 completed）无任何代码路径 seek 到 0，所以首次进入的"重启"是视觉回弹被误判为重启。
+
+#### 6.23.2 修复方案
+
+- **提取纯函数** `lib/utils/play_button_decision.dart`：`decidePlayButtonAction(processingState, playing, completedFlag)` 返回 `replayFromStart / play / pause`。把"自然播完→点击重播"和"用户手动 seek 后点击继续"两条路径分开：`completed + completedFlag=true → replayFromStart`；`completed + completedFlag=false → play`（不回 0）。
+- **`_toggle()` 改用纯函数**：以 `_completed` 作为 `completedFlag`，用户手动 seek 清空 `_completed` 后，即使 `processingState` 仍残留 completed，点击播放也只 `play()` 不 `seek(0)`。
+- **`_ProgressSection` 新增 `onSeekStart` 回调**：拖动结束 seek 时通知宿主 `_onUserSeek()` 清空 `_completed`。
+- **`_ProgressSection` 防回弹逻辑**：拖动结束后不再立即清空 `_dragValue`，而是把目标值存入 `_pendingSeek`，在 `positionStream` 确认到达目标（容差 2% 或 300ms，兼容正向/反向 seek）前 slider 持续显示目标值；`positionStream` 到达目标或 800ms 保护计时器到期后交还控制权给 `positionStream`。消除视觉回弹到 0。
+
+#### 6.23.3 修复后行为边界
+
+| 场景 | 期望行为 |
+|---|---|
+| 拖动到 1:20（播放中） | 停在 1:20，从 1:20 继续播放 |
+| 拖动到 1:20（暂停中） | 保持暂停，位置变为 1:20 |
+| 歌曲播完后拖到中间 | 清除 completed，不强制回 0 |
+| 点击"重新播放"或在 completed 状态点击播放（未手动 seek） | 回到 0 重播（保留原行为） |
+| 切换播放模式 | 不重置当前曲目位置（除非进入下一首） |
+| 定时关闭强制循环态下拖动 | 不回 0，从拖动位置继续 |
+
+#### 6.23.4 不影响范围
+
+- 不改 AI 歌曲生成链路：`generated_song_player_screen.dart`（AI 歌曲独立播放页）有相同 seek 模式，但本批按用户要求聚焦"快速舒缓播放页"，AI 歌曲播放页的相同模式留作后续可选跟进，不影响生成链路与三重门保护。
+- 快速舒缓仍只使用本地 `AudioAssetCatalog` 音乐，不调 `/api/generate-music`、不调 MiniMax、不扣 P6 额度。
+- 播放模式（单曲播放/单曲循环/列表循环/顺序播放）与定时关闭持续播放保证逻辑不变。
+
+#### 6.23.5 版本号同步
+
+- `lib/config/app_version.dart`：`milestone = P4-AI-Music-v1.0`、`versionName = v1.0.0`、`buildLabel = P4-player-seek-bugfix-1`、`buildDate = 2026-07-24`、`deployTarget = Cloudflare Pages`
+- `functions/api/health.js`：`BUILD_LABEL = P4-player-seek-bugfix-1`
+- `scripts/verify-provider-adapter.mjs`：`buildLabel` 断言同步
+
+#### 6.23.6 本批不做
+
+- 不真实调用 MiniMax，`manualTest=true` 三重门保护保留（`MUSIC_GENERATION_PROVIDER` + `MUSIC_GENERATION_REAL_CALLS_ENABLED` + 请求体 `manualTest=true` 三者同时满足才发真实请求）
+- `MUSIC_GENERATION_REAL_CALLS_ENABLED` 是 Cloudflare Pages 环境变量，不在代码仓库中，由用户在 Dashboard 手动管理与确认
+- 不做 R2 持久化 / 历史歌曲 / 分享链接 / 付费系统 / 用户系统 / 4090 部署
+- AI 歌曲仍使用 `audioDataUrl` 临时播放，不依赖 R2
+
+#### 6.23.7 验证
+
+`flutter analyze`（No issues found）/ `flutter test`（319 passed, 5 skipped，新增 `test/play_button_decision_test.dart` 9 项纯函数回归测试）/ `flutter build web --release` / `node scripts/verify-provider-adapter.mjs`（64 passed）/ `node scripts/verify-comfort-lyrics.mjs`（59 passed）。
+
+manualTest 三重门保护保留 / P6 额度保护保留 / 不使用医疗化表达 / 快速舒缓仍完全本地化 / 不改 AI 歌曲生成链路。
+
+---
+
 ## 七、数据与隐私
 
 ### 7.1 心境文本处理
@@ -3489,6 +3548,7 @@ Web 与 Android 的构建链路相互独立：Android 的 Gradle 配置不参与
 | 2026-07-23 | v1.0.0 / P4-conversation-song-flow-1-fix2 | P4 多轮流程 fix2 | low_energy 场景 + lowEnergy 追问问题对齐 + 歌词低能量指引 + 快速舒缓纯本地化复核：`functions/api/comfort-lyrics.js` 新增 `low_energy` 场景（场景总数 5→6）—— `detectScene` 添加低能量关键词检测（提不起劲/疲惫/累/空/麻木/没动力/不想动），优先级在具体事件场景之后、default 之前（含事件词+低能量词仍归事件场景）；`FALLBACK_TEMPLATES` 新增 `low_energy` 模板（歌词围绕提不起劲/力气不知道去了哪里/不是偷懒是真的空了/今天先不用变好，副歌 hook「慢一点也可以，我在这里」，不写窗台/手机/夜色/城市）；`FOLLOW_UP_FALLBACK_QUESTIONS.lowEnergy` 三问对齐为「这种疲惫和空落感，通常什么时候最明显？/ 你更像是身体累，还是心里没力气？/ 想让这首歌陪你慢慢休息，还是给你一点重新开始的力气？」（不含「这件事里」）；`SYSTEM_PROMPT` 新增 low_energy 场景选项与低能量歌词指引；`lib/pipeline/llm/comfort_lyrics_service.dart` 前后端镜像同步（low_energy 检测 + 模板 + 兜底问题库）；歌词生成仍透传 `initialConcern`+`followUpAnswers`，主歌承接用户困境、不编造未提及场景、副歌温和陪伴话、避免医疗化表达；复核「快速舒缓一下」纯本地化（跳转 AnalysisScreen 走 AudioAssetCatalog，不调 generate-music/不调 MiniMax/不扣额度/无「生成专属音乐（实验）」/无 MusicGenerationScreen 残留），加载文案分阶段保持 fix1；版本号同步 `app_version.dart`(`buildLabel=P4-conversation-song-flow-1-fix2`) + `health.js` + `verify-provider-adapter.mjs`；新增 `low_energy` 场景测试 + low_energy 不覆盖事件场景优先级测试 + 6 场景模板结构验证。manualTest 三重门保护保留 / P6 额度保护保留 / 不真实调用 MiniMax / 不使用医疗化表达 / 未做 R2/历史歌曲/分享/付费/用户系统/4090 |
 | 2026-07-24 | v1.0.0 / P4-conversation-song-flow-1-fix2 部署上线 | P4 多轮流程 fix2 部署 | **已部署至 Cloudflare Pages 正式域名**：`flutter build web --release` → `wrangler pages deploy build/web --project-name=xinxian-healing-music`；`/api/health` 验证 `buildLabel=P4-conversation-song-flow-1-fix2` ✅ / `musicProvider=minimax_music` ✅ / `hasMinimaxKey=true` ✅；线上多轮追问已支持 low_energy 场景（LLM 动态生成 + 失败本地 6 分类兜底，lowEnergy 优先级最高，不含「这件事里」）；线上歌词由 LLM 生成并结合原始输入与追问回答；线上「快速舒缓一下」只走本地 AudioAssetCatalog 纯音乐（不调 generate-music / 不调 MiniMax / 不扣额度）；`realCallsEnabled` 为 Cloudflare 环境变量由用户手动管理（不在代码中），manualTest 三重门 + P6 额度保护保留；未做 R2/历史歌曲/分享链接/支付/用户系统/4090 |
 | 2026-07-24 | v1.0.0 / P4-playback-experience-2 | P4 播放体验优化 | AI 歌曲独立播放页 + 本地舒缓播放模式增强：新增 `lib/screens/generated_song_player_screen.dart`（AI 歌曲生成成功后跳转至此独立播放，展示歌曲标题/给现在的你/歌词/播放暂停/进度条/重新播放/返回/定时关闭/单曲循环开关，不依赖 R2，使用 `playableUrl` 临时播放，失败显示温和错误提示+重试+返回不白屏）；`lib/screens/comfort_lyrics_screen.dart` 移除内嵌播放器，改为缓存 `GeneratedSongMeta` + 轻量入口卡片「这首歌已经生成好了」+「进入播放页」按钮（支持返回后重新进入不重复生成不重复扣费），生成失败/取消/未成功不跳转不扣额度；`lib/screens/player_screen.dart` 新增 4 种播放模式（单曲播放/单曲循环/列表循环/顺序播放，默认单曲循环），按 targetState 过滤 AudioAssetCatalog 同类曲目组成播放列表（当前每类 1 首，后续扩展自动生效），模式切换用 `setAudioSources`（替代已废弃 ConcatenatingAudioSource）保留进度不中断播放，PopupMenuButton UI + 定时强制态显示「定时中·循环」小标；`lib/widgets/sleep_timer_button.dart` 新增 `onForceLoopStart`/`onForceLoopEnd` 回调，进入倒计时强制单曲循环（保留进度），结束/取消恢复原模式，保证「单曲 3 分钟+定时 5 分钟」不会 3 分钟就停；版本号同步 `app_version.dart`(`buildLabel=P4-playback-experience-2`/`buildDate=2026-07-24`) + `health.js` + `verify-provider-adapter.mjs`；新增 `test/generated_song_player_screen_test.dart` 10 项独立播放页静态 UI 测试 + 更新 `comfort_lyrics_screen_test.dart` 头部注释。manualTest 三重门保护保留 / P6 额度保护保留 / 不真实调用 MiniMax / 不使用医疗化表达 / 快速舒缓仍完全本地化 / 未做 R2/历史歌曲/分享链接/支付/用户系统/4090；详见 6.22 章节 |
+| 2026-07-24 | v1.0.0 / P4-player-seek-bugfix-1 | P4 播放体验 bugfix | 修复快速舒缓播放页首次进入拖动进度条回到 0 秒：根因有二——①`lib/screens/player_screen.dart` 的 `_ProgressSection.onChangeEnd` 调 `player.seek(target)` 后未 await 且立即清空 `_dragValue`，slider 显示 positionStream 旧快照（首次进入≈0）导致视觉回弹到 0；②`_ProgressSection` 直接调 `player.seek()` 不通知宿主清空 `_completed`，歌曲播完后拖到中间再点播放，`_toggle()` 检测 `processingState==completed` 走 `seek(Duration.zero)+play()` 真正重播。修复：新增 `lib/utils/play_button_decision.dart` 纯函数 `decidePlayButtonAction(processingState, playing, completedFlag)` 返回 `replayFromStart/play/pause`，把"自然播完→重播"与"手动 seek→继续"分开（`completed+completedFlag=true→replayFromStart`，`completed+completedFlag=false→play` 不回 0）；`_toggle()` 改用纯函数以 `_completed` 为 completedFlag；`_ProgressSection` 新增 `onSeekStart` 回调，拖动结束时 `_onUserSeek()` 清空 `_completed`；`_ProgressSection` 防回弹：拖动结束把目标存入 `_pendingSeek`，positionStream 确认到达目标（容差 2% 或 300ms，兼容正/反向 seek）前 slider 持续显示目标值，800ms 保护计时器到期后交还控制权，消除视觉回弹到 0。修复后拖到任意位置可继续播放、暂停态拖动保持暂停、播完后拖到中间不强制回 0、切模式/定时强制循环态下拖动不回 0。版本号同步 `app_version.dart`(`buildLabel=P4-player-seek-bugfix-1`/`buildDate=2026-07-24`) + `health.js` + `verify-provider-adapter.mjs`；新增 `test/play_button_decision_test.dart` 9 项纯函数回归测试（just_audio AudioPlayer 难以在 widget test 稳定 mock，故测纯函数决策逻辑，实际 seek 行为由手动验收覆盖）。manualTest 三重门保护保留 / P6 额度保护保留 / 不真实调用 MiniMax / 不使用医疗化表达 / 快速舒缓仍完全本地化 / 不改 AI 歌曲生成链路（`generated_song_player_screen.dart` 相同 seek 模式留作后续可选跟进）/ 未做 R2/历史歌曲/分享链接/支付/用户系统/4090；详见 6.23 章节 |
 
 ### 13.7 项目结构
 
@@ -3532,7 +3592,8 @@ lib/
 ├── utils/                         # 工具函数
 │   ├── audio_asset_uri.dart       # Web / 非 Web 平台 AudioSource 路径解析
 │   ├── user_agent_helper.dart     # Web 端获取 navigator.userAgent
-│   └── recommendation_reason.dart # P2 推荐理由场景化 helper
+│   ├── recommendation_reason.dart # P2 推荐理由场景化 helper
+│   └── play_button_decision.dart  # P4-player-seek-bugfix-1：播放按钮动作纯函数（replay/play/pause）
 └── widgets/                       # 通用组件
 
 functions/

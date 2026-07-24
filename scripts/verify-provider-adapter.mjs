@@ -1431,11 +1431,11 @@ await test('health buildDiagnostics 返回 hasR2Bucket 字段（不泄露 bucket
   assert.strictEqual(JSON.stringify(d3).indexOf('xinxian-generated-music'), -1, '诊断 JSON 不应包含 bucket 名');
 });
 
-// 测试 63: buildLabel 已更新为 P4-playback-experience-2
-// P4-playback-experience-2：AI 歌曲独立播放页 + 本地舒缓播放模式增强（4 种模式 + 定时强制持续播放，realCallsEnabled 保持 false）
-await test('buildLabel 已更新为 P4-playback-experience-2', () => {
+// 测试 63: buildLabel 已更新为 P4-player-seek-bugfix-1
+// P4-player-seek-bugfix-1：修复快速舒缓播放页首次进入拖动进度条回到 0 秒的问题（realCallsEnabled 保持 false）
+await test('buildLabel 已更新为 P4-player-seek-bugfix-1', () => {
   var d = buildDiagnostics({});
-  assert.strictEqual(d.buildLabel, 'P4-playback-experience-2');
+  assert.strictEqual(d.buildLabel, 'P4-player-seek-bugfix-1');
 });
 
 // ─── P4 临时音频播放闭环（P4-temp-audio-playback-1）新增测试 ──

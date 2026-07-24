@@ -53,7 +53,8 @@ const SERVICE_VERSION = 'v1';
 // P4-conversation-song-flow-1-fix1：LLM 动态追问 + 歌词贴合度增强 + 加载文案分阶段
 // P4-conversation-song-flow-1-fix2：low_energy 场景 + lowEnergy 追问问题对齐 + 歌词低能量指引
 // P4-playback-experience-2：AI 歌曲独立播放页 + 本地舒缓播放模式增强（4 种模式 + 定时强制持续播放）
-const BUILD_LABEL = 'P4-playback-experience-2';
+// P4-player-seek-bugfix-1：修复快速舒缓播放页首次进入拖动进度条回到 0 秒的问题（_pendingSeek 防回弹 + completedFlag 分离重播/继续）
+const BUILD_LABEL = 'P4-player-seek-bugfix-1';
 
 // ─── 统一响应 helper ──────────────────────────────────────────
 function jsonResponse(payload, statusCode, origin) {
