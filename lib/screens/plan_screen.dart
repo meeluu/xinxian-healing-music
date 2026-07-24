@@ -39,6 +39,12 @@ class _PlanScreenState extends State<PlanScreen> {
   /// 主要音乐目标的简短标签，与播放页共用 goalLabelFor 保持一致。
   String get _goalLabel => goalLabelFor(_plan.mood.targetState);
 
+  /// P5-music-metadata-foundation-1：当前推荐音频的 per-asset 元数据视图。
+  ///
+  /// 通过 plan.audio.assetPath 反查 [AudioAssetCatalog]，优先用 per-asset 时长 /
+  /// 声音特征，缺失时回退 plan.audio / 温和兜底文案，避免页面写死统一时长。
+  AssetMetadataView get _metadata => AssetMetadataView.fromPlan(_plan);
+
   @override
   Widget build(BuildContext context) {
     final plan = _plan;
@@ -108,7 +114,8 @@ class _PlanScreenState extends State<PlanScreen> {
           const SizedBox(height: 14),
 
           // P2-Web-v1.0 第二批：新增"为什么推荐这段音乐"卡片
-          // 默认展示推荐理由 + 主要音乐目标 + 推荐时长 + 匹配音频标题
+          // P5-music-metadata-foundation-1：时长 / 声音特征 / 建议改为读取
+          // 当前推荐 AudioAsset 的 per-asset 元数据，避免页面写死统一时长。
           FadeSlideItem(
             delayMs: 140,
             child: _SectionCard(
@@ -126,16 +133,24 @@ class _PlanScreenState extends State<PlanScreen> {
                     ),
                   ),
                   const SizedBox(height: 14),
-                  Wrap(
-                    spacing: 10,
-                    runSpacing: 10,
-                    children: [
-                      _MetaTag(icon: Icons.spa_rounded, label: _goalLabel),
-                      _MetaTag(
-                        icon: Icons.timer_rounded,
-                        label: '${plan.durationMinutes} 分钟',
-                      ),
-                    ],
+                  // 主要音乐目标标签（保持轻量 chip 样式）
+                  _MetaTag(icon: Icons.spa_rounded, label: _goalLabel),
+                  const SizedBox(height: 14),
+                  // P5：per-asset 元数据三行（时长 / 声音特征 / 建议）
+                  _LabeledLine(
+                    label: '时长',
+                    value: _metadata.durationLabel,
+                  ),
+                  const SizedBox(height: 8),
+                  _LabeledLine(
+                    label: '声音特征',
+                    value: _metadata.soundCharacteristics,
+                    note: _metadata.preliminaryNote,
+                  ),
+                  const SizedBox(height: 8),
+                  _LabeledLine(
+                    label: '建议',
+                    value: _metadata.listeningSuggestion,
                   ),
                   if (plan.audio.title.isNotEmpty) ...[
                     const SizedBox(height: 14),
@@ -227,6 +242,28 @@ class _PlanScreenState extends State<PlanScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
+                          // P5-music-metadata-foundation-1：per-asset 声音特征
+                          // 混合策略——优先展示当前音频的 per-asset 特征（标注初步版本），
+                          // 缺失时该区块不渲染，下方继续展示算法派生推荐参数。
+                          if (_metadata.hasSoundProfile) ...[
+                            const Text(
+                              '音频特征',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: AppColors.textSecondary,
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            _LabeledLine(
+                              label: '声音特征',
+                              value: _metadata.soundCharacteristics,
+                              note: _metadata.preliminaryNote,
+                            ),
+                            const SizedBox(height: 12),
+                            const Divider(height: 1),
+                            const SizedBox(height: 12),
+                          ],
+                          // 算法派生推荐参数（BPM / 频率 / 脑波 / 和声 / 噪声）
                           Wrap(
                             spacing: 10,
                             runSpacing: 10,
@@ -388,6 +425,63 @@ class _MetaTag extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// P5-music-metadata-foundation-1：带标签的说明行。
+///
+/// 用于「为什么推荐这段音乐」与「音乐参数」卡里展示 per-asset 元数据：
+/// `标签：正文（注记）`，标签灰色固定宽度，正文主色，注记浅色小字。
+class _LabeledLine extends StatelessWidget {
+  final String label;
+  final String value;
+  final String note;
+
+  const _LabeledLine({
+    required this.label,
+    required this.value,
+    this.note = '',
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: 64,
+          child: Text(
+            '$label：',
+            style: const TextStyle(
+              fontSize: 13,
+              color: AppColors.textSecondary,
+            ),
+          ),
+        ),
+        Expanded(
+          child: RichText(
+            text: TextSpan(
+              style: const TextStyle(
+                fontSize: 13,
+                color: AppColors.textPrimary,
+                height: 1.5,
+              ),
+              children: [
+                TextSpan(text: value),
+                if (note.isNotEmpty)
+                  TextSpan(
+                    text: ' $note',
+                    style: const TextStyle(
+                      fontSize: 11,
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

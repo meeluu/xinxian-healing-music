@@ -8,28 +8,25 @@
 
 ## 当前阶段
 
-**P4-player-seek-refresh-workaround-1（首次进入播放器自动软重建，临时兜底 seek 回 0）**
+**P5-music-metadata-foundation-1（本地音乐元数据基础改造）**
 
-在 P4-player-seek-bugfix-3 已加入 seek-ready 门控后，快速舒缓本地播放页首次 uncached 打开时仍偶发拖动进度条回 0；用户确认短时间手动刷新后再次进入同一播放页通常正常。本批按临时兜底处理：首次进入快速舒缓播放器后用 Flutter 内部软重建模拟“第二次进入”，不使用浏览器硬刷新，不跳回首页，不丢失播放页参数。
+为后续「本地音乐内容库与推荐质量增强」做准备。本批不扩充音乐内容库（仍 5 首本地音频），只把快速舒缓流程中「疗愈方案页」的音乐时长与音乐参数改成与具体音频资产绑定，避免页面写死统一时长。为 `AudioAsset` 新增 `MusicProfile` 元数据结构（tempo / texture / energyCurve / suitableScene / parameterStatus），填入真实测量的 `durationSeconds`，方案页「为什么推荐这段音乐」时长 / 声音特征改为 per-asset 读取（缺失温和兜底），折叠「音乐参数」卡采用「优先 per-asset、回退 plan.features」混合策略。当前参数均为初步占位推断，标为 `preliminary / 待校准`，后续逐首接入真实参数后改 `calibrated`。
 
-- **定位**：这是 workaround，不是底层 Web audio / just_audio 首次 seek ready 根因的最终修复。后续仍需继续排查 metadata / duration / seekable range / `setAudioSources` 首次 ready 时序。
-- **实现**：`PlayerScreen` 新增 `enableFirstOpenWarmReload` 与 `warmReloadAlreadyDone`，仅快速舒缓入口开启；本次应用 session 尚未 warm reload 时延迟 500ms，先停止当前 `AudioPlayer`，再 `Navigator.pushReplacement` 到同一 `PlayerScreen`，携带原 `plan` / `moodText`，并关闭 warm reload 标记。
-- **防循环**：session 级 `_warmReloadDoneThisSession` + replacement 参数 `enableFirstOpenWarmReload=false` / `warmReloadAlreadyDone=true` 双保险，避免无限软刷新；用户返回后再进入也不会进入循环。
-- **交互保护**：warm reload 等待窗口内播放按钮显示 loading，进度条与播放模式 / 定时按钮禁用，显示「正在准备播放器…」，避免旧播放器实例被用户启动或操作。
-- **不影响范围**：快速舒缓仍只使用本地 `AudioAssetCatalog` assets，不调 `/api/generate-music`、不调 MiniMax、不扣 P6 额度；不改 `GeneratedSongPlayerScreen`、不改 AI 歌曲生成链路、不修改 `MUSIC_GENERATION_REAL_CALLS_ENABLED`。
-- 保留 P6-quota-guard-1 本地额度保护；保留 4 种播放模式与定时关闭持续播放保证。
-- 本批不修改 `MUSIC_GENERATION_REAL_CALLS_ENABLED`，`manualTest=true` 保护保留。
-- 本批不新增真实 API 调用 / 轮询 / 后端依赖，不引入新依赖。
+- **定位**：元数据结构打通批次，不是内容库扩充，不是推荐算法大改。
+- **范围**：仅改快速舒缓本地音乐推荐 / 方案展示相关逻辑；`EmotionToMusicPlanMapper` / `MusicFeatureTags` 不动，`plan.features` 保留作回退。
+- **不影响范围**：快速舒缓仍只使用本地 `AudioAssetCatalog` assets，不调 `/api/generate-music`、不调 MiniMax；不改 AI 歌曲生成链路；不修改 `MUSIC_GENERATION_REAL_CALLS_ENABLED`，`manualTest=true` 三重门保留。
+- **不做什么**：不把 P5 内容库扩充写成已完成（仍 5 首，仅加元数据结构，未接入真实音乐分析参数）；不使用医疗化表达；未做 R2 / 历史歌曲 / 分享 / 付费 / 用户系统 / 4090 部署。
 
 ### 上一阶段（已完成）
 
-**P4-playback-experience-2（AI 歌曲独立播放页 + 本地舒缓播放模式增强 + 定时关闭持续播放保证）** 已完成，详见 README 6.22。**P4-conversation-song-flow-1-fix2** 已于 2026-07-24 上线，详见 README 6.21。**P4-conversation-song-flow-1-fix1** 已完成，详见 README 6.20。**P4-conversation-song-flow-1** 已于 2026-07-23 上线，详见 README 6.19。
+**P4-player-seek-refresh-workaround-1（首次进入播放器自动软重建，临时兜底 seek 回 0）** 已完成，详见 README 6.26。**P4-playback-experience-2（AI 歌曲独立播放页 + 本地舒缓播放模式增强 + 定时关闭持续播放保证）** 已完成，详见 README 6.22。**P4-conversation-song-flow-1-fix2** 已于 2026-07-24 上线，详见 README 6.21。**P4-conversation-song-flow-1-fix1** 已完成，详见 README 6.20。**P4-conversation-song-flow-1** 已于 2026-07-23 上线，详见 README 6.19。
 
 ## 阶段划分
 
 ### 短期：安全小范围内测（当前）
 
-- **P4-player-seek-refresh-workaround-1（本批）**：快速舒缓本地播放页首次进入后自动软重建一次，临时兜底首次 seek 回 0；不是底层 seek 根因最终修复。
+- **P5-music-metadata-foundation-1（本批）**：本地音乐元数据基础改造，为 `AudioAsset` 增加 `MusicProfile` + 真实 `durationSeconds`，方案页时长 / 声音特征改为 per-asset，折叠「音乐参数」卡混合策略；不扩充内容库，不大改推荐算法。
+- **P4-player-seek-refresh-workaround-1（已完成）**：快速舒缓本地播放页首次进入后自动软重建一次，临时兜底首次 seek 回 0；不是底层 seek 根因最终修复。
 - **P4-player-seek-bugfix-3（已完成）**：修复快速舒缓播放页首次 ready 前允许 seek 导致拖动回 0、二次打开正常（seek-ready 门控 + 临时 debug）。
 - **P4-player-seek-bugfix-2（已完成）**：修复快速舒缓播放页首次 seek 尚未完成时被 `positionStream` 的 0 拉回（await seek + 延迟确认 + 3 秒兜底）。
 - **P4-player-seek-bugfix-1（已完成）**：修复快速舒缓播放页首次进入拖动进度条回到 0 秒（`_pendingSeek` 防回弹 + `completedFlag` 分离重播 / 继续）。
@@ -38,8 +35,8 @@
 - **P4-conversation-song-flow-1-fix1（已完成）**：LLM 动态追问 + 歌词贴合度增强 + 快速舒缓纯本地化核查 + 加载文案分阶段。
 - **P4-conversation-song-flow-1（已上线）**：多轮困惑理解 + 歌词增强 + 纯音乐本地舒缓 + 定时关闭。
 - **P6-quota-guard-1（已完成）**：浏览器本地每日额度保护 + service 单元测试 + 文档整理。
-- 目标：在真实调用仍关闭的前提下，优化 AI 歌曲生成后的播放体验（独立播放页）与本地舒缓播放模式（4 种模式 + 定时持续播放），同时保留成本保护。
-- **不做什么**：不打开真实调用、不部署上线、不做付费、不做用户系统、不做 R2 持久化、不做历史歌曲、不做分享链接、不做 4090 部署、不做真实 MiniMax 测试。
+- 目标：在真实调用仍关闭的前提下，先打通本地音乐元数据结构，为后续内容库扩充与推荐质量增强做准备，同时保留成本保护。
+- **不做什么**：不打开真实调用、不部署上线、不做付费、不做用户系统、不做 R2 持久化、不做历史歌曲、不做分享链接、不做 4090 部署、不做真实 MiniMax 测试、不扩充音乐内容库（仍 5 首）。
 
 ### 中期：持久化 · 历史 · 分享 · 用户 · 付费
 
@@ -75,7 +72,8 @@
 | P4-player-seek-bugfix-1 | 修复快速舒缓播放页拖动进度条回到 0 秒（`_pendingSeek` 防回弹 + `completedFlag` 分离重播 / 继续） | ✅ 已完成 |
 | P4-player-seek-bugfix-2 | 修复首次 seek 尚未完成时被 `positionStream` 的 0 拉回（await seek + 延迟确认） | ✅ 已完成 |
 | P4-player-seek-bugfix-3 | 修复首次 ready 前允许 seek 导致拖动回 0、二次打开正常（seek-ready 门控） | ✅ 已完成 |
-| P4-player-seek-refresh-workaround-1 | 首次进入快速舒缓本地播放页后自动软重建一次，临时兜底首次 seek 回 0 | ✅ 本批完成 |
+| P4-player-seek-refresh-workaround-1 | 首次进入快速舒缓本地播放页后自动软重建一次，临时兜底首次 seek 回 0 | ✅ 已完成 |
+| P5-music-metadata-foundation-1 | 本地音乐元数据基础改造（per-asset 时长 / 声音特征结构打通，参数标 preliminary） | ✅ 本批完成 |
 | 中期 | R2 持久化 / 历史生成歌曲 / 分享链接 / 用户系统 / 付费会员 | ⏳ 计划中 |
 | 长期 | 4090 后端迁移 / 自有音乐模型 / 增长 Agent | ⏳ 计划中 |
 

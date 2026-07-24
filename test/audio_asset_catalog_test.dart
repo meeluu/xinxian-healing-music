@@ -3,6 +3,7 @@ import 'package:xinxian_healing_music/data/audio_asset_catalog.dart';
 import 'package:xinxian_healing_music/models/generated_audio.dart';
 import 'package:xinxian_healing_music/models/mood_profile.dart';
 import 'package:xinxian_healing_music/models/music_feature_tags.dart';
+import 'package:xinxian_healing_music/models/music_profile.dart';
 import 'package:xinxian_healing_music/models/processed_audio.dart';
 import 'package:xinxian_healing_music/pipeline/mock/mock_pipeline_factory.dart';
 import 'package:xinxian_healing_music/pipeline/mock/stock_audio_generator.dart';
@@ -326,6 +327,118 @@ void main() {
           contains('正念陪伴'),
         ),
       );
+    });
+  });
+
+  // ─── P5-music-metadata-foundation-1：per-asset 元数据 ───
+  group('P5-music-metadata-foundation-1：per-asset 元数据', () {
+    test('5 首专属音频 durationSeconds 等于真实测量值', () {
+      const expected = {
+        'sleep_01': 211,
+        'regulate_01': 243,
+        'soothe_01': 185,
+        'focus_01': 188,
+        'energize_01': 169,
+      };
+      for (final entry in expected.entries) {
+        final asset = AudioAssetCatalog.findById(entry.key);
+        expect(asset, isNotNull, reason: '${entry.key} 应存在');
+        expect(
+          asset!.durationSeconds,
+          entry.value,
+          reason: '${entry.key}.durationSeconds 应为 ${entry.value}',
+        );
+      }
+    });
+
+    test('fallback durationSeconds 与 sleep_01 一致（复用同一 mp3）', () {
+      expect(
+        AudioAssetCatalog.fallback.durationSeconds,
+        AudioAssetCatalog.findById('sleep_01')!.durationSeconds,
+      );
+    });
+
+    test('每个专属音频都有 musicProfile 且标为 preliminary', () {
+      for (final asset in AudioAssetCatalog.assets) {
+        expect(
+          asset.musicProfile,
+          isNotNull,
+          reason: '${asset.id} 应有 musicProfile',
+        );
+        expect(
+          asset.musicProfile!.parameterStatus,
+          MusicParameterStatus.preliminary,
+          reason: '${asset.id} 当前阶段参数应标为 preliminary',
+        );
+      }
+    });
+
+    test('每个 musicProfile 的 tempo / texture / energyCurve 非空', () {
+      for (final asset in AudioAssetCatalog.assets) {
+        final p = asset.musicProfile!;
+        expect(p.tempo, isNotEmpty, reason: '${asset.id}.tempo 非空');
+        expect(p.texture, isNotEmpty, reason: '${asset.id}.texture 非空');
+        expect(
+          p.energyCurve,
+          isNotEmpty,
+          reason: '${asset.id}.energyCurve 非空',
+        );
+      }
+    });
+
+    test('findByAssetPath 能按 assetPath 反查到对应资产', () {
+      expect(
+        AudioAssetCatalog.findByAssetPath('music/sleep_01.mp3')?.id,
+        'sleep_01',
+      );
+      expect(
+        AudioAssetCatalog.findByAssetPath('music/regulate_01.mp3')?.id,
+        'regulate_01',
+      );
+      expect(
+        AudioAssetCatalog.findByAssetPath('music/soothe_01.mp3')?.id,
+        'soothe_01',
+      );
+      expect(
+        AudioAssetCatalog.findByAssetPath('music/focus_01.mp3')?.id,
+        'focus_01',
+      );
+      expect(
+        AudioAssetCatalog.findByAssetPath('music/energize_01.mp3')?.id,
+        'energize_01',
+      );
+    });
+
+    test('findByAssetPath 对未注册路径返回 null', () {
+      expect(
+        AudioAssetCatalog.findByAssetPath('music/not_exist.mp3'),
+        isNull,
+      );
+      expect(AudioAssetCatalog.findByAssetPath(''), isNull);
+    });
+
+    test('musicProfile 文案不包含医疗化表达', () {
+      const forbidden = ['治疗', '治愈', '疗效', '诊断', '疗法'];
+      for (final asset in AudioAssetCatalog.assets) {
+        final p = asset.musicProfile!;
+        for (final word in forbidden) {
+          expect(
+            p.tempo,
+            isNot(contains(word)),
+            reason: '${asset.id}.tempo 不应含 $word',
+          );
+          expect(
+            p.texture,
+            isNot(contains(word)),
+            reason: '${asset.id}.texture 不应含 $word',
+          );
+          expect(
+            p.suitableScene,
+            isNot(contains(word)),
+            reason: '${asset.id}.suitableScene 不应含 $word',
+          );
+        }
+      }
     });
   });
 }

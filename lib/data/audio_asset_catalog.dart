@@ -1,11 +1,18 @@
 import 'package:xinxian_healing_music/models/mood_profile.dart';
+import 'package:xinxian_healing_music/models/music_profile.dart';
 
-/// 单个本地音频资产的元信息（M6 新增）。
+/// 单个本地音频资产的元信息（M6 新增，P5-music-metadata-foundation-1 扩展）。
 ///
 /// 每个音频资产绑定一个或多个 [TargetState]，并标注脑波倾向、噪音层、
 /// 推荐乐器等关键词，供 [AudioAssetCatalog.match] 做多级匹配。
 ///
 /// UI 只展示 [title] / [description]，不暴露 [assetPath] 给普通用户。
+///
+/// P5-music-metadata-foundation-1：
+/// - [durationSeconds] 填入真实测量的 mp3 文件时长（非占位）。
+/// - [musicProfile] 新增 per-asset 声音特征元数据，供方案页展示与具体音频绑定的
+///   时长 / 声音特征 / 建议聆听方式，替代之前写死的统一时长与算法派生参数。
+///   当前 musicProfile 为初步推断，[MusicParameterStatus.preliminary]，后续逐首校准。
 class AudioAsset {
   /// 唯一标识，例如 'sleep_01'
   final String id;
@@ -28,7 +35,11 @@ class AudioAsset {
   /// 推荐乐器关键词，例如 ['低频 Pad', '手碟']
   final List<String> instruments;
 
-  /// 音频时长（秒），0 表示未知
+  /// 音频时长（秒），0 表示未知。
+  ///
+  /// P5-music-metadata-foundation-1：5 首音频已填入真实测量的 mp3 文件时长
+  /// （sleep_01=211 / regulate_01=243 / soothe_01=185 / focus_01=188 /
+  /// energize_01=169），fallback=sleep_01.mp3 → 211。
   final int durationSeconds;
 
   /// 面向用户的简短描述（不夸大医疗效果）
@@ -36,6 +47,11 @@ class AudioAsset {
 
   /// 是否为默认兜底音频（无任何匹配时使用）
   final bool isFallback;
+
+  /// per-asset 声音特征元数据（P5-music-metadata-foundation-1）。
+  ///
+  /// 可空：旧资产或未校准资产可能没有。方案页展示时缺失则用温和兜底文案。
+  final MusicProfile? musicProfile;
 
   const AudioAsset({
     required this.id,
@@ -48,6 +64,7 @@ class AudioAsset {
     this.durationSeconds = 0,
     this.description = '',
     this.isFallback = false,
+    this.musicProfile,
   });
 }
 
@@ -75,9 +92,17 @@ class AudioAssetCatalog {
     brainwaveTag: 'Alpha',
     noiseTags: ['粉红噪音'],
     instruments: ['柔和钢琴'],
-    durationSeconds: 0,
+    // fallback 复用 sleep_01.mp3，故时长同 sleep_01（真实测量值）
+    durationSeconds: 211,
     description: '一段温和的疗愈音频，用于辅助放松与情绪调节。',
     isFallback: true,
+    musicProfile: MusicProfile(
+      tempo: '慢速',
+      texture: '柔和钢琴铺底',
+      energyCurve: '低起伏',
+      suitableScene: '放松陪伴',
+      parameterStatus: MusicParameterStatus.preliminary,
+    ),
   );
 
   /// 全部音频资产（5 类 targetState 专属 + 1 个兜底）
@@ -90,8 +115,15 @@ class AudioAssetCatalog {
       brainwaveTag: 'Theta',
       noiseTags: ['雨声', '粉红噪音', '低频环境音'],
       instruments: ['低频 Pad', '手碟', '柔和钢琴'],
-      durationSeconds: 0,
+      durationSeconds: 211,
       description: '雨声与低频 Pad 配合，辅助睡前舒缓、降低唤醒度。',
+      musicProfile: MusicProfile(
+        tempo: '慢速',
+        texture: '低频 Pad 与柔和钢琴铺底',
+        energyCurve: '低起伏',
+        suitableScene: '睡前舒缓',
+        parameterStatus: MusicParameterStatus.preliminary,
+      ),
     ),
     AudioAsset(
       id: 'regulate_01',
@@ -101,8 +133,15 @@ class AudioAssetCatalog {
       brainwaveTag: 'Alpha',
       noiseTags: ['粉红噪音', '轻白噪'],
       instruments: ['柔和钢琴', '弦乐', 'Pad'],
-      durationSeconds: 0,
+      durationSeconds: 243,
       description: '柔和钢琴与弦乐配合粉红噪音，缓解紧张、平复思绪。',
+      musicProfile: MusicProfile(
+        tempo: '中慢速',
+        texture: '柔和钢琴与弦乐铺底',
+        energyCurve: '平稳过渡',
+        suitableScene: '情绪调节',
+        parameterStatus: MusicParameterStatus.preliminary,
+      ),
     ),
     AudioAsset(
       id: 'soothe_01',
@@ -112,8 +151,15 @@ class AudioAssetCatalog {
       brainwaveTag: 'Alpha',
       noiseTags: ['海浪', '风声', '粉红噪音'],
       instruments: ['竖琴', '大提琴', '柔和钢琴'],
-      durationSeconds: 0,
+      durationSeconds: 185,
       description: '竖琴与大提琴配合海浪声，用于自我安抚、情绪陪伴。',
+      musicProfile: MusicProfile(
+        tempo: '慢速',
+        texture: '竖琴与大提琴铺底',
+        energyCurve: '低起伏',
+        suitableScene: '安静放松、情绪陪伴',
+        parameterStatus: MusicParameterStatus.preliminary,
+      ),
     ),
     AudioAsset(
       id: 'focus_01',
@@ -123,8 +169,15 @@ class AudioAssetCatalog {
       brainwaveTag: 'Low Beta',
       noiseTags: ['棕噪', '轻环境音'],
       instruments: ['极简钢琴', 'Marimba', '轻 Pad'],
-      durationSeconds: 0,
+      durationSeconds: 188,
       description: '极简钢琴与 Marimba 配合棕噪，恢复专注和稳定节奏。',
+      musicProfile: MusicProfile(
+        tempo: '稳定中速',
+        texture: '极简钢琴与 Marimba',
+        energyCurve: '低起伏、节奏稳定',
+        suitableScene: '专注陪伴',
+        parameterStatus: MusicParameterStatus.preliminary,
+      ),
     ),
     AudioAsset(
       id: 'energize_01',
@@ -134,8 +187,15 @@ class AudioAssetCatalog {
       brainwaveTag: 'Alpha uplift',
       noiseTags: ['森林环境音', '轻自然音'],
       instruments: ['木吉他', '长笛', '轻打击'],
-      durationSeconds: 0,
+      durationSeconds: 169,
       description: '木吉他与长笛配合森林环境音，温和恢复能量，不做强刺激。',
+      musicProfile: MusicProfile(
+        tempo: '轻快中速',
+        texture: '木吉他与长笛',
+        energyCurve: '温和上升',
+        suitableScene: '温和充能',
+        parameterStatus: MusicParameterStatus.preliminary,
+      ),
     ),
   ];
 
@@ -222,6 +282,22 @@ class AudioAssetCatalog {
   static AudioAsset? findById(String id) {
     for (final a in assets) {
       if (a.id == id) return a;
+    }
+    return null;
+  }
+
+  /// 按 assetPath 查找（P5-music-metadata-foundation-1）。
+  ///
+  /// 方案页 / 播放页通过 `plan.audio.assetPath`（ProcessedAudio）反查对应的
+  /// [AudioAsset]，从而读取该音频的 per-asset 元数据（时长 / musicProfile）。
+  ///
+  /// assets 列表中不包含 fallback，但 fallback 的 assetPath 与 sleep_01 相同，
+  /// 因此 sleep_01.mp3 会被命中。其他未注册的 assetPath 返回 null，
+  /// 由调用方用温和兜底文案处理。
+  static AudioAsset? findByAssetPath(String assetPath) {
+    if (assetPath.isEmpty) return null;
+    for (final a in assets) {
+      if (a.assetPath == assetPath) return a;
     }
     return null;
   }

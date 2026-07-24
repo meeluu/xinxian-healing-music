@@ -5,7 +5,7 @@
 心弦是一款基于 Flutter Web 的情绪陪伴 Demo。用户输入当下心境后，系统通过 LLM 生成情绪画像与音乐参数，并播放匹配的本地音频素材，形成「自然语言 → AI 情绪解析 → 音乐方案 → 音频体验 → 用户反馈」的完整闭环。
 
 - **正式体验地址**：[https://xinxian-music.xyz](https://xinxian-music.xyz)
-- **当前版本**：`v1.0.0 · P4-player-seek-refresh-workaround-1 · Cloudflare Pages`
+- **当前版本**：`v1.0.0 · P5-music-metadata-foundation-1 · Cloudflare Pages`
 - **定位**：辅助情绪调节、睡前舒缓、正念陪伴、温和充能的轻量化工具，**不提供医疗诊断或治疗**，不替代专业心理咨询与医疗建议（详见[第十二章 免责声明](#十二免责声明)）
 
 ---
@@ -3278,6 +3278,40 @@ bugfix-1 主要是“视觉上先按住目标值”和“completed 后手动 see
 - `lib/config/app_version.dart`：`buildLabel = P4-player-seek-refresh-workaround-1`、`buildDate = 2026-07-24`
 - `functions/api/health.js`：`BUILD_LABEL = P4-player-seek-refresh-workaround-1`
 - `scripts/verify-provider-adapter.mjs`：`buildLabel` 断言同步
+
+---
+
+### 6.27 P5-music-metadata-foundation-1：本地音乐元数据基础改造
+
+为后续「本地音乐内容库与推荐质量增强」做准备。本批不扩充音乐内容库（仍 5 首本地音频），只把快速舒缓流程中「疗愈方案页」的音乐时长与音乐参数改成与具体音频资产绑定，避免页面写死统一时长。当前参数均为初步占位推断，标为 `preliminary / 待校准`，后续逐首接入真实参数后改 `calibrated`。
+
+#### 6.27.1 扩展本地音乐资产元数据
+
+- 新增 `lib/models/music_profile.dart`：定义 `MusicParameterStatus` 枚举（`preliminary` / `calibrated`）与 `MusicProfile` 类（`tempo` / `texture` / `energyCurve` / `suitableScene` / `parameterStatus`），作为单首本地音乐的声音特征元数据结构。
+- `lib/data/audio_asset_catalog.dart`：`AudioAsset` 新增 `musicProfile` 字段；5 首专属音频（sleep_01 / regulate_01 / soothe_01 / focus_01 / energize_01）与 fallback 填入真实测量的 `durationSeconds`（211 / 243 / 185 / 188 / 169）与初步 `MusicProfile`；新增 `findByAssetPath` 方法，供方案页通过 `plan.audio.assetPath` 反查对应资产元数据。
+
+#### 6.27.2 疗愈方案页展示改造
+
+- `lib/utils/recommendation_reason.dart` 新增纯函数 helper：`formatAssetDuration`（秒 → 友好时长）、`buildSoundCharacteristics`（MusicProfile → 声音特征串）、`buildListeningSuggestion`（按 targetState → 建议聆听方式）、`buildPreliminaryNote`（初步版本注记），以及 `AssetMetadataView.fromPlan` 视图模型，统一实现混合回退策略。
+- `lib/screens/plan_screen.dart`「为什么推荐这段音乐」区域改为读取当前推荐 `AudioAsset` 的 per-asset 元数据：时长行来自具体音频（缺失回退 `plan.audio` → `时长待补充`），声音特征行来自 `MusicProfile`（缺失显示 `参数待补充`），新增建议聆听方式行；不再写死 `${plan.durationMinutes} 分钟`。
+- 折叠「音乐参数」卡采用混合策略：展开时优先在顶部展示 per-asset 声音特征（标注「初步版本，参数待校准」），下方继续保留算法派生推荐参数（BPM / 频率 / 脑波 / 和声 / 噪声 / 乐器，来自 `plan.features`）。
+- 文案保持非医疗化表达（舒缓 / 陪伴 / 放松 / 睡前聆听 / 情绪调节），不使用「治疗 / 治愈 / 疗效」。
+
+#### 6.27.3 明确边界
+
+- 快速舒缓仍然只使用本地 `AudioAssetCatalog` assets 音乐，不调用 `/api/generate-music`、不调用 MiniMax。
+- 不改 AI 歌曲生成链路，不大改推荐算法（`EmotionToMusicPlanMapper` / `MusicFeatureTags` 不动，`plan.features` 保留作回退）。
+- 不修改 `MUSIC_GENERATION_REAL_CALLS_ENABLED`，不打开真实 MiniMax 调用，`manualTest=true` 三重门保留，不暴露任何 API Key / Secret。
+- 不把 P5 内容库扩充写成已完成（仍 5 首，仅加元数据结构，未接入真实音乐分析参数）。
+- 未做 R2 持久化、历史生成歌曲、分享链接、付费 / 用户系统、4090 部署。
+
+#### 6.27.4 版本号同步与测试
+
+- `lib/config/app_version.dart`：`buildLabel = P5-music-metadata-foundation-1`、`buildDate = 2026-07-24`（milestone / versionName / deployTarget 不变）。
+- `functions/api/health.js`：`BUILD_LABEL = P5-music-metadata-foundation-1`。
+- `scripts/verify-provider-adapter.mjs`：`buildLabel` 断言同步（前缀检查改为通用 `P{n}-`）。
+- `test/audio_asset_catalog_test.dart`：新增 per-asset 元数据断言（真实时长 / musicProfile 标 preliminary / findByAssetPath 反查 / 医疗词扫描）。
+- `test/recommendation_reason_test.dart`（新建）：覆盖 `formatAssetDuration` / `buildSoundCharacteristics` / `buildListeningSuggestion` / `buildPreliminaryNote` / `AssetMetadataView.fromPlan` 混合回退策略。
 
 ---
 

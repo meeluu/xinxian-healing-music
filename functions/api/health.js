@@ -54,7 +54,8 @@ const SERVICE_VERSION = 'v1';
 // P4-conversation-song-flow-1-fix2：low_energy 场景 + lowEnergy 追问问题对齐 + 歌词低能量指引
 // P4-playback-experience-2：AI 歌曲独立播放页 + 本地舒缓播放模式增强（4 种模式 + 定时强制持续播放）
 // P4-player-seek-refresh-workaround-1：首次进入本地播放器后软重建一次，临时规避 Web 首次 seek 回 0。
-const BUILD_LABEL = 'P4-player-seek-refresh-workaround-1';
+// P5-music-metadata-foundation-1：本地音乐元数据基础改造，per-asset 时长 / 声音特征与具体音频绑定。
+const BUILD_LABEL = 'P5-music-metadata-foundation-1';
 
 // ─── 统一响应 helper ──────────────────────────────────────────
 function jsonResponse(payload, statusCode, origin) {

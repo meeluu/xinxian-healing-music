@@ -930,7 +930,7 @@ await test('health buildDiagnostics 返回 musicProvider / realCallsEnabled / bu
   assert.strictEqual(d.realCallsEnabled, true);
   assert.strictEqual(typeof d.buildLabel, 'string');
   assert.ok(d.buildLabel.length > 0, 'buildLabel 不应为空');
-  assert.ok(d.buildLabel.indexOf('P4-') === 0, 'buildLabel 应以 P4- 开头');
+  assert.ok(/^P\d+-/.test(d.buildLabel), 'buildLabel 应以 P{n}- 开头');
 
   // 默认值
   const dEmpty = buildDiagnostics({});
@@ -1431,11 +1431,11 @@ await test('health buildDiagnostics 返回 hasR2Bucket 字段（不泄露 bucket
   assert.strictEqual(JSON.stringify(d3).indexOf('xinxian-generated-music'), -1, '诊断 JSON 不应包含 bucket 名');
 });
 
-// 测试 63: buildLabel 已更新为 P4-player-seek-refresh-workaround-1
-// P4-player-seek-refresh-workaround-1：首次进入本地播放器后软重建一次，临时规避 Web 首次 seek 回 0。
-await test('buildLabel 已更新为 P4-player-seek-refresh-workaround-1', () => {
+// 测试 63: buildLabel 已更新为 P5-music-metadata-foundation-1
+// P5-music-metadata-foundation-1：本地音乐元数据基础改造，per-asset 时长 / 声音特征与具体音频绑定。
+await test('buildLabel 已更新为 P5-music-metadata-foundation-1', () => {
   var d = buildDiagnostics({});
-  assert.strictEqual(d.buildLabel, 'P4-player-seek-refresh-workaround-1');
+  assert.strictEqual(d.buildLabel, 'P5-music-metadata-foundation-1');
 });
 
 // ─── P4 临时音频播放闭环（P4-temp-audio-playback-1）新增测试 ──
